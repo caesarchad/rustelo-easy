@@ -1,6 +1,0 @@
-[package]
-name = "call_c_from_rust"
-version = "0.1.0"
-authors = ["bluewebgeek <BLUE.WEB.GEEK@gmail.com>"]
-
-[dependencies]
