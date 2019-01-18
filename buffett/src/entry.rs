@@ -8,7 +8,7 @@ use hash::Hash;
 use packet::{SharedBlob, BLOB_DATA_SIZE};
 use poh::Poh;
 use rayon::prelude::*;
-use solana_program_interface::pubkey::Pubkey;
+use buffett_program_interface::pubkey::Pubkey;
 use std::io::Cursor;
 use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, Sender};

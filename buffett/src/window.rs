@@ -9,7 +9,7 @@ use ledger::{reconstruct_entries_from_blobs, Block};
 use log::Level;
 use packet::SharedBlob;
 use result::Result;
-use solana_program_interface::pubkey::Pubkey;
+use buffett_program_interface::pubkey::Pubkey;
 use std::cmp;
 use std::mem;
 use std::net::SocketAddr;
@@ -436,7 +436,7 @@ pub fn new_window_from_entries(
 #[cfg(test)]
 mod test {
     use packet::{Blob, Packet, Packets, SharedBlob, PACKET_DATA_SIZE};
-    use solana_program_interface::pubkey::Pubkey;
+    use buffett_program_interface::pubkey::Pubkey;
     use std::io;
     use std::io::Write;
     use std::net::UdpSocket;

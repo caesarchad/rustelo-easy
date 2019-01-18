@@ -4,7 +4,7 @@ extern crate bincode;
 extern crate chrono;
 extern crate serde_json;
 extern crate buffett;
-extern crate solana_program_interface;
+extern crate buffett_program_interface;
 
 use buffett::crdt::{Crdt, Node, NodeInfo};
 use buffett::entry::Entry;
@@ -20,7 +20,7 @@ use buffett::signature::{Keypair, KeypairUtil};
 use buffett::thin_client::ThinClient;
 use buffett::timing::{duration_as_ms, duration_as_s};
 use buffett::window::{default_window, WINDOW_SIZE};
-use solana_program_interface::pubkey::Pubkey;
+use buffett_program_interface::pubkey::Pubkey;
 use std::env;
 use std::fs::{copy, create_dir_all, remove_dir_all};
 use std::net::UdpSocket;

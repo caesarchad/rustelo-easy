@@ -13,7 +13,7 @@ authors = [
 ]
 
 [dependencies]
-solana_program_interface = { path = "../../common" }
+buffett_program_interface = { path = "../../common" }
 
 [lib]
 name = "print"

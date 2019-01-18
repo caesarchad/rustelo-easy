@@ -33,7 +33,7 @@ snap)
   sudo snap install solana.snap --devmode --dangerous
 
   solana_bench_tps=/snap/bin/solana.bench-tps
-  solana_keygen=/snap/bin/solana.keygen
+  buffett_keygen=/snap/bin/solana.keygen
   ;;
 local)
   PATH="$HOME"/.cargo/bin:"$PATH"
@@ -42,7 +42,7 @@ local)
 
   net/scripts/rsync-retry.sh -vPrc "$entrypointIp:~/.cargo/bin/solana*" ~/.cargo/bin/
   solana_bench_tps=solana-bench-tps
-  solana_keygen=solana-keygen
+  buffett_keygen=buffettt_keygen
   ;;
 *)
   echo "Unknown deployment method: $deployMethod"
@@ -64,7 +64,7 @@ clientCommand="\
     --threads $threadCount \
 "
 
-keygenCommand="$solana_keygen -o client.json"
+keygenCommand="$buffett_keygen -o client.json"
 tmux new -s solana-bench-tps -d "
   [[ -r client.json ]] || {
     echo '$ $keygenCommand'  | tee -a client.log

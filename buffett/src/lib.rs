@@ -102,7 +102,7 @@ extern crate solana_jsonrpc_core as jsonrpc_core;
 extern crate solana_jsonrpc_http_server as jsonrpc_http_server;
 #[macro_use]
 extern crate solana_jsonrpc_macros as jsonrpc_macros;
-extern crate solana_program_interface;
+extern crate buffett_program_interface;
 extern crate sys_info;
 extern crate tokio;
 extern crate tokio_codec;

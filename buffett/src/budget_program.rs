@@ -4,8 +4,8 @@ use budget::Budget;
 use budget_instruction::Instruction;
 use chrono::prelude::{DateTime, Utc};
 use payment_plan::Witness;
-use solana_program_interface::account::Account;
-use solana_program_interface::pubkey::Pubkey;
+use buffett_program_interface::account::Account;
+use buffett_program_interface::pubkey::Pubkey;
 use std::io;
 use transaction::Transaction;
 
@@ -271,8 +271,8 @@ mod test {
     use chrono::prelude::{DateTime, NaiveDate, Utc};
     use hash::Hash;
     use signature::{GenKeys, Keypair, KeypairUtil};
-    use solana_program_interface::account::Account;
-    use solana_program_interface::pubkey::Pubkey;
+    use buffett_program_interface::account::Account;
+    use buffett_program_interface::pubkey::Pubkey;
     use transaction::Transaction;
 
     #[test]

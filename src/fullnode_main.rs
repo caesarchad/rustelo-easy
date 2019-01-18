@@ -1,12 +1,3 @@
-#[macro_use]
-extern crate clap;
-extern crate getopts;
-#[macro_use]
-extern crate log;
-extern crate serde_json;
-#[macro_use]
-extern crate buffett;
-
 use clap::{App, Arg};
 use buffett::client::mk_client;
 use buffett::crdt::Node;
@@ -26,7 +17,7 @@ use std::time::Duration;
 use std::ffi::c_void; //use ffi c_void
 
 #[no_mangle]
-pub extern "C" fn main_entry(p: *mut c_void) {
+pub extern "C" fn fullnode_main_entry(_p: *mut c_void) {
     logger::setup();
     set_panic_hook("fullnode");
     let matches = App::new("fullnode")

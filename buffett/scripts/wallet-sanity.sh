@@ -33,7 +33,7 @@ pay_and_confirm() {
   $solana_wallet "${entrypoint[@]}" confirm "$signature"
 }
 
-$solana_keygen
+$buffett_keygen
 $solana_wallet "${entrypoint[@]}" address
 check_balance_output "No account found" "Your balance is: 0"
 $solana_wallet "${entrypoint[@]}" airdrop 60

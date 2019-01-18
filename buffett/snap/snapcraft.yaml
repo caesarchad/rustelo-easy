@@ -41,7 +41,7 @@ apps:
   genesis:
     command: solana-genesis
   keygen:
-    command: solana-keygen
+    command: buffettt_keygen
     plugs:
       - home
   ledger-tool:

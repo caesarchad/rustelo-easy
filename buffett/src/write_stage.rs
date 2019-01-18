@@ -298,7 +298,7 @@ mod tests {
     use ledger::{genesis, next_entries_mut, read_ledger};
     use service::Service;
     use signature::{Keypair, KeypairUtil};
-    use solana_program_interface::pubkey::Pubkey;
+    use buffett_program_interface::pubkey::Pubkey;
     use std::fs::remove_dir_all;
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::{Arc, RwLock};

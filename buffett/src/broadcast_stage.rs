@@ -289,7 +289,7 @@ mod tests {
     use mint::Mint;
     use service::Service;
     use signature::{Keypair, KeypairUtil};
-    use solana_program_interface::pubkey::Pubkey;
+    use buffett_program_interface::pubkey::Pubkey;
     use std::cmp;
     use std::sync::atomic::AtomicBool;
     use std::sync::mpsc::{channel, Sender};

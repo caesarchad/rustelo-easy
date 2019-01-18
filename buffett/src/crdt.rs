@@ -25,7 +25,7 @@ use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use result::{Error, Result};
 use signature::{Keypair, KeypairUtil};
-use solana_program_interface::pubkey::Pubkey;
+use buffett_program_interface::pubkey::Pubkey;
 use std;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -1387,7 +1387,7 @@ mod tests {
     use packet::SharedBlob;
     use result::Error;
     use signature::{Keypair, KeypairUtil};
-    use solana_program_interface::pubkey::Pubkey;
+    use buffett_program_interface::pubkey::Pubkey;
     use std::fs::remove_dir_all;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::atomic::{AtomicBool, Ordering};

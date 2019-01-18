@@ -10,7 +10,7 @@ use log::Level;
 use recvmmsg::{recv_mmsg, NUM_RCVMMSGS};
 use result::{Error, Result};
 use serde::Serialize;
-use solana_program_interface::pubkey::Pubkey;
+use buffett_program_interface::pubkey::Pubkey;
 use std::fmt;
 use std::io;
 use std::mem::size_of;

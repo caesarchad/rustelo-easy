@@ -8,7 +8,7 @@ use chrono::prelude::*;
 use hash::Hash;
 use payment_plan::Payment;
 use signature::Keypair;
-use solana_program_interface::pubkey::Pubkey;
+use buffett_program_interface::pubkey::Pubkey;
 use transaction::Transaction;
 
 pub trait BudgetTransaction {

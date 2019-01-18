@@ -10,7 +10,7 @@ use buffett::wallet::gen_keypair_file;
 use std::error;
 
 fn main() -> Result<(), Box<error::Error>> {
-    let matches = App::new("solana-keygen")
+    let matches = App::new("buffettt_keygen")
         .version(crate_version!())
         .arg(
             Arg::with_name("outfile")

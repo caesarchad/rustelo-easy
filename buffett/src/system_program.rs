@@ -2,8 +2,8 @@
 
 use bincode::deserialize;
 use dynamic_program::DynamicProgram;
-use solana_program_interface::account::Account;
-use solana_program_interface::pubkey::Pubkey;
+use buffett_program_interface::account::Account;
+use buffett_program_interface::pubkey::Pubkey;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use transaction::Transaction;
@@ -100,8 +100,8 @@ mod test {
     use bincode::serialize;
     use hash::Hash;
     use signature::{Keypair, KeypairUtil};
-    use solana_program_interface::account::{Account, KeyedAccount};
-    use solana_program_interface::pubkey::Pubkey;
+    use buffett_program_interface::account::{Account, KeyedAccount};
+    use buffett_program_interface::pubkey::Pubkey;
     use std::collections::HashMap;
     use std::sync::RwLock;
     use std::thread;

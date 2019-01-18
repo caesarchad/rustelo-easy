@@ -3,8 +3,8 @@
 //!  and give reward for good proofs.
 
 use bincode::deserialize;
-use solana_program_interface::account::Account;
-use solana_program_interface::pubkey::Pubkey;
+use buffett_program_interface::account::Account;
+use buffett_program_interface::pubkey::Pubkey;
 use transaction::Transaction;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

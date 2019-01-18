@@ -72,7 +72,7 @@ echo "--- Node count"
   source multinode-demo/common.sh
   set -x
   client_id=/tmp/client-id.json-$$
-  $solana_keygen -o $client_id
+  $buffett_keygen -o $client_id
   $solana_bench_tps --identity $client_id --num-nodes 3 --reject-extra-nodes --converge-only
   rm -rf $client_id
 ) || flag_error

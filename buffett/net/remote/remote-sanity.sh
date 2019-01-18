@@ -59,7 +59,7 @@ snap)
 
   solana_bench_tps=solana.bench-tps
   solana_ledger_tool=solana.ledger-tool
-  solana_keygen=solana.keygen
+  buffett_keygen=solana.keygen
 
   ledger=/var/snap/solana/current/config/ledger
   client_id=~/snap/solana/current/config/client-id.json
@@ -72,7 +72,7 @@ local)
 
   solana_bench_tps=solana-bench-tps
   solana_ledger_tool=solana-ledger-tool
-  solana_keygen=solana-keygen
+  buffett_keygen=buffettt_keygen
 
   ledger=config/ledger
   client_id=config/client-id.json
@@ -92,7 +92,7 @@ echo "--- $entrypointIp: wallet sanity"
 echo "+++ $entrypointIp: node count ($numNodes expected)"
 (
   set -x
-  $solana_keygen -o "$client_id"
+  $buffett_keygen -o "$client_id"
 
   maybeRejectExtraNodes=
   if $rejectExtraNodes; then

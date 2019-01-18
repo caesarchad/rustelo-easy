@@ -12,6 +12,10 @@ pub enum RusteloResult {
     Failure = 1,
 }
 
+pub(crate) static ERROR: Lazy<Mutex<Option<Error>>> = sync_lazy! {
+    Mutex::new(None)
+};
+
 //rustelo_handle_error returns an error 
 #[no_mangle]
 pub extern "C" fn rustelo_handle_error() -> *mut c_char {
