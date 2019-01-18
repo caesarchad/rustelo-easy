@@ -13,7 +13,9 @@ extern crate bincode;
 extern crate bytes;
 extern crate tokio;
 extern crate tokio_codec;
-
+extern crate influx_db_client;
+extern crate rayon;
+extern crate bincode;
 
 pub mod benchcaster_main;
 pub mod benchmarker_main;

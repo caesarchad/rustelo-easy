@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-
+extern void ledgertool_main_entry();
 
 #ifdef __cplusplus
 }

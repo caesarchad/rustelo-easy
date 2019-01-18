@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-
+extern void propagator_main_entry();
 
 #ifdef __cplusplus
 }
