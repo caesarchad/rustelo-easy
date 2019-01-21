@@ -17,7 +17,7 @@ typedef int8_t RusteloError;
 /// Return the error message for the last error that occurred in this SDK.
 /// Error messages may only be obtained once. Further attempts will return `NULL`.
 /// Returns `NULL` if no error has occurred.
-extern char* rustelo_last_error();
+extern char* rustelo_handle_error();
 
 #ifdef __cplusplus
 }
