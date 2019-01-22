@@ -19,7 +19,7 @@ pub extern "C" fn keygen_main_entry() -> Result<(), Box<std::error::Error>> {
         path.extend(&[".config", "solana", "id.json"]);
         path.to_str().unwrap()
     };
-
+    println!("generate keypair, and write to {}",outfile.to_string());
     let serialized_keypair = buffett::wallet::gen_keypair_file(outfile.to_string())?;
     if outfile == "-" {
         println!("{}", serialized_keypair);
