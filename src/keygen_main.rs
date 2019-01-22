@@ -1,14 +1,10 @@
-use clap::{App, Arg};
-use buffett::wallet::gen_keypair_file;
-use std::error;
-
 #[no_mangle]
-pub extern "C" fn keygen_main_entry() -> Result<(), Box<error::Error>> {
+pub extern "C" fn keygen_main_entry() -> Result<(), Box<std::error::Error>> {
     println!("Keymaker!");
     let matches = clap::App::new("buffett-keygen")
         .version(crate_version!())
         .arg(
-            Arg::with_name("outfile")
+            clap::Arg::with_name("outfile")
                 .short("o")
                 .long("outfile")
                 .value_name("PATH")
@@ -24,7 +20,7 @@ pub extern "C" fn keygen_main_entry() -> Result<(), Box<error::Error>> {
         path.to_str().unwrap()
     };
 
-    let serialized_keypair = gen_keypair_file(outfile.to_string())?;
+    let serialized_keypair = buffett::wallet::gen_keypair_file(outfile.to_string())?;
     if outfile == "-" {
         println!("{}", serialized_keypair);
     }
