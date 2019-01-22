@@ -14,8 +14,10 @@ pub extern "C" fn keygen_main_entry() -> Result<(), Box<std::error::Error>> {
 
     let mut path = dirs::home_dir().expect("home directory");
     let outfile = if matches.is_present("outfile") {
+        println!("argument outfile is present ");
         matches.value_of("outfile").unwrap()
     } else {
+        println!("argument outfile is not present ");
         path.extend(&[".config", "solana", "id.json"]);
         path.to_str().unwrap()
     };
