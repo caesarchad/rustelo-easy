@@ -1,7 +1,7 @@
 #[no_mangle]
 pub extern "C" fn keygen_main_entry() -> Result<(), Box<std::error::Error>> {
     println!("Keymaker!");
-    let matches = clap::App::new("buffett-keygen")
+    let matches = clap::App::new("buffett-keymaker")
         .version(crate_version!())
         .arg(
             clap::Arg::with_name("outfile")
