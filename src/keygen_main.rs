@@ -5,7 +5,7 @@ use std::error;
 #[no_mangle]
 pub extern "C" fn keygen_main_entry() -> Result<(), Box<error::Error>> {
     println!("Keymaker!");
-    let matches = App::new("buffett-keygen")
+    let matches = clap::App::new("buffett-keygen")
         .version(crate_version!())
         .arg(
             Arg::with_name("outfile")
