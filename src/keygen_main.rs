@@ -12,7 +12,7 @@ pub extern "C" fn keygen_main_entry() -> Result<(), Box<std::error::Error>> {
                 .help("Path to generated file"),
         ).get_matches();
 
-    let mut path = clap::dirs::home_dir().expect("home directory");
+    let mut path = dirs::home_dir().expect("home directory");
     let outfile = if matches.is_present("outfile") {
         println!("argument outfile is present ");
         matches.value_of("outfile").unwrap()
