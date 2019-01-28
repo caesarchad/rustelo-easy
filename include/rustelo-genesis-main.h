@@ -6,7 +6,8 @@
 extern "C" {
 #endif
 
-extern void genesis_main_entry();
+extern void genesis_main_entry(char *tokens,
+                               char *ledger);
 
 #ifdef __cplusplus
 }
