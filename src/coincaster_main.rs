@@ -26,9 +26,22 @@ macro_rules! socketaddr {
 }
 
 #[no_mangle]
-pub extern "C" fn coincaster_main_entry() -> Result<(), Box<error::Error>> {
+//pub extern "C" fn coincaster_main_entry() -> Result<(), Box<error::Error>> {
+pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_char,
+                                        parm02_keypair_ptr:    *const libc::c_char,
+                                        parm03_slice_ptr:  *const libc::c_char,
+                                        parm04_cap_ptr:    *const libc::c_char) -> RusteloResult {
+    //set the logger and the panic hooker
     logger::setup();
     set_panic_hook("drone");
+
+    //handle parameters, convert ptr to &str
+    let network_str = unsafe { CStr::from_ptr(network_ptr) }.to_str().unwrap();
+    let keypair_str = unsafe { CStr::from_ptr(keypair_ptr) }.to_str().unwrap();
+    let slice_str = unsafe { CStr::from_ptr(slice_ptr) }.to_str().unwrap();
+    let cap_str = unsafe { CStr::from_ptr(cap_ptr) }.to_str().unwrap();
+
+    /*
     let matches = App::new("drone")
         .version(crate_version!())
         .arg(
@@ -60,7 +73,8 @@ pub extern "C" fn coincaster_main_entry() -> Result<(), Box<error::Error>> {
                 .takes_value(true)
                 .help("Request limit for time slice"),
         ).get_matches();
-
+    */
+    /*
     let network = matches
         .value_of("network")
         .unwrap()
@@ -69,9 +83,25 @@ pub extern "C" fn coincaster_main_entry() -> Result<(), Box<error::Error>> {
             eprintln!("failed to parse network: {}", e);
             exit(1)
         });
+    */
+    let network = if !network_str.is_empty(){
+        let addr = network_str;
+        addr.parse().unwrap_or_else(|e| {
+            eprintln!("failed to parse network: {}", e);
+            exit(1)
+        })
+    
+    }else{
+        socketaddr!("127.0.0.1:8001")
+    };
 
+    /*
     let mint_keypair =
         read_keypair(matches.value_of("keypair").unwrap()).expect("failed to read client keypair");
+    */
+    let id =
+        read_keypair(keypair_str).expect("can't read client identity");
+
 
     let time_slice: Option<u64>;
     if let Some(secs) = matches.value_of("slice") {
@@ -150,5 +180,6 @@ pub extern "C" fn coincaster_main_entry() -> Result<(), Box<error::Error>> {
             tokio::spawn(server)
         });
     tokio::run(done);
-    Ok(())
+    //Ok(())
+    RusteloResult::Success
 }

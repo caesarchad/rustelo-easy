@@ -9,9 +9,18 @@ use std::net::SocketAddr;
 
 
 #[no_mangle]
-pub extern "C" fn fullnode_config_main_entry() {
+pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr: *const libc::c_char,
+                                             parm02_keypair_ptr: *const libc::c_char,
+                                             parm03_public_ptr: *const libc::c_char,
+                                             parm04_bind_ptr: *const libc::c_char) {
+    //setup log and pannic hook
     logger::setup();
-    let matches = App::new("fullnode-config")
+    //handle parameters, convert ptr to &str
+    let local_str = unsafe { CStr::from_ptr(parm01_local_ptr) }.to_str().unwrap(); 
+    let keypair_str= unsafe { CStr::from_ptr(parm02_keypair_ptr) }.to_str().unwrap(); 
+    let public_str= unsafe { CStr::from_ptr(parm03_public_ptr) }.to_str().unwrap(); 
+    let bind_str= unsafe { CStr::from_ptr(parm04_bind_ptr) }.to_str().unwrap();
+    /*let matches = App::new("fullnode-config")
         .version(crate_version!())
         .arg(
             Arg::with_name("local")
@@ -39,28 +48,40 @@ pub extern "C" fn fullnode_config_main_entry() {
                 .value_name("PORT")
                 .takes_value(true)
                 .help("Bind to port or address"),
-        ).get_matches();
+        ).get_matches(); */
 
     let bind_addr: SocketAddr = {
-        let mut bind_addr = parse_port_or_addr(matches.value_of("bind"), FULLNODE_PORT_RANGE.0);
-        if matches.is_present("local") {
+        //let mut bind_addr = parse_port_or_addr(matches.value_of("bind"), FULLNODE_PORT_RANGE.0);
+        let mut bind_addr = parse_port_or_addr(bind_str, FULLNODE_PORT_RANGE.0);
+        
+        //if matches.is_present("local") {
+        if local_str == "TRUE" {
             let ip = get_ip_addr().unwrap();
             bind_addr.set_ip(ip);
         }
-        if matches.is_present("public") {
+        
+        //if matches.is_present("public") {
+        if public_str == "TRUE" {   
             let ip = get_public_ip_addr().unwrap();
             bind_addr.set_ip(ip);
         }
+
         bind_addr
     };
 
     let mut path = dirs::home_dir().expect("home directory");
-    let id_path = if matches.is_present("keypair") {
-        matches.value_of("keypair").unwrap()
+
+    
+    //let id_path = if matches.is_present("keypair") {
+    let id_path = if keypair_str == "keypair"  {
+        //matches.value_of("keypair").unwrap()
+        keypair_str.unwrap()
     } else {
         path.extend(&[".config", "solana", "id.json"]);
         path.to_str().unwrap()
     };
+
+    //read the 
     let pkcs8 = read_pkcs8(id_path).expect("client keypair");
 
     // we need all the receiving sockets to be bound within the expected

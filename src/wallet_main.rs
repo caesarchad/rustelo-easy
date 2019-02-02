@@ -73,7 +73,9 @@ pub fn parse_args(matches: &ArgMatches) -> Result<WalletConfig, Box<error::Error
 }
 
 #[no_mangle]
-pub extern "C" fn wallet_main_entry() -> Result<(), Box<error::Error>> {
+//pub extern "C" fn wallet_main_entry() -> Result<(), Box<error::Error>> {
+pub extern "C" fn wallet_main_entry() ->RusteloResult {
+
     logger::setup();
     let matches = App::new("solana-wallet")
         .version(crate_version!())
@@ -235,5 +237,6 @@ pub extern "C" fn wallet_main_entry() -> Result<(), Box<error::Error>> {
     let config = parse_args(&matches)?;
     let result = process_command(&config)?;
     println!("{}", result);
-    Ok(())
+    //Ok(())
+    RusteloResult::Success
 }
