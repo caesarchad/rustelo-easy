@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use crate::rustelo_error::RusteloResult;
 
 #[no_mangle]
 pub extern "C" fn propagator_main_entry(parm01_identity_ptr: *const libc::c_char,

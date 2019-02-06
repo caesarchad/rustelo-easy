@@ -8,7 +8,7 @@ use buffett::wallet::{gen_keypair_file, parse_command, process_command, WalletCo
 use std::error;
 use std::net::SocketAddr;
 use std::ffi::CStr;
-use rustelo::rustelo_error::RusteloResult;
+use crate::rustelo_error::RusteloResult;
 
 pub fn parse_args(matches: &ArgMatches) -> Result<WalletConfig, Box<error::Error>> {
     let network = if let Some(addr) = matches.value_of("network") {

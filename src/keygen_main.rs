@@ -1,5 +1,5 @@
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use crate::rustelo_error::RusteloResult;
 use clap::{App, Arg};
 use buffett::wallet::gen_keypair_file;
 use std::error;

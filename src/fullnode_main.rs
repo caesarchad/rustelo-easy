@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use std::ffi::c_void; //use ffi c_void
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use crate::rustelo_error::RusteloResult;
 
 #[no_mangle]
 pub extern "C" fn fullnode_main_entry(parm01_identity_ptr: *const libc::c_char,

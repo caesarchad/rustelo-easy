@@ -16,7 +16,7 @@ use tokio::prelude::*;
 use tokio_codec::{BytesCodec, Decoder};
 
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use crate::rustelo_error::RusteloResult;
 
 macro_rules! socketaddr {
     ($ip:expr, $port:expr) => {

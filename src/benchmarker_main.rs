@@ -30,7 +30,7 @@ use buffett::asciiart; //mvp001
 use std::io::Write; //mvp001
 
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use crate::rustelo_error::RusteloResult;
 
 
 //mvp001
