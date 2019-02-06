@@ -10,10 +10,12 @@ use std::ffi::CStr;
 use crate::rustelo_error::RusteloResult;
 
 #[no_mangle]
-//pub extern "C" fn genesis_main_entry() -> Result<(), Box<error::Error>> {
+pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
+                                     parm02_ledger_ptr: *const libc::c_char,) -> Result<(), Box<error::Error>> {
+/*
 pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
                                      parm02_ledger_ptr: *const libc::c_char,) -> RusteloResult {  
-    
+*/    
     //handle parameters, convert ptr to &str
     let tokens_str  = unsafe { CStr::from_ptr(parm01_tokens_ptr) }.to_str().unwrap();  
     let ledger_str  = unsafe { CStr::from_ptr(parm02_ledger_ptr) }.to_str().unwrap();  
@@ -91,8 +93,8 @@ pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
     let mut ledger_writer = LedgerWriter::open(&ledger_path, true)?;
     ledger_writer.write_entries(mint.create_entries())?;
 
-    //Ok(())
-    RusteloResult::Success
+    Ok(())
+    //RusteloResult::Success
 }
 
 

@@ -5,8 +5,8 @@ use buffett::wallet::gen_keypair_file;
 use std::error;
 
 #[no_mangle]
-//pub extern "C" fn keygen_main_entry() -> Result<(), Box<std::error::Error>> {
-pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> RusteloResult  {
+pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> Result<(), Box<std::error::Error>> {
+//pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> RusteloResult  {
 
     println!("Keymaker!");
     //handle parameters, convert ptr to &str
@@ -43,6 +43,6 @@ pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> 
     if outfile == "-" {
         println!("{}", serialized_keypair);
     }
-    //Ok(())
-    RusteloResult::Success
+    Ok(())
+    //RusteloResult::Success
 }
