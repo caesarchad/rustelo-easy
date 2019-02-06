@@ -17,10 +17,20 @@ use std::time::Duration;
 use std::ffi::c_void; //use ffi c_void
 
 #[no_mangle]
-pub extern "C" fn fullnode_main_entry(_p: *mut c_void) {
+pub extern "C" fn fullnode_main_entry(parm01_identity_ptr: *const libc::c_char,
+                                      parm02_network_ptr: *const libc::c_char,
+                                      parm03_ledger_ptr: *const libc::c_char){
+
+    //setup log and pannic hook                                   
     logger::setup();
     set_panic_hook("fullnode");
-    let matches = App::new("fullnode")
+
+    //handle parameters, convert ptr to &str
+    let identity_str =  unsafe { CStr::from_ptr(parm01_identity_ptr) }.to_str().unwrap(); 
+    let network_str =  unsafe { CStr::from_ptr(parm02_network_ptr) }.to_str().unwrap(); 
+    let ledger_str =  unsafe { CStr::from_ptr(parm03_ledger_ptr) }.to_str().unwrap(); 
+    
+    /*let matches = App::new("fullnode")
         .version(crate_version!())
         .arg(
             Arg::with_name("identity")
@@ -44,10 +54,13 @@ pub extern "C" fn fullnode_main_entry(_p: *mut c_void) {
                 .takes_value(true)
                 .required(true)
                 .help("use DIR as persistent ledger location"),
-        ).get_matches();
+        ).get_matches();*/
 
-    let (keypair, ncp) = if let Some(i) = matches.value_of("identity") {
-        let path = i.to_string();
+
+    //let (keypair, ncp) = if let Some(i) = matches.value_of("identity") {
+    let (keypair, ncp) = if !identity_str.is_empty() {
+          let i = identity_str;
+          let path = i.to_string();
         if let Ok(file) = File::open(path.clone()) {
             let parse: serde_json::Result<Config> = serde_json::from_reader(file);
             if let Ok(data) = parse {
@@ -64,7 +77,8 @@ pub extern "C" fn fullnode_main_entry(_p: *mut c_void) {
         (Keypair::new(), socketaddr!(0, 8000))
     };
 
-    let ledger_path = matches.value_of("ledger").unwrap();
+    //let ledger_path = matches.value_of("ledger").unwrap();
+    let ledger_path = ledger_str.unwrap();
 
     // socketaddr that is initial pointer into the network's gossip (ncp)
     let network = matches

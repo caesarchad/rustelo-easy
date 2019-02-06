@@ -49,11 +49,16 @@ fn sink(exit: Arc<AtomicBool>, rvs: Arc<AtomicUsize>, r: PacketReceiver) -> Join
     })
 }
 
+
 #[no_mangle]
-pub extern "C" fn benchcaster_main_entry() -> Result<()> {
+/// to do : rewrite benchcster 
+pub extern "C" fn benchcaster_main_entry(parm01_num_recv_sockets_ptr: *const libc::c_char) ->RusteloResult  {
     let mut num_sockets = 1usize;
 
-    let matches = App::new("solana-bench-streamer")
+    //handle parameters, convert ptr to &str
+    let num_recv_sockets_str = unsafe { CStr::from_ptr(parm01_num_recv_sockets_ptr) }.to_str().unwrap(); 
+    /*
+    let matches = App::new("bitconch-bench-caster")
         .arg(
             Arg::with_name("num-recv-sockets")
                 .long("num-recv-sockets")
@@ -61,8 +66,15 @@ pub extern "C" fn benchcaster_main_entry() -> Result<()> {
                 .takes_value(true)
                 .help("Use NUM receive sockets"),
         ).get_matches();
+    */
 
+    /*
     if let Some(n) = matches.value_of("num-recv-sockets") {
+        num_sockets = max(num_sockets, n.to_string().parse().expect("integer"));
+    }
+    */
+    if !num_recv_sockets_str.is_emptry() {
+        let n = num_recv_sockets_str;
         num_sockets = max(num_sockets, n.to_string().parse().expect("integer"));
     }
 
@@ -118,5 +130,6 @@ pub extern "C" fn benchcaster_main_entry() -> Result<()> {
     for t_sink in sink_threads {
         t_sink.join()?;
     }
-    Ok(())
+    //Ok(())
+    RusteloResult::Success
 }

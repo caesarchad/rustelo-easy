@@ -6,7 +6,12 @@
 extern "C" {
 #endif
 
-extern void ledgertool_main_entry();
+extern void ledgertool_main_entry(char *ledger,
+                                  char *head,
+                                  char *precheck,
+                                  char *continu,
+                                  char *subcommand,
+                                  );
 
 #ifdef __cplusplus
 }

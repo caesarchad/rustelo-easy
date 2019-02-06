@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-extern void keygen_main_entry();
+extern void keygen_main_entry(char *outfile);
 
 #ifdef __cplusplus
 }

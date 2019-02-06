@@ -6,7 +6,9 @@
 extern "C" {
 #endif
 
-extern void propagator_main_entry();
+extern void propagator_main_entry(char *identity,
+                                  char *network,
+                                  char *ledger);
 
 #ifdef __cplusplus
 }

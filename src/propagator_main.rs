@@ -13,8 +13,18 @@ use std::thread::sleep;
 use std::time::Duration;
 
 #[no_mangle]
-pub extern "C" fn propagator_main_entry() {
+pub extern "C" fn propagator_main_entry(parm01_identity_ptr: *const libc::c_char,
+                                        parm02_network_ptr: *const libc::c_char,
+                                        parm03_ledger_ptr: *const libc::c_char) {
+    //setup log and pannic hook
     logger::setup();
+
+    //handle parameters, convert ptr to &str
+    let identity_str = unsafe { CStr::from_ptr(parm01_identity_ptr) }.to_str().unwrap(); 
+    let network_str = unsafe { CStr::from_ptr(parm02_network_ptr) }.to_str().unwrap(); 
+    let ledger_str = unsafe { CStr::from_ptr(parm03_ledger_ptr) }.to_str().unwrap();  
+
+    /*
     let matches = App::new("replicator")
         .version(crate_version!())
         .arg(
@@ -40,10 +50,16 @@ pub extern "C" fn propagator_main_entry() {
                 .required(true)
                 .help("use DIR as persistent ledger location"),
         ).get_matches();
+    */
 
-    let ledger_path = matches.value_of("ledger");
 
-    let (keypair, ncp) = if let Some(i) = matches.value_of("identity") {
+
+    //let ledger_path = matches.value_of("ledger");
+    let ledger_path = ledger_str;
+
+    //let (keypair, ncp) = if let Some(i) = matches.value_of("identity") {
+    let (keypair, ncp) = if  !identity_str.is_empty() {
+        let i = identity_str;
         let path = i.to_string();
         if let Ok(file) = File::open(path.clone()) {
             let parse: serde_json::Result<Config> = serde_json::from_reader(file);
@@ -73,8 +89,12 @@ pub extern "C" fn propagator_main_entry() {
     let exit = Arc::new(AtomicBool::new(false));
     let done = Arc::new(AtomicBool::new(false));
 
+    /*
     let network_addr = matches
         .value_of("network")
+        .map(|network| network.parse().expect("failed to parse network address"));
+    */
+    let network_addr = network_str
         .map(|network| network.parse().expect("failed to parse network address"));
 
     // TODO: ask network what slice we should store

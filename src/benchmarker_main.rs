@@ -591,10 +591,34 @@ fn randome_select_from(path: &str)-> String{
 //*
 
 #[no_mangle]
-pub extern "C" fn benchmarker_main_entry() {
+//pub extern "C" fn benchmarker_main_entry() {
+pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char,
+                                         parm02_identity_ptr: *const libc::c_char,
+                                         parm03_num_nodes_ptr: *const libc::c_char,
+                                         parm04_reject_extra_nodes_ptr: *const libc::c_char,
+                                         parm05_threads_ptr: *const libc::c_char,
+                                         parm06_duration_ptr: *const libc::c_char,
+                                         parm07_converge_only_ptr: *const libc::c_char,
+                                         parm08_sustained_ptr: *const libc::c_char,
+                                         parm09_tx_count_ptr: *const libc::c_char) {
+      
+    //setup log and pannic hook
     logger::setup();
     metrics::set_panic_hook("bench-tps");
 
+    //handle parameters, convert ptr to &str
+    let network_str = unsafe { CStr::from_ptr(parm01_network_ptr) }.to_str().unwrap(); 
+    let identity_str= unsafe { CStr::from_ptr(parm02_identity_ptr) }.to_str().unwrap(); 
+    let num_nodes_str= unsafe { CStr::from_ptr(parm03_num_nodes_ptr) }.to_str().unwrap(); 
+    let reject_extra_nodes_str= unsafe { CStr::from_ptr(parm04_reject_extra_nodes_ptr) }.to_str().unwrap(); 
+    let threads_str= unsafe { CStr::from_ptr(parm05_threads_ptr) }.to_str().unwrap(); 
+    let duration_str= unsafe { CStr::from_ptr(parm06_duration_ptr) }.to_str().unwrap(); 
+    let converge_only_str= unsafe { CStr::from_ptr(parm07_converge_only_ptr) }.to_str().unwrap(); 
+    let sustained_str= unsafe { CStr::from_ptr(parm08_sustained_ptr) }.to_str().unwrap(); 
+    let tx_count_strs= unsafe { CStr::from_ptr(parm09_tx_count_ptr) }.to_str().unwrap(); 
+
+
+    /*
     let matches = App::new("solana-bench-tps")
         .version(crate_version!())
         .arg(
@@ -660,7 +684,10 @@ pub extern "C" fn benchmarker_main_entry() {
                 .help("Number of transactions to send per batch")
         )
         .get_matches();
+    */
 
+
+    /*
     let network = if let Some(addr) = matches.value_of("network") {
         addr.parse().unwrap_or_else(|e| {
             eprintln!("failed to parse network: {}", e);
@@ -669,64 +696,117 @@ pub extern "C" fn benchmarker_main_entry() {
     } else {
         socketaddr!("127.0.0.1:8001")
     };
+    */
+    let network = if !network_str.is_empty(){
+        addr.parse().unwrap_or_else(|e| {
+            eprintln!("failed to parse network: {}", e);
+            exit(1)
+        })
+    }else{
+        socketaddr!("127.0.0.1:8001")
+    };
 
+
+    /*
     let id =
         read_keypair(matches.value_of("identity").unwrap()).expect("can't read client identity");
+    */
+    let id = 
+        read_keypair(identity_str.unwrap()).expect("can't read client identity");
 
+    
+    /*
     let threads = if let Some(t) = matches.value_of("threads") {
         t.to_string().parse().expect("can't parse threads")
     } else {
         4usize
     };
+    */
+    let threads = if !threads_str.is_empty() {
+        let t = threads_str;
+        t.to_string().parse().expect("can't parse threads")
+    } else {
+        4usize
+    };
 
+
+    /*
     let num_nodes = if let Some(n) = matches.value_of("num-nodes") {
         n.to_string().parse().expect("can't parse num-nodes")
     } else {
         1usize
     };
+    */
+    let num_nodes = if !num_nodes_str.is_empty() {
+        let n = num_nodes_str;
+        n.to_string().parse().expect("can't parse num-nodes")
+    } else {
+        1usize
+    };
 
+
+    /*
     let duration = if let Some(s) = matches.value_of("duration") {
         Duration::new(s.to_string().parse().expect("can't parse duration"), 0)
     } else {
         Duration::new(std::u64::MAX, 0)
     };
+    */
+    let duration = if !duration_str.is_empty() {
+        let s = duration_str;
+        Duration::new(s.to_string().parse().expect("can't parse duration"), 0)
+    } else {
+        Duration::new(std::u64::MAX, 0)
+    };
 
+
+    /*
     let tx_count = if let Some(s) = matches.value_of("tx_count") {
         s.to_string().parse().expect("can't parse tx_count")
     } else {
         500_000
     };
+    */
+    let tx_count = if !tx_count_str.is_empty() {
+        let s = tx_count_str;
+        s.to_string().parse().expect("can't parse tx_count")
+    } else {
+        500_000
+    };
 
+
+    /*
     let sustained = matches.is_present("sustained");
+    */
+    let sustained = if sustained_str == "TRUE"{true} else {false};
 
-    asciiart::welcome();//mvp001
-    dividing_line();//mvp001
-    leader_node_selection();//mvp001
-
-    //println!("Looking for leader at {:?}", network);
-    //mvp001
+    //select leader node on given network entry point
+    asciiart::welcome(); 
+    dividing_line(); 
+    leader_node_selection(); 
     println!(
         "{0: <2}{1: <40}: {2: <60}",
         "|", "Search for Leader Node On Network", network
     );
     dividing_line();
     print_animation_arrows();
-    //*
-
     let leader = poll_gossip_for_leader(network, None).expect("unable to find leader on network");
-
+    //set the exit signal
     let exit_signal = Arc::new(AtomicBool::new(false));
-    //mvp001
+
     dividing_line();
     println!(
         "| Leader Node is found!, ID: {:?}",
         &leader.id
     );
     dividing_line();
+    //wait the node to be found
     sleep(Duration::from_millis(100));
-    //*
+    
+    //try to converge the nodes, 
     let (nodes, leader, ncp) = converge(&leader, &exit_signal, num_nodes);
 
+    //node number is big enough
     if nodes.len() < num_nodes {
         println!(
             "Error: Insufficient nodes discovered.  Expecting {} or more",
@@ -734,7 +814,10 @@ pub extern "C" fn benchmarker_main_entry() {
         );
         exit(1);
     }
-    if matches.is_present("reject-extra-nodes") && nodes.len() > num_nodes {
+    
+    //sometimes node number is too big 
+    //if matches.is_present("reject-extra-nodes") && nodes.len() > num_nodes {
+    if reject_extra_nodes_str == "TRUE" && nodes.len() > num_nodes { 
         println!(
             "Error: Extra nodes discovered.  Expecting exactly {}",
             num_nodes
@@ -747,7 +830,9 @@ pub extern "C" fn benchmarker_main_entry() {
         exit(1);
     }
 
-    if matches.is_present("converge-only") {
+    
+    //if matches.is_present("converge-only") {
+    if converge_only_str == "TRUE" {
         return;
     }
 
