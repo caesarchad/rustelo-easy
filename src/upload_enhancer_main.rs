@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::process::Command;
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use ruselo::rustelo_error::RusteloResult;
 
 #[no_mangle]
 pub extern "C" fn upload_enhancer_main_entry() {

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use ruselo::rustelo_error::RusteloResult;
 
 #[no_mangle]
 pub extern "C" fn propagator_main_entry(parm01_identity_ptr: *const libc::c_char,
@@ -57,7 +57,7 @@ pub extern "C" fn propagator_main_entry(parm01_identity_ptr: *const libc::c_char
 
 
     //let ledger_path = matches.value_of("ledger");
-    let ledger_path = ledger_str;
+    let ledger_path = std::option::Option(ledger_str);
 
     //let (keypair, ncp) = if let Some(i) = matches.value_of("identity") {
     let (keypair, ncp) = if  !identity_str.is_empty() {

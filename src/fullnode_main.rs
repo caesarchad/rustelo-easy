@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use std::ffi::c_void; //use ffi c_void
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use ruselo::rustelo_error::RusteloResult;
 
 #[no_mangle]
 pub extern "C" fn fullnode_main_entry(parm01_identity_ptr: *const libc::c_char,
@@ -80,7 +80,7 @@ pub extern "C" fn fullnode_main_entry(parm01_identity_ptr: *const libc::c_char,
     };
 
     //let ledger_path = matches.value_of("ledger").unwrap();
-    let ledger_path = ledger_str.unwrap();
+    let ledger_path = ledger_str;
 
     // socketaddr that is initial pointer into the network's gossip (ncp)
     let network = matches

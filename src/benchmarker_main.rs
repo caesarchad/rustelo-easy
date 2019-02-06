@@ -30,7 +30,7 @@ use buffett::asciiart; //mvp001
 use std::io::Write; //mvp001
 
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use ruselo::rustelo_error::RusteloResult;
 
 
 //mvp001
@@ -702,6 +702,7 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
     };
     */
     let network = if !network_str.is_empty(){
+        let addr = network_str;
         addr.parse().unwrap_or_else(|e| {
             eprintln!("failed to parse network: {}", e);
             exit(1)
@@ -716,7 +717,7 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         read_keypair(matches.value_of("identity").unwrap()).expect("can't read client identity");
     */
     let id = 
-        read_keypair(identity_str.unwrap()).expect("can't read client identity");
+        read_keypair(identity_str).expect("can't read client identity");
 
     
     /*

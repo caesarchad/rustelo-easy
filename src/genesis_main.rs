@@ -7,7 +7,7 @@ use std::error;
 use std::io::{stdin, Read};
 use std::process::exit;
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use ruselo::rustelo_error::RusteloResult;
 
 #[no_mangle]
 //pub extern "C" fn genesis_main_entry() -> Result<(), Box<error::Error>> {
@@ -59,7 +59,7 @@ pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
 
     //ledger path 
     //let ledger_path = matches.value_of("ledger").unwrap();
-    let ledger_path = ledger_str.unwrap();
+    let ledger_path = ledger_str;
 
     if is(Stream::Stdin) {
         eprintln!("nothing found on stdin, expected a json file");

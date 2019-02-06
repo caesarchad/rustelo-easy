@@ -16,7 +16,7 @@ use tokio::prelude::*;
 use tokio_codec::{BytesCodec, Decoder};
 
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use ruselo::rustelo_error::RusteloResult;
 
 macro_rules! socketaddr {
     ($ip:expr, $port:expr) => {
@@ -39,10 +39,10 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
     set_panic_hook("drone");
 
     //handle parameters, convert ptr to &str
-    let network_str = unsafe { CStr::from_ptr(network_ptr) }.to_str().unwrap();
-    let keypair_str = unsafe { CStr::from_ptr(keypair_ptr) }.to_str().unwrap();
-    let slice_str = unsafe { CStr::from_ptr(slice_ptr) }.to_str().unwrap();
-    let cap_str = unsafe { CStr::from_ptr(cap_ptr) }.to_str().unwrap();
+    let network_str = unsafe { CStr::from_ptr(parm01_network_ptr) }.to_str().unwrap();
+    let keypair_str = unsafe { CStr::from_ptr(parm02_keypair_ptr) }.to_str().unwrap();
+    let slice_str = unsafe { CStr::from_ptr(parm03_slice_ptr) }.to_str().unwrap();
+    let cap_str = unsafe { CStr::from_ptr(parm04_cap_ptr) }.to_str().unwrap();
 
     /*
     let matches = App::new("drone")

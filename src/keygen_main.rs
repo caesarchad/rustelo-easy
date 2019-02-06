@@ -1,5 +1,5 @@
 use std::ffi::CStr;
-use rustelo_error::RusteloResult;
+use ruselo::rustelo_error::RusteloResult;
 use clap::{App, Arg};
 use buffett::wallet::gen_keypair_file;
 use std::error;
@@ -32,7 +32,7 @@ pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> 
     let outfile = if !outfile_str.is_empty() {
         println!("argument outfile is present ");
         //matches.value_of("outfile").unwrap()
-        outfile_str.unwrap()
+        outfile_str
     } else {
         println!("argument outfile is not present ");
         path.extend(&[".config", "solana", "id.json"]);
