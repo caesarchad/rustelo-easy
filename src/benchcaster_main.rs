@@ -12,6 +12,8 @@ use std::thread::sleep;
 use std::thread::{spawn, JoinHandle};
 use std::time::Duration;
 use std::time::SystemTime;
+use std::ffi::CStr;
+use rustelo_error::RusteloResult;
 
 fn producer(addr: &SocketAddr, exit: Arc<AtomicBool>) -> JoinHandle<()> {
     let send = UdpSocket::bind("0.0.0.0:0").unwrap();

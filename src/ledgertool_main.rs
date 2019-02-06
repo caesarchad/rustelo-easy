@@ -4,6 +4,8 @@ use buffett::ledger::{read_ledger, verify_ledger};
 use buffett::logger;
 use std::io::{stdout, Write};
 use std::process::exit;
+use std::ffi::CStr;
+use rustelo_error::RusteloResult;
 
 #[no_mangle]
 pub extern "C" fn ledgertool_main_entry(parm01_ledger_ptr: *const libc::c_char,

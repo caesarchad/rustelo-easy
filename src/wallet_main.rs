@@ -7,6 +7,8 @@ use buffett::thin_client::poll_gossip_for_leader;
 use buffett::wallet::{gen_keypair_file, parse_command, process_command, WalletConfig, WalletError};
 use std::error;
 use std::net::SocketAddr;
+use std::ffi::CStr;
+use rustelo_error::RusteloResult;
 
 pub fn parse_args(matches: &ArgMatches) -> Result<WalletConfig, Box<error::Error>> {
     let network = if let Some(addr) = matches.value_of("network") {

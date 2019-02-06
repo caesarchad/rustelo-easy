@@ -15,6 +15,9 @@ use tokio::net::TcpListener;
 use tokio::prelude::*;
 use tokio_codec::{BytesCodec, Decoder};
 
+use std::ffi::CStr;
+use rustelo_error::RusteloResult;
+
 macro_rules! socketaddr {
     ($ip:expr, $port:expr) => {
         SocketAddr::from((Ipv4Addr::from($ip), $port))

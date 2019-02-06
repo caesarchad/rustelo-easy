@@ -29,6 +29,10 @@ use std::time::Instant;
 use buffett::asciiart; //mvp001
 use std::io::Write; //mvp001
 
+use std::ffi::CStr;
+use rustelo_error::RusteloResult;
+
+
 //mvp001
 fn dividing_line() {
     println!("------------------------------------------------------------------------------------------------------------------------");

@@ -27,5 +27,4 @@ pub mod ledgertool_main;
 pub mod propagator_main;
 pub mod upload_enhancer_main;
 pub mod wallet_main;
-pub mod errors;
-
+pub mod rustelo_error;

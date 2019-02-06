@@ -6,7 +6,8 @@ use buffett::netutil::{get_ip_addr, get_public_ip_addr, parse_port_or_addr};
 use buffett::signature::read_pkcs8;
 use std::io;
 use std::net::SocketAddr;
-
+use std::ffi::CStr;
+use rustelo_error::RusteloResult;
 
 #[no_mangle]
 pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr: *const libc::c_char,

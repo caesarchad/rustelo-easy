@@ -6,6 +6,8 @@ use buffett::mint::Mint;
 use std::error;
 use std::io::{stdin, Read};
 use std::process::exit;
+use std::ffi::CStr;
+use rustelo_error::RusteloResult;
 
 #[no_mangle]
 //pub extern "C" fn genesis_main_entry() -> Result<(), Box<error::Error>> {

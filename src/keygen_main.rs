@@ -1,3 +1,9 @@
+use std::ffi::CStr;
+use rustelo_error::RusteloResult;
+use clap::{App, Arg};
+use buffett::wallet::gen_keypair_file;
+use std::error;
+
 #[no_mangle]
 //pub extern "C" fn keygen_main_entry() -> Result<(), Box<std::error::Error>> {
 pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> RusteloResult  {
