@@ -104,13 +104,18 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
 
 
     let time_slice: Option<u64>;
-    if let Some(secs) = matches.value_of("slice") {
+    //if let Some(secs) = matches.value_of("slice") {
+    if !slice_str.is_empty() {
+        let secs = slice_str;
         time_slice = Some(secs.to_string().parse().expect("failed to parse slice"));
     } else {
         time_slice = None;
     }
+
     let request_cap: Option<u64>;
-    if let Some(c) = matches.value_of("cap") {
+    //if let Some(c) = matches.value_of("cap") {
+    if !cap_str.is_empty() {
+        let c = cap_str;
         request_cap = Some(c.to_string().parse().expect("failed to parse cap"));
     } else {
         request_cap = None;
