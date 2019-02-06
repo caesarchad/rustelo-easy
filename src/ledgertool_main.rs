@@ -237,9 +237,17 @@ pub extern "C" fn ledgertool_main_entry(parm01_ledger_ptr: *const libc::c_char,
 
                 let genesis = genesis.take(2).map(|e| e.unwrap());
 
+                /* 
                 if let Err(e) = bank.process_ledger(genesis) {
                     eprintln!("verify failed at genesis err: {:?}", e);
                     if !matches.is_present("continue") {
+                        exit(1);
+                    }
+                } 
+                */
+                if let Err(e) = bank.process_ledger(genesis) {
+                    eprintln!("verify failed at genesis err: {:?}", e);
+                    if continue_str == "TRUE" {
                         exit(1);
                     }
                 }
