@@ -8,10 +8,10 @@ use std::error;
 pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> Result<(), Box<std::error::Error>> {
 //pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> RusteloResult  {
 
-    println!("Keymaker!");
+    println!("Keymaker! - Marker 1");
     //handle parameters, convert ptr to &str
-    let outfile_str = unsafe { CStr::from_ptr(parm01_outfile_ptr).to_str().unwrap() };
-
+    let outfile_str = unsafe {CStr::from_ptr(parm01_outfile_ptr)}.to_str().unwrap();
+    println!("Keymaker! - Marker 2");
     /*
     let matches = clap::App::new("buffett-keymaker")
         .version(crate_version!())
@@ -27,7 +27,7 @@ pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> 
 
     let mut path = dirs::home_dir().expect("home directory");
 
-
+    println!("Keymaker! - Marker 3");
     //let outfile = if matches.is_present("outfile") {
     let outfile = if !outfile_str.is_empty() {
         println!("argument outfile is present ");
@@ -38,11 +38,13 @@ pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> 
         path.extend(&[".config", "solana", "id.json"]);
         path.to_str().unwrap()
     };
+    println!("Keymaker! - Marker 4");
     println!("generate keypair, and write to {}",outfile.to_string());
     let serialized_keypair = buffett::wallet::gen_keypair_file(outfile.to_string())?;
     if outfile == "-" {
         println!("{}", serialized_keypair);
     }
+    println!("Keymaker! - Marker 5");
     Ok(())
     //RusteloResult::Success
 }
