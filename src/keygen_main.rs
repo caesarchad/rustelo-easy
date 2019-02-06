@@ -10,7 +10,7 @@ pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> 
 
     println!("Keymaker!");
     //handle parameters, convert ptr to &str
-    let outfile_str = { CStr::from_ptr(parm01_outfile_ptr) }.to_str().unwrap();
+    let outfile_str = unsafe { CStr::from_ptr(parm01_outfile_ptr).to_str().unwrap() };
 
     /*
     let matches = clap::App::new("buffett-keymaker")
