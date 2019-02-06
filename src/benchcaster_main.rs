@@ -54,7 +54,8 @@ fn sink(exit: Arc<AtomicBool>, rvs: Arc<AtomicUsize>, r: PacketReceiver) -> Join
 
 #[no_mangle]
 /// to do : rewrite benchcster 
-pub extern "C" fn benchcaster_main_entry(parm01_num_recv_sockets_ptr: *const libc::c_char) ->RusteloResult  {
+//pub extern "C" fn benchcaster_main_entry(parm01_num_recv_sockets_ptr: *const libc::c_char) -> RusteloResult  {
+  pub extern "C" fn benchcaster_main_entry(parm01_num_recv_sockets_ptr: *const libc::c_char) -> Result<()>  {
     let mut num_sockets = 1usize;
 
     //handle parameters, convert ptr to &str
