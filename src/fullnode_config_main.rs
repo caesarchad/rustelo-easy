@@ -7,7 +7,7 @@ use buffett::signature::read_pkcs8;
 use std::io;
 use std::net::SocketAddr;
 use std::ffi::CStr;
-use ruselo::rustelo_error::RusteloResult;
+use rustelo_error::RusteloResult;
 
 #[no_mangle]
 pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr: *const libc::c_char,
@@ -53,7 +53,7 @@ pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr: *const libc::c_ch
 
     let bind_addr: SocketAddr = {
         //let mut bind_addr = parse_port_or_addr(matches.value_of("bind"), FULLNODE_PORT_RANGE.0);
-        let mut bind_addr = parse_port_or_addr(std::option::Option(bind_str), FULLNODE_PORT_RANGE.0);
+        let mut bind_addr = parse_port_or_addr(Some(bind_str), FULLNODE_PORT_RANGE.0);
         
         //if matches.is_present("local") {
         if local_str == "TRUE" {
@@ -73,16 +73,23 @@ pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr: *const libc::c_ch
     let mut path = dirs::home_dir().expect("home directory");
 
     
-    //let id_path = if matches.is_present("keypair") {
-    let id_path = if !keypair_str.is_empty()  {
-        //matches.value_of("keypair").unwrap()
+    /*
+    let id_path = if matches.is_present("keypair") {
+        matches.value_of("keypair").unwrap()
+    } else {
+        path.extend(&[".config", "solana", "id.json"]);
+        path.to_str().unwrap()
+    };
+    */
+    let id_path = if !keypair_str.is_empty() {
         keypair_str
     } else {
         path.extend(&[".config", "solana", "id.json"]);
         path.to_str().unwrap()
     };
 
-    //read the 
+
+    //read the client keypair from id file
     let pkcs8 = read_pkcs8(id_path).expect("client keypair");
 
     // we need all the receiving sockets to be bound within the expected

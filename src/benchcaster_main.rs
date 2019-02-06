@@ -13,7 +13,7 @@ use std::thread::{spawn, JoinHandle};
 use std::time::Duration;
 use std::time::SystemTime;
 use std::ffi::CStr;
-use ruselo::rustelo_error::RusteloResult;
+use rustelo_error::RusteloResult;
 
 fn producer(addr: &SocketAddr, exit: Arc<AtomicBool>) -> JoinHandle<()> {
     let send = UdpSocket::bind("0.0.0.0:0").unwrap();
@@ -75,8 +75,7 @@ pub extern "C" fn benchcaster_main_entry(parm01_num_recv_sockets_ptr: *const lib
         num_sockets = max(num_sockets, n.to_string().parse().expect("integer"));
     }
     */
-    if !num_recv_sockets_str.is_emptry() {
-        let n = num_recv_sockets_str;
+    if let Some(n) = Some(num_recv_sockets_str) {
         num_sockets = max(num_sockets, n.to_string().parse().expect("integer"));
     }
 

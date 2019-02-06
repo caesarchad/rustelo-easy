@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use std::ffi::c_void; //use ffi c_void
 use std::ffi::CStr;
-use ruselo::rustelo_error::RusteloResult;
+use rustelo_error::RusteloResult;
 
 #[no_mangle]
 pub extern "C" fn fullnode_main_entry(parm01_identity_ptr: *const libc::c_char,
@@ -58,11 +58,28 @@ pub extern "C" fn fullnode_main_entry(parm01_identity_ptr: *const libc::c_char,
                 .help("use DIR as persistent ledger location"),
         ).get_matches();*/
 
-
-    //let (keypair, ncp) = if let Some(i) = matches.value_of("identity") {
-    let (keypair, ncp) = if !identity_str.is_empty() {
-          let i = identity_str;
-          let path = i.to_string();
+    //part the keypair and the network control plane
+    /*
+    let (keypair, ncp) = if let Some(i) = matches.value_of("identity") {
+        let path = i.to_string();
+        if let Ok(file) = File::open(path.clone()) {
+            let parse: serde_json::Result<Config> = serde_json::from_reader(file);
+            if let Ok(data) = parse {
+                (data.keypair(), data.node_info.contact_info.ncp)
+            } else {
+                eprintln!("failed to parse {}", path);
+                exit(1);
+            }
+        } else {
+            eprintln!("failed to read {}", path);
+            exit(1);
+        }
+    } else {
+        (Keypair::new(), socketaddr!(0, 8000))
+    };
+    */
+    let (keypair, ncp) = if let Some(i) = Some(identity_str) {
+        let path = i.to_string();
         if let Ok(file) = File::open(path.clone()) {
             let parse: serde_json::Result<Config> = serde_json::from_reader(file);
             if let Ok(data) = parse {
@@ -83,8 +100,12 @@ pub extern "C" fn fullnode_main_entry(parm01_identity_ptr: *const libc::c_char,
     let ledger_path = ledger_str;
 
     // socketaddr that is initial pointer into the network's gossip (ncp)
+    /*
     let network = matches
         .value_of("network")
+        .map(|network| network.parse().expect("failed to parse network address"));
+    */
+    let network = Some(network_str)
         .map(|network| network.parse().expect("failed to parse network address"));
 
     let node = Node::new_with_external_ip(keypair.pubkey(), &ncp);

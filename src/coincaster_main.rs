@@ -16,7 +16,7 @@ use tokio::prelude::*;
 use tokio_codec::{BytesCodec, Decoder};
 
 use std::ffi::CStr;
-use ruselo::rustelo_error::RusteloResult;
+use rustelo_error::RusteloResult;
 
 macro_rules! socketaddr {
     ($ip:expr, $port:expr) => {
@@ -77,6 +77,7 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
                 .help("Request limit for time slice"),
         ).get_matches();
     */
+
     /*
     let network = matches
         .value_of("network")
@@ -87,42 +88,54 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
             exit(1)
         });
     */
-    let network = if !network_str.is_empty(){
-        let addr = network_str;
-        addr.parse().unwrap_or_else(|e| {
+    //parse the network
+    let network = Some(network_str)
+        .unwrap()
+        .parse()
+        .unwrap_or_else(|e| {
             eprintln!("failed to parse network: {}", e);
             exit(1)
-        })
-    
-    }else{
-        socketaddr!("127.0.0.1:8001")
-    };
+        });
 
     /*
     let mint_keypair =
         read_keypair(matches.value_of("keypair").unwrap()).expect("failed to read client keypair");
     */
-    let id =
-        read_keypair(keypair_str).expect("can't read client identity");
+    //parse the mint keypair 
+    let mint_keypair =
+        read_keypair(Some(keypair_str).unwrap()).expect("failed to read client keypair");
 
-
+    /*
     let time_slice: Option<u64>;
-    //if let Some(secs) = matches.value_of("slice") {
-    if !slice_str.is_empty() {
-        let secs = slice_str;
+    if let Some(secs) = matches.value_of("slice") {
+        time_slice = Some(secs.to_string().parse().expect("failed to parse slice"));
+    } else {
+        time_slice = None;
+    }
+    */
+    //parse the time slice
+    let time_slice: Option<u64>;
+    if let Some(secs) = Some(slice_str) {
         time_slice = Some(secs.to_string().parse().expect("failed to parse slice"));
     } else {
         time_slice = None;
     }
 
+    /*
     let request_cap: Option<u64>;
-    //if let Some(c) = matches.value_of("cap") {
-    if !cap_str.is_empty() {
-        let c = cap_str;
+    if let Some(c) = matches.value_of("cap") {
         request_cap = Some(c.to_string().parse().expect("failed to parse cap"));
     } else {
         request_cap = None;
     }
+    */
+    let request_cap: Option<u64>;
+    if let Some(c) = Some(cap_str) {
+        request_cap = Some(c.to_string().parse().expect("failed to parse cap"));
+    } else {
+        request_cap = None;
+    }
+
 
     let drone_addr = socketaddr!(0, DRONE_PORT);
 

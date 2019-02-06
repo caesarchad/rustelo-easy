@@ -7,7 +7,7 @@ use std::error;
 use std::io::{stdin, Read};
 use std::process::exit;
 use std::ffi::CStr;
-use ruselo::rustelo_error::RusteloResult;
+use rustelo_error::RusteloResult;
 
 #[no_mangle]
 //pub extern "C" fn genesis_main_entry() -> Result<(), Box<error::Error>> {

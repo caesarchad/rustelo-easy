@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 use std::ffi::CStr;
-use ruselo::rustelo_error::RusteloResult;
+use rustelo_error::RusteloResult;
 
 #[no_mangle]
 pub extern "C" fn propagator_main_entry(parm01_identity_ptr: *const libc::c_char,
@@ -57,11 +57,10 @@ pub extern "C" fn propagator_main_entry(parm01_identity_ptr: *const libc::c_char
 
 
     //let ledger_path = matches.value_of("ledger");
-    let ledger_path = std::option::Option(ledger_str);
+    let ledger_path = Some(ledger_str);
 
-    //let (keypair, ncp) = if let Some(i) = matches.value_of("identity") {
-    let (keypair, ncp) = if  !identity_str.is_empty() {
-        let i = identity_str;
+    /*
+    let (keypair, ncp) = if let Some(i) = matches.value_of("identity") {
         let path = i.to_string();
         if let Ok(file) = File::open(path.clone()) {
             let parse: serde_json::Result<Config> = serde_json::from_reader(file);
@@ -78,6 +77,25 @@ pub extern "C" fn propagator_main_entry(parm01_identity_ptr: *const libc::c_char
     } else {
         (Keypair::new(), socketaddr!([127, 0, 0, 1], 8700))
     };
+    */
+    let (keypair, ncp) = if let Some(i) = Some(identity_str) {
+        let path = i.to_string();
+        if let Ok(file) = File::open(path.clone()) {
+            let parse: serde_json::Result<Config> = serde_json::from_reader(file);
+            if let Ok(data) = parse {
+                (data.keypair(), data.node_info.contact_info.ncp)
+            } else {
+                eprintln!("failed to parse {}", path);
+                exit(1);
+            }
+        } else {
+            eprintln!("failed to read {}", path);
+            exit(1);
+        }
+    } else {
+        (Keypair::new(), socketaddr!([127, 0, 0, 1], 8700))
+    };
+
 
     let node = Node::new_with_external_ip(keypair.pubkey(), &ncp);
 
@@ -96,7 +114,7 @@ pub extern "C" fn propagator_main_entry(parm01_identity_ptr: *const libc::c_char
         .value_of("network")
         .map(|network| network.parse().expect("failed to parse network address"));
     */
-    let network_addr = network_str
+    let network_addr = Some(network_str)
         .map(|network| network.parse().expect("failed to parse network address"));
 
     // TODO: ask network what slice we should store

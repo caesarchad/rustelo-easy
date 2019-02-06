@@ -30,7 +30,7 @@ use buffett::asciiart; //mvp001
 use std::io::Write; //mvp001
 
 use std::ffi::CStr;
-use ruselo::rustelo_error::RusteloResult;
+use rustelo_error::RusteloResult;
 
 
 //mvp001
@@ -619,7 +619,7 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
     let duration_str= unsafe { CStr::from_ptr(parm06_duration_ptr) }.to_str().unwrap(); 
     let converge_only_str= unsafe { CStr::from_ptr(parm07_converge_only_ptr) }.to_str().unwrap(); 
     let sustained_str= unsafe { CStr::from_ptr(parm08_sustained_ptr) }.to_str().unwrap(); 
-    let tx_count_strs= unsafe { CStr::from_ptr(parm09_tx_count_ptr) }.to_str().unwrap(); 
+    let tx_count_str= unsafe { CStr::from_ptr(parm09_tx_count_ptr) }.to_str().unwrap(); 
 
 
     /*
@@ -701,13 +701,12 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         socketaddr!("127.0.0.1:8001")
     };
     */
-    let network = if !network_str.is_empty(){
-        let addr = network_str;
+    let network = if let Some(addr) =Some(network_str) {
         addr.parse().unwrap_or_else(|e| {
             eprintln!("failed to parse network: {}", e);
             exit(1)
         })
-    }else{
+    } else {
         socketaddr!("127.0.0.1:8001")
     };
 
@@ -716,8 +715,8 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
     let id =
         read_keypair(matches.value_of("identity").unwrap()).expect("can't read client identity");
     */
-    let id = 
-        read_keypair(identity_str).expect("can't read client identity");
+    let id =
+        read_keypair(Some(identity_str).unwrap()).expect("can't read client identity");
 
     
     /*
@@ -727,8 +726,7 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         4usize
     };
     */
-    let threads = if !threads_str.is_empty() {
-        let t = threads_str;
+    let threads = if let Some(t) = Some(threads_str) {
         t.to_string().parse().expect("can't parse threads")
     } else {
         4usize
@@ -742,8 +740,7 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         1usize
     };
     */
-    let num_nodes = if !num_nodes_str.is_empty() {
-        let n = num_nodes_str;
+    let num_nodes = if let Some(n) = Some(num_nodes_str) {
         n.to_string().parse().expect("can't parse num-nodes")
     } else {
         1usize
@@ -757,8 +754,7 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         Duration::new(std::u64::MAX, 0)
     };
     */
-    let duration = if !duration_str.is_empty() {
-        let s = duration_str;
+    let duration = if let Some(s) = Some(duration_str) {
         Duration::new(s.to_string().parse().expect("can't parse duration"), 0)
     } else {
         Duration::new(std::u64::MAX, 0)
@@ -772,8 +768,7 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         500_000
     };
     */
-    let tx_count = if !tx_count_str.is_empty() {
-        let s = tx_count_str;
+    let tx_count = if let Some(s) = Some(tx_count_str) {
         s.to_string().parse().expect("can't parse tx_count")
     } else {
         500_000
