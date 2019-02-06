@@ -6,11 +6,16 @@ use parking_lot::Mutex;
 use std::ptr::null_mut;
 
 //RusteloResult is a workaround for Rust Result data type.
+/*
 #[repr(u8)]
 pub enum RusteloResult {
     Success = 0,
     Failure = 1,
 }
+*/
+
+#[repr(u8)]
+pub type Result<T> = std::result::Result<T, Error>;
 
 pub(crate) static ERROR: Lazy<Mutex<Option<Error>>> = sync_lazy! {
     Mutex::new(None)

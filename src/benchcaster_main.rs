@@ -131,6 +131,6 @@ pub extern "C" fn benchcaster_main_entry(parm01_num_recv_sockets_ptr: *const lib
     for t_sink in sink_threads {
         t_sink.join()?;
     }
-    //Ok(())
-    RusteloResult::Success
+    Ok(())
+    //RusteloResult::Success
 }
