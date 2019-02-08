@@ -166,12 +166,20 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
             let (writer, reader) = framed.split();
 
             let processor = reader.and_then(move |bytes| {
+                /*
                 let req: DroneRequest = deserialize(&bytes).or_else(|err| {
                     Err(io::Error::new(
                         io::ErrorKind::Other,
                         format!("deserialize packet in drone: {:?}", err),
                     ))
                 })?;
+                */
+                let req: DroneRequest = deserialize(&bytes).or_else(|err| {
+                    Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("deserialize packet in drone: {:?}", err),
+                    ))
+                });
 
                 println!("Airdrop requested...");
                 // let res = drone2.lock().unwrap().check_rate_limit(client_ip);
@@ -180,7 +188,16 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
                     Ok(_) => println!("Airdrop sent!"),
                     Err(_) => println!("Request limit reached for this time slice"),
                 }
-                let response = res1?;
+                
+                //let response = res1?; replace ? operator with match
+                let response = res1;
+                match res1 {
+                    Ok(_) => println!("Respond success"),
+                    Err(_) => {println!("Respond failure");
+                               return RusteloResult::Failure;}
+                }
+
+                /*
                 println!("Airdrop tx signature: {:?}", response);
                 let response_vec = serialize(&response).or_else(|err| {
                     Err(io::Error::new(
@@ -190,6 +207,16 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
                 })?;
                 let response_bytes = Bytes::from(response_vec.clone());
                 Ok(response_bytes)
+                */
+                println!("Airdrop tx signature: {:?}", response);
+                let response_vec = serialize(&response).or_else(|err| {
+                    Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("serialize signature in drone: {:?}", err),
+                    ))
+                });
+                let response_bytes = Bytes::from(response_vec.clone());
+                RusteloResult::Success
             });
             let server = writer
                 .send_all(processor.or_else(|err| {

@@ -52,10 +52,14 @@ fn sink(exit: Arc<AtomicBool>, rvs: Arc<AtomicUsize>, r: PacketReceiver) -> Join
 }
 
 
-#[no_mangle]
+
 /// to do : rewrite benchcster 
-//pub extern "C" fn benchcaster_main_entry(parm01_num_recv_sockets_ptr: *const libc::c_char) -> RusteloResult  {
+#[no_mangle]
+pub extern "C" fn benchcaster_main_entry(parm01_num_recv_sockets_ptr: *const libc::c_char) -> RusteloResult  {
+/*
+#[no_mangle]
   pub extern "C" fn benchcaster_main_entry(parm01_num_recv_sockets_ptr: *const libc::c_char) -> Result<()>  {
+*/
     let mut num_sockets = 1usize;
 
     //handle parameters, convert ptr to &str
@@ -124,14 +128,22 @@ fn sink(exit: Arc<AtomicBool>, rvs: Arc<AtomicUsize>, r: PacketReceiver) -> Join
     println!("performance: {:?}", fcount / ftime);
     exit.store(true, Ordering::Relaxed);
     for t_reader in read_threads {
-        t_reader.join()?;
+        //t_reader.join()?;
+        t_reader.join();
     }
+    /*
     t_producer1.join()?;
     t_producer2.join()?;
     t_producer3.join()?;
+    */
+
+    t_producer1.join();
+    t_producer2.join();
+    t_producer3.join();
     for t_sink in sink_threads {
-        t_sink.join()?;
+        //t_sink.join()?;
+        t_sink.join();
     }
-    Ok(())
-    //RusteloResult::Success
+    //Ok(())
+    RusteloResult::Success
 }

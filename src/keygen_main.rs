@@ -4,9 +4,12 @@ use clap::{App, Arg};
 use buffett::wallet::gen_keypair_file;
 use std::error;
 
+/*
 #[no_mangle]
 pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> Result<(), Box<std::error::Error>> {
-//pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> RusteloResult  {
+*/
+#[no_mangle]
+pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> RusteloResult  {
 
     println!("Keymaker! - Marker 1");
     //handle parameters, convert ptr to &str
@@ -40,11 +43,12 @@ pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> 
     };
     println!("Keymaker! - Marker 4");
     println!("generate keypair, and write to {}",outfile.to_string());
-    let serialized_keypair = buffett::wallet::gen_keypair_file(outfile.to_string())?;
+    //let serialized_keypair = buffett::wallet::gen_keypair_file(outfile.to_string())?;
+    let serialized_keypair = buffett::wallet::gen_keypair_file(outfile.to_string());
     if outfile == "-" {
         println!("{}", serialized_keypair);
     }
     println!("Keymaker! - Marker 5");
-    Ok(())
-    //RusteloResult::Success
+    //Ok(())
+    RusteloResult::Success
 }
