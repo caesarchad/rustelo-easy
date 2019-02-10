@@ -129,20 +129,20 @@ pub extern "C" fn benchcaster_main_entry(parm01_num_recv_sockets_ptr: *const lib
     exit.store(true, Ordering::Relaxed);
     for t_reader in read_threads {
         //t_reader.join()?;
-        t_reader.join();
+        try_ffi!(t_reader.join());
     }
     /*
     t_producer1.join()?;
     t_producer2.join()?;
     t_producer3.join()?;
     */
-
-    t_producer1.join();
-    t_producer2.join();
-    t_producer3.join();
+    try_ffi!(t_producer1.join());
+    try_ffi!(t_producer2.join());
+    try_ffi!(t_producer3.join());
+    
     for t_sink in sink_threads {
         //t_sink.join()?;
-        t_sink.join();
+        try_ffi!(t_sink.join());
     }
     //Ok(())
     RusteloResult::Success

@@ -28,8 +28,9 @@ macro_rules! socketaddr {
     }};
 }
 
-#[no_mangle]
+//#[no_mangle]
 //pub extern "C" fn coincaster_main_entry() -> Result<(), Box<error::Error>> {
+#[no_mangle]
 pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_char,
                                         parm02_keypair_ptr:    *const libc::c_char,
                                         parm03_slice_ptr:  *const libc::c_char,
@@ -156,78 +157,66 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
 
     let socket = TcpListener::bind(&drone_addr).unwrap();
     println!("Drone started. Listening on: {}", drone_addr);
-    let done = socket
-        .incoming()
-        .map_err(|e| println!("failed to accept socket; error = {:?}", e))
-        .for_each(move |socket| {
-            let drone2 = drone.clone();
-            // let client_ip = socket.peer_addr().expect("drone peer_addr").ip();
-            let framed = BytesCodec::new().framed(socket);
-            let (writer, reader) = framed.split();
-
-            let processor = reader.and_then(move |bytes| {
-                /*
-                let req: DroneRequest = deserialize(&bytes).or_else(|err| {
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("deserialize packet in drone: {:?}", err),
-                    ))
-                })?;
-                */
-                let req: DroneRequest = deserialize(&bytes).or_else(|err| {
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("deserialize packet in drone: {:?}", err),
-                    ))
-                });
-
-                println!("Airdrop requested...");
-                // let res = drone2.lock().unwrap().check_rate_limit(client_ip);
-                let res1 = drone2.lock().unwrap().send_airdrop(req);
-                match res1 {
-                    Ok(_) => println!("Airdrop sent!"),
-                    Err(_) => println!("Request limit reached for this time slice"),
+    // Here we convert the `TcpListener` to a stream of incoming connections
+    // with the `incoming` method. We then define how to process each element in
+    // the stream with the `for_each` combinator method
+    let coincaster_server = socket.incoming().for_each(move |socket| {
+        //socket process begins here 
+        let drone2 = drone.clone();
+        // let client_ip = socket.peer_addr().expect("drone peer_addr").ip();
+        let framed = BytesCodec::new().framed(socket);
+        let (writer, reader) = framed.split();
+        // create processor
+        let processor = reader.and_then(move |bytes| {
+            let req: DroneRequest = deserialize(&bytes).or_else(|err| {
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("deserialize packet in drone: {:?}", err),
+                ))
+            })?;
+            println!("Airdrop requested...");
+            // let res = drone2.lock().unwrap().check_rate_limit(client_ip);
+            let res1 = drone2.lock().unwrap().send_airdrop(req);
+            match res1 {
+                Ok(_) => println!("Airdrop sent!"),
+                Err(_) => println!("Request limit reached for this time slice"),
+            }
+            //let response = res1?; replace ? operator with match
+            let response = res1;
+            match res1 {
+                Ok(_) => println!("Respond success"),
+                Err(_) => {
+                    println!("Respond failure");
+                    return RusteloResult::Failure;
                 }
+            }
+
                 
-                //let response = res1?; replace ? operator with match
-                let response = res1;
-                match res1 {
-                    Ok(_) => println!("Respond success"),
-                    Err(_) => {println!("Respond failure");
-                               return RusteloResult::Failure;}
-                }
-
-                /*
-                println!("Airdrop tx signature: {:?}", response);
-                let response_vec = serialize(&response).or_else(|err| {
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("serialize signature in drone: {:?}", err),
-                    ))
-                })?;
-                let response_bytes = Bytes::from(response_vec.clone());
-                Ok(response_bytes)
-                */
-                println!("Airdrop tx signature: {:?}", response);
-                let response_vec = serialize(&response).or_else(|err| {
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("serialize signature in drone: {:?}", err),
-                    ))
-                });
-                let response_bytes = Bytes::from(response_vec.clone());
-                RusteloResult::Success
-            });
-            let server = writer
-                .send_all(processor.or_else(|err| {
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
+            println!("Airdrop tx signature: {:?}", response);
+            let response_vec = serialize(&response).or_else(|err| {
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("serialize signature in drone: {:?}", err),
+                ))
+            })?;
+            let response_bytes = Bytes::from(response_vec.clone());
+            Ok(response_bytes)
+                
+                
+        });
+        // create server
+        let server = writer.send_all(processor.or_else(|err| {
+            Err(io::Error::new(io::ErrorKind::Other,
                         format!("Drone response: {:?}", err),
                     ))
-                })).then(|_| Ok(()));
+                })).then(|_| Ok(()));   
             tokio::spawn(server)
-        });
-    tokio::run(done);
+    })
+    .map_err(|coincaster_err| {
+        println!("Socket acceptance error = {:?}", coincaster_err);
+    });
+
+    tokio::run(coincaster_server);
     //Ok(())
     RusteloResult::Success
 }

@@ -28,3 +28,5 @@ pub mod propagator_main;
 pub mod upload_enhancer_main;
 pub mod wallet_main;
 pub mod rustelo_error;
+#[macro_use]
+pub mod macros;

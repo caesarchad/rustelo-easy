@@ -13,7 +13,7 @@ use crate::rustelo_error::RusteloResult;
 #[no_mangle]
 pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
                                      parm02_ledger_ptr: *const libc::c_char,) -> Result<(), Box<error::Error>> {
-*/ 
+*/
 
 #[no_mangle]
 pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
@@ -45,16 +45,17 @@ pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
 
     //cast token_str to i64
     //let tokens = value_t_or_exit!(matches, "tokens", i64);
+    //refer to https://github.com/clap-rs/clap/blob/master/src/macros.rs as the source code for macro
     let tokens = if let Some(v) = Some(tokens_str) {
-                    match v.parse::<i64>() {
-                        Ok(val) => val,
-                        Err(_)  =>
-                                ::clap::Error::value_validation_auto(
-                                format!("The argument '{}' isn't a valid value", v)).exit(),
-                    }
-                } else {
-                ::clap::Error::argument_not_found_auto("token").exit()
-                };
+        match v.parse::<i64>() {
+            Ok(val) => val,
+            Err(_)  =>
+                ::clap::Error::value_validation_auto(
+                    format!("The argument '{}' isn't a valid value", v)).exit(),
+        }
+    } else {
+        ::clap::Error::argument_not_found_auto("token").exit()
+    };
     /*
     if !tokens_str.is_empty(){
         match tokens_str.parse::<i64>(){
@@ -92,15 +93,16 @@ pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
     }
 
     //let pkcs8: Vec<u8> = serde_json::from_str(&buffer)?;
-    let pkcs8: Vec<u8> = serde_json::from_str(&buffer);
+    let pkcs8: Vec<u8> = try_ffi!(serde_json::from_str(&buffer));
+    
     let mint = Mint::new_with_pkcs8(tokens, pkcs8);
 
     /*
     let mut ledger_writer = LedgerWriter::open(&ledger_path, true)?;
     ledger_writer.write_entries(mint.create_entries())?;
     */
-    let mut ledger_writer = LedgerWriter::open(&ledger_path, true);
-    ledger_writer.write_entries(mint.create_entries());
+    let mut ledger_writer = try_ffi!(LedgerWriter::open(&ledger_path, true));
+    try_ffi!(ledger_writer.write_entries(mint.create_entries()));
 
     //Ok(())
     RusteloResult::Success
