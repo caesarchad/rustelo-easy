@@ -16,16 +16,21 @@ extern crate tokio_codec;
 extern crate influx_db_client;
 extern crate rayon;
 
+#[macro_use]
 pub mod benchcaster_main;
 pub mod benchmarker_main;
+#[macro_use]
 pub mod coincaster_main;
 pub mod fullnode_config_main;
 pub mod fullnode_main;
+#[macro_use]
 pub mod genesis_main;
+#[macro_use]
 pub mod keygen_main;
 pub mod ledgertool_main;
 pub mod propagator_main;
 pub mod upload_enhancer_main;
+#[macro_use]
 pub mod wallet_main;
 pub mod rustelo_error;
 #[macro_use]
