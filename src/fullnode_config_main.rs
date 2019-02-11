@@ -13,7 +13,9 @@ use crate::rustelo_error::RusteloResult;
 pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr: *const libc::c_char,
                                              parm02_keypair_ptr: *const libc::c_char,
                                              parm03_public_ptr: *const libc::c_char,
-                                             parm04_bind_ptr: *const libc::c_char) {
+                                             parm04_bind_ptr: *const libc::c_char){
+
+    println!("Run in fullnode_config_main_entry");
     //setup log and pannic hook
     logger::setup();
     //handle parameters, convert ptr to &str
@@ -87,14 +89,19 @@ pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr: *const libc::c_ch
         path.extend(&[".config", "solana", "id.json"]);
         path.to_str().unwrap()
     };
-
+    println!("id_path: {:?}", id_path);
 
     //read the client keypair from id file
-    let pkcs8 = read_pkcs8(id_path).expect("client keypair");
+    let pkcs8 = buffett::signature::read_pkcs8(id_path).expect("client keypair");
+    println!("pkcs8: {:?}", pkcs8);
 
     // we need all the receiving sockets to be bound within the expected
     // port range that we open on aws
-    let config = Config::new(&bind_addr, pkcs8);
+    let config = buffett::fullnode::Config::new(&bind_addr, pkcs8);
+    println!("config: {:?}", config);
+
     let stdout = io::stdout();
+    println!("stdout: {:?}",stdout);
+    
     serde_json::to_writer(stdout, &config).expect("serialize");
 }
