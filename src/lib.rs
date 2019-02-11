@@ -17,6 +17,8 @@ extern crate influx_db_client;
 extern crate rayon;
 
 #[macro_use]
+pub mod macros;
+#[macro_use]
 pub mod benchcaster_main;
 pub mod benchmarker_main;
 #[macro_use]
@@ -33,19 +35,4 @@ pub mod upload_enhancer_main;
 #[macro_use]
 pub mod wallet_main;
 pub mod rustelo_error;
-#[macro_use]
-pub mod macros;
 
-
-#[macro_export]
-macro_rules! tryfrom_ffi {
-    ($expr:expr) => {
-        match $expr {
-            Ok(expr) => expr,
-            Err(err) => {
-                println!("Expr error when running {:?}", err);
-                return crate::rustelo_error::RusteloResult::Failure;
-            }
-        }
-    };
-}
