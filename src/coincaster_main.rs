@@ -210,7 +210,7 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
                 ))
             })?;
             */
-            let response_vec = try_ffi!(serialize(&response).or_else(|err| {
+            let response_vec = tryffi!(serialize(&response).or_else(|err| {
                 Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!("serialize signature in drone: {:?}", err),
