@@ -168,12 +168,21 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
         let (writer, reader) = framed.split();
         // create processor
         let processor = reader.and_then(move |bytes| {
+            /*
             let req: DroneRequest = deserialize(&bytes).or_else(|err| {
                 Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!("deserialize packet in drone: {:?}", err),
                 ))
             })?;
+            */
+            let req: DroneRequest = tryffi!(deserialize(&bytes).or_else(|err| {
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("deserialize packet in drone: {:?}", err),
+                ))
+            }));
+
             println!("Airdrop requested...");
             // let res = drone2.lock().unwrap().check_rate_limit(client_ip);
             let res1 = drone2.lock().unwrap().send_airdrop(req);
@@ -193,23 +202,39 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
 
                 
             println!("Airdrop tx signature: {:?}", response);
+            /*
             let response_vec = serialize(&response).or_else(|err| {
                 Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!("serialize signature in drone: {:?}", err),
                 ))
             })?;
+            */
+            let response_vec = try_ffi!(serialize(&response).or_else(|err| {
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("serialize signature in drone: {:?}", err),
+                ))
+            }))
+            ;
+            
             let response_bytes = Bytes::from(response_vec.clone());
-            Ok(response_bytes)
-                
+            //Ok(response_bytes)
+            RusteloResult::Success    
                 
         });
         // create server
-        let server = writer.send_all(processor.or_else(|err| {
-            Err(io::Error::new(io::ErrorKind::Other,
-                        format!("Drone response: {:?}", err),
-                    ))
-                })).then(|_| Ok(()));   
+        let server = writer
+                    .send_all(processor.or_else(|err| {
+                        Err(io::Error::new(io::ErrorKind::Other,
+                                           format!("Drone response: {:?}", err),
+                                           )   
+                        )
+                    }))
+                    .then(|_| 
+                            //Ok(())
+                            RusteloResult::Success
+                    );   
             tokio::spawn(server)
     })
     .map_err(|coincaster_err| {

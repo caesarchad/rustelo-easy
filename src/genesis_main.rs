@@ -86,7 +86,7 @@ pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
 
     let mut buffer = String::new();
     //let num_bytes = stdin().read_to_string(&mut buffer)?;
-    let num_bytes = stdin().read_to_string(&mut buffer);
+    let num_bytes =tryffi!(stdin().read_to_string(&mut buffer));
     if num_bytes == 0 {
         eprintln!("empty file on stdin, expected a json file");
         exit(1);
