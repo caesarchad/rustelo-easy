@@ -44,7 +44,7 @@ pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> 
     println!("Keymaker! - Marker 4");
     println!("generate keypair, and write to {}",outfile.to_string());
     //let serialized_keypair = buffett::wallet::gen_keypair_file(outfile.to_string())?;
-    let serialized_keypair = try_ffi!(buffett::wallet::gen_keypair_file(outfile.to_string()));
+    let serialized_keypair = tryffi!(buffett::wallet::gen_keypair_file(outfile.to_string()));
     if outfile == "-" {
         println!("{}", serialized_keypair);
     }

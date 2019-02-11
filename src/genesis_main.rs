@@ -93,7 +93,7 @@ pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
     }
 
     //let pkcs8: Vec<u8> = serde_json::from_str(&buffer)?;
-    let pkcs8: Vec<u8> = try_ffi!(serde_json::from_str(&buffer));
+    let pkcs8: Vec<u8> = tryffi!(serde_json::from_str(&buffer));
     
     let mint = Mint::new_with_pkcs8(tokens, pkcs8);
 
@@ -101,8 +101,8 @@ pub extern "C" fn genesis_main_entry(parm01_tokens_ptr: *const libc::c_char,
     let mut ledger_writer = LedgerWriter::open(&ledger_path, true)?;
     ledger_writer.write_entries(mint.create_entries())?;
     */
-    let mut ledger_writer = try_ffi!(LedgerWriter::open(&ledger_path, true));
-    try_ffi!(ledger_writer.write_entries(mint.create_entries()));
+    let mut ledger_writer = tryffi!(LedgerWriter::open(&ledger_path, true));
+    tryffi!(ledger_writer.write_entries(mint.create_entries()));
 
     //Ok(())
     RusteloResult::Success
