@@ -1,7 +1,5 @@
 #[macro_export]
-
-
-macro_rules! try_ffi {
+macro_rules! tryffi {
     ($expr:expr) => {
         match $expr {
             Ok(expr) => expr,
