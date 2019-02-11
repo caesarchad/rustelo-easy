@@ -16,7 +16,7 @@ pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> 
     RusteloResult::Success
 }
 
-fn main_entry(outfile_str:str) -> Result<(), Box<error::Error>> {
+fn main_entry(outfile_str:&str) -> Result<(), Box<error::Error>> {
     let mut path = dirs::home_dir().expect("home directory");
     let outfile = if !outfile_str.is_empty() {
         Some(outfile_str).unwrap()
