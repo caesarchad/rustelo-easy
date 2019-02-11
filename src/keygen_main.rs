@@ -4,51 +4,30 @@ use clap::{App, Arg};
 use buffett::wallet::gen_keypair_file;
 use std::error;
 
-/*
-#[no_mangle]
-pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> Result<(), Box<std::error::Error>> {
-*/
+
 #[no_mangle]
 pub extern "C" fn keygen_main_entry(parm01_outfile_ptr: *const libc::c_char) -> RusteloResult  {
 
-    println!("Keymaker! - Marker 1");
     //handle parameters, convert ptr to &str
     let outfile_str = unsafe {CStr::from_ptr(parm01_outfile_ptr)}.to_str().unwrap();
-    println!("Keymaker! - Marker 2");
-    /*
-    let matches = clap::App::new("buffett-keymaker")
-        .version(crate_version!())
-        .arg(
-            clap::Arg::with_name("outfile")
-                .short("o")
-                .long("outfile")
-                .value_name("PATH")
-                .takes_value(true)
-                .help("Path to generated file"),
-        ).get_matches();
-    */
 
+    main_entry(outfile_str);
+    
+    RusteloResult::Success
+}
+
+fn main_entry(outfile_str:str) -> Result<(), Box<error::Error>> {
     let mut path = dirs::home_dir().expect("home directory");
-
-    println!("Keymaker! - Marker 3");
-    //let outfile = if matches.is_present("outfile") {
     let outfile = if !outfile_str.is_empty() {
-        println!("argument outfile is present ");
-        //matches.value_of("outfile").unwrap()
-        outfile_str
+        Some(outfile_str).unwrap()
     } else {
-        println!("argument outfile is not present ");
         path.extend(&[".config", "solana", "id.json"]);
         path.to_str().unwrap()
     };
-    println!("Keymaker! - Marker 4");
-    println!("generate keypair, and write to {}",outfile.to_string());
-    //let serialized_keypair = buffett::wallet::gen_keypair_file(outfile.to_string())?;
-    let serialized_keypair = tryffi!(buffett::wallet::gen_keypair_file(outfile.to_string()));
+
+    let serialized_keypair = gen_keypair_file(outfile.to_string())?;
     if outfile == "-" {
         println!("{}", serialized_keypair);
     }
-    println!("Keymaker! - Marker 5");
-    //Ok(())
-    RusteloResult::Success
+    Ok(())
 }
