@@ -9,7 +9,8 @@ extern "C" {
 extern void fullnode_config_main_entry(char *local,
                                        char *keypair,
                                        char *public,
-                                       char *bind);
+                                       char *bind,
+                                       char *outfile);
 
 #ifdef __cplusplus
 }

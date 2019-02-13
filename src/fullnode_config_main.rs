@@ -10,12 +10,13 @@ use std::ffi::CStr;
 use crate::rustelo_error::RusteloResult;
 
 #[no_mangle]
-pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr: *const libc::c_char,
-                                             parm02_keypair_ptr: *const libc::c_char,
-                                             parm03_public_ptr: *const libc::c_char,
-                                             parm04_bind_ptr: *const libc::c_char){
+pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr:      *const libc::c_char,
+                                             parm02_keypair_ptr:    *const libc::c_char,
+                                             parm03_public_ptr:     *const libc::c_char,
+                                             parm04_bind_ptr:       *const libc::c_char,
+                                             parm05_outfile_ptr:    *const libc::c_char){
 
-    println!("Run in fullnode_config_main_entry");
+    //eprintln!("Run in fullnode_config_main_entry");
     //setup log and pannic hook
     logger::setup();
     //handle parameters, convert ptr to &str
@@ -23,6 +24,7 @@ pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr: *const libc::c_ch
     let keypair_str= unsafe { CStr::from_ptr(parm02_keypair_ptr) }.to_str().unwrap(); 
     let public_str= unsafe { CStr::from_ptr(parm03_public_ptr) }.to_str().unwrap(); 
     let bind_str= unsafe { CStr::from_ptr(parm04_bind_ptr) }.to_str().unwrap();
+    let outfile_str= unsafe { CStr::from_ptr(parm05_outfile_ptr) }.to_str().unwrap();
     /*let matches = App::new("fullnode-config")
         .version(crate_version!())
         .arg(
@@ -98,7 +100,23 @@ pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr: *const libc::c_ch
     // port range that we open on aws
     let config = buffett::fullnode::Config::new(&bind_addr, pkcs8);
     
-    let stdout = io::stdout();
-    
-    serde_json::to_writer(stdout, &config).expect("serialize");
+    //let stdout = io::stdout();
+    write_outfile(&config,outfile_str.to_string());
+    //serde_json::to_writer(stdout, &config).expect("serialize");
+}
+
+fn write_outfile(config: &Config, outfile: String) -> std::result::Result<String, Box<error::Error>> {
+    // some data structure.
+    let serialized = serde_json::to_string(&config)?;
+
+    if outfile != "-" {
+        if let Some(outdir) = std::path::Path::new(&outfile).parent() {
+            fs::create_dir_all(outdir)?;
+        }
+        let mut f = std::fs::File::create(outfile)?;
+        f.write_all(&serialized.clone().into_bytes())?;
+    }
+
+    Ok(serialized)
+
 }
