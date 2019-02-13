@@ -110,7 +110,8 @@ pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr:      *const libc:
 fn write_outfile(config: &Config, outfile: String) -> std::result::Result<String, Box<error::Error>> {
     // some data structure.
     let serialized = serde_json::to_string(&config)?;
-
+    
+    
     if outfile != "-" {
         if let Some(outdir) = std::path::Path::new(&outfile).parent() {
             std::fs::create_dir_all(outdir)?;
