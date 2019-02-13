@@ -102,6 +102,8 @@ pub extern "C" fn fullnode_config_main_entry(parm01_local_ptr:      *const libc:
     // port range that we open on aws
     let config = buffett::fullnode::Config::new(&bind_addr, pkcs8);
     
+    // print out the config 
+    println!("{:?}", config);
     //let stdout = io::stdout();
     write_outfile(&config,outfile_str.to_string());
     //serde_json::to_writer(stdout, &config).expect("serialize");
