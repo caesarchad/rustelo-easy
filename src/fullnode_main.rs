@@ -32,6 +32,10 @@ pub extern "C" fn fullnode_main_entry(parm01_identity_ptr: *const libc::c_char,
     let network_str =  unsafe { CStr::from_ptr(parm02_network_ptr) }.to_str().unwrap(); 
     let ledger_str =  unsafe { CStr::from_ptr(parm03_ledger_ptr) }.to_str().unwrap(); 
     
+    println!("identity:{:?}", identity_str);
+    println!("network:{:?}", network_str);
+    println!("ledger:{:?}", ledger_str);
+    
     /*let matches = App::new("fullnode")
         .version(crate_version!())
         .arg(
