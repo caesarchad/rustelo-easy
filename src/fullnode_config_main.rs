@@ -6,6 +6,7 @@ use buffett::netutil::{get_ip_addr, get_public_ip_addr, parse_port_or_addr};
 use buffett::signature::read_pkcs8;
 use std::io;
 use std::io::{Error, ErrorKind, Write};
+use std::{error, fmt, mem};
 use std::net::SocketAddr;
 use std::ffi::CStr;
 use crate::rustelo_error::RusteloResult;
@@ -112,7 +113,7 @@ fn write_outfile(config: &Config, outfile: String) -> std::result::Result<String
 
     if outfile != "-" {
         if let Some(outdir) = std::path::Path::new(&outfile).parent() {
-            fs::create_dir_all(outdir)?;
+            std::fs::create_dir_all(outdir)?;
         }
         let mut f = std::fs::File::create(outfile)?;
         f.write_all(&serialized.clone().into_bytes())?;
