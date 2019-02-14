@@ -43,7 +43,7 @@ pub extern "C" fn coincaster_main_entry(parm01_network_ptr:    *const libc::c_ch
 
     
 
-    let rc = main_entry(network_str,keypair_str,slice_str,cap_str);
+    let _rc = main_entry(network_str,keypair_str,slice_str,cap_str);
     
     RusteloResult::Success
 }
@@ -55,6 +55,7 @@ fn main_entry(network_str:&str,
     logger::setup();
     set_panic_hook("drone");
     
+    // parse the network  
     let network = Some(network_str)
         .unwrap()
         .parse()
@@ -63,22 +64,27 @@ fn main_entry(network_str:&str,
             exit(1)
         });
 
+    // parse the keypair  
     let mint_keypair =
         read_keypair(Some(keypair_str).unwrap()).expect("failed to read client keypair");
 
+    // parse the time slice 
     let time_slice: Option<u64>;
-    if let Some(secs) = Some(slice_str) {
-        time_slice = Some(secs.to_string().parse().expect("failed to parse slice"));
+    if !slice_str.is_empty(){
+        time_slice = Some(slice_str.to_string().parse().expect("failed to parse slice"));
     } else {
         time_slice = None;
     }
+
+    // parse the requeset cap
     let request_cap: Option<u64>;
-    if let Some(c) =Some(cap_str) {
-        request_cap = Some(c.to_string().parse().expect("failed to parse cap"));
+    if !cap_str.is_empty() {
+        request_cap = Some(cap_str.to_string().parse().expect("failed to parse cap"));
     } else {
         request_cap = None;
     }
 
+    // parse the address for the coincaster
     let drone_addr = socketaddr!(0, DRONE_PORT);
 
     let drone = Arc::new(Mutex::new(Drone::new(
