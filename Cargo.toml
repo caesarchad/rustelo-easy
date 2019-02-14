@@ -60,22 +60,22 @@ mbox = "0.5.0"
 paste = "0.1"
 buffett = {path="buffett"}
 
-#solana-sdk = { path = "sdk", version = "0.10.0" }
-#solana-jsonrpc-core = "0.3.0"
-#solana-jsonrpc-http-server = "0.3.0"
-#solana-jsonrpc-macros = "0.3.0"
-#solana-jsonrpc-pubsub = "0.3.0"
-#solana-jsonrpc-ws-server = "0.3.0"
-#solana-noop = { path = "programs/native/noop", version = "0.10.0" }
-#solana-bpfloader = { path = "programs/native/bpf_loader", version = "0.10.0" }
-#solana-lualoader = { path = "programs/native/lua_loader", version = "0.10.0" }
+# solana-sdk = { path = "sdk", version = "0.10.0" }
+# solana-jsonrpc-core = "0.3.0"
+# solana-jsonrpc-http-server = "0.3.0"
+# solana-jsonrpc-macros = "0.3.0"
+# solana-jsonrpc-pubsub = "0.3.0"
+# solana-jsonrpc-ws-server = "0.3.0"
+# solana-noop = { path = "programs/native/noop", version = "0.10.0" }
+# solana-bpfloader = { path = "programs/native/bpf_loader", version = "0.10.0" }
+# solana-lualoader = { path = "programs/native/lua_loader", version = "0.10.0" }
 
-[profile.release]
-lto = true                   #Link Time Optimization for LLVM, reduce size, increase compilation time
-codegen-units = 1            #code generation units  (the current default) when using rustc with
+# [profile.release]
+# lto = true                   #Link Time Optimization for LLVM, reduce size, increase compilation time
+# codegen-units = 1            #code generation units  (the current default) when using rustc with
                              #--opt-level=2 (a.k.a -O) or --opt-level=3.
                              # opt-level means Optimization Level for LLVM, can refer to this 
                              # http://clang-developers.42468.n3.nabble.com/Meaning-of-LLVM-optimization-levels-td4032493.html#a4032674
-panic = 'abort'
-incremental = false
-debug = true
+# panic = 'abort'
+# incremental = false
+# debug = true
