@@ -727,7 +727,7 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
     };
     */
     let threads = if !threads_str.is_empty() {
-        threads_str.to_string().parse().expect("can't parse threads")
+        threads_str.to_string().parse::<usize>().expect("can't parse threads")
     } else {
         4usize
     };
@@ -740,8 +740,8 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         1usize
     };
     */
-    let num_nodes = if num_nodes_str.is_empty() {
-        num_nodes_str.to_string().parse().expect("can't parse num-nodes")
+    let num_nodes = if !num_nodes_str.is_empty() {
+        num_nodes_str.to_string().parse::<usize>().expect("can't parse num-nodes")
     } else {
         1usize
     };
@@ -755,7 +755,7 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
     };
     */
     let duration = if !duration_str.is_empty() {
-        Duration::new(duration_str.to_string().parse().expect("can't parse duration"), 0)
+        Duration::new(duration_str.to_string().parse::<u64>().expect("can't parse duration"), 0)
     } else {
         Duration::new(std::u64::MAX, 0)
     };
@@ -769,7 +769,7 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
     };
     */
     let tx_count = if !tx_count_str.is_empty() {
-        tx_count_str.to_string().parse().expect("can't parse tx_count")
+        tx_count_str.to_string().parse::<i64>().expect("can't parse tx_count")
     } else {
         500_000
     };
