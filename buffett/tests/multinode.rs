@@ -502,7 +502,7 @@ fn test_leader_restart_validator_start_from_old_ledger() -> result::Result<()> {
 
     let (alice, ledger_path, _) = genesis(
         "leader_restart_validator_start_from_old_ledger",
-        100_000 + 500 * solana::window_service::MAX_REPAIR_BACKOFF as i64,
+        100_000 + 500 * buffett::window_service::MAX_REPAIR_BACKOFF as i64,
     );
     let bob_pubkey = Keypair::new().pubkey();
 
@@ -551,7 +551,7 @@ fn test_leader_restart_validator_start_from_old_ledger() -> result::Result<()> {
     //   send requests so the validator eventually sees a gap and requests a repair
     let mut expected = 1500;
     let mut client = mk_client(&validator_data);
-    for _ in 0..solana::window_service::MAX_REPAIR_BACKOFF {
+    for _ in 0..buffett::window_service::MAX_REPAIR_BACKOFF {
         let leader_balance =
             send_tx_and_retry_get_balance(&leader_data, &alice, &bob_pubkey, 500, Some(expected))
                 .unwrap();
@@ -581,7 +581,7 @@ fn test_leader_restart_validator_start_from_old_ledger() -> result::Result<()> {
 fn test_multi_node_dynamic_network() {
     logger::setup();
     assert!(cfg!(feature = "test"));
-    let key = "SOLANA_DYNAMIC_NODES";
+    let key = "BUFFETT_DYNAMIC_NODES";
     let num_nodes: usize = match env::var(key) {
         Ok(val) => val
             .parse()
