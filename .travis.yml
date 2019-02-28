@@ -2,5 +2,7 @@ language: rust
 rust:
   - 1.32.0
 script:
-  - cargo build --verbose all
+  - cd buffett && cargo build 
+  - cargo build --all --verbose
   - cargo test --verbose --all
+ 
