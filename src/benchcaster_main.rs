@@ -1,5 +1,5 @@
 use clap::{App, Arg};
-use buffett::netutil::bind_to;
+use buffett_netutil::bind_to;
 use buffett::packet::{Packet, SharedPackets, BLOB_SIZE, PACKET_DATA_SIZE};
 use buffett::result::Result;
 use buffett::streamer::{receiver, PacketReceiver};
