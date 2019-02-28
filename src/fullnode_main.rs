@@ -18,6 +18,14 @@ use std::ffi::c_void; //use ffi c_void
 use std::ffi::CStr;
 use crate::rustelo_error::RusteloResult;
 
+fn create_network(_network_str: &str) -> Option<std::net::SocketAddr> {
+        if _network_str.is_empty(){
+            None
+        } else {
+            Some(_network_str).map(|network| network.parse::<std::net::SocketAddr>().expect("failed to parse network address"))
+        }
+    }
+
 #[no_mangle]
 pub extern "C" fn fullnode_main_entry(parm01_identity_ptr: *const libc::c_char,
                                       parm02_network_ptr: *const libc::c_char,
@@ -109,9 +117,8 @@ pub extern "C" fn fullnode_main_entry(parm01_identity_ptr: *const libc::c_char,
         .value_of("network")
         .map(|network| network.parse().expect("failed to parse network address"));
     */
-    let network = Some(network_str)
-        .map(|network| network.parse().expect("failed to parse network address"));
-
+    let network =create_network(network_str);
+    
     let node = Node::new_with_external_ip(keypair.pubkey(), &ncp);
 
     // save off some stuff for airdrop

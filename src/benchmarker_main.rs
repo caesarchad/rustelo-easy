@@ -1,5 +1,5 @@
 //benchmarker for test net performance
-use clap::{App, Arg};
+//use clap::{App, Arg};
 use influx_db_client as influxdb;
 use rayon::prelude::*;
 use buffett::client::mk_client;
@@ -726,8 +726,8 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         4usize
     };
     */
-    let threads = if let Some(t) = Some(threads_str) {
-        t.to_string().parse().expect("can't parse threads")
+    let threads = if !threads_str.is_empty() {
+        threads_str.to_string().parse::<usize>().expect("can't parse threads")
     } else {
         4usize
     };
@@ -740,8 +740,8 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         1usize
     };
     */
-    let num_nodes = if let Some(n) = Some(num_nodes_str) {
-        n.to_string().parse().expect("can't parse num-nodes")
+    let num_nodes = if !num_nodes_str.is_empty() {
+        num_nodes_str.to_string().parse::<usize>().expect("can't parse num-nodes")
     } else {
         1usize
     };
@@ -754,8 +754,8 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         Duration::new(std::u64::MAX, 0)
     };
     */
-    let duration = if let Some(s) = Some(duration_str) {
-        Duration::new(s.to_string().parse().expect("can't parse duration"), 0)
+    let duration = if !duration_str.is_empty() {
+        Duration::new(duration_str.to_string().parse::<u64>().expect("can't parse duration"), 0)
     } else {
         Duration::new(std::u64::MAX, 0)
     };
@@ -768,8 +768,8 @@ pub extern "C" fn benchmarker_main_entry(parm01_network_ptr: *const libc::c_char
         500_000
     };
     */
-    let tx_count = if let Some(s) = Some(tx_count_str) {
-        s.to_string().parse().expect("can't parse tx_count")
+    let tx_count = if !tx_count_str.is_empty() {
+        tx_count_str.to_string().parse::<i64>().expect("can't parse tx_count")
     } else {
         500_000
     };
