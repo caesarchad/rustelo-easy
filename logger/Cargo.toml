@@ -1,0 +1,15 @@
+[package]
+name = "buffett-logger"
+version = "0.2"
+description = "Logging facility for Biconch chain"
+authors = ["Bitconch Core Dev"]
+repository = "https://github.com/bitconch/bus"
+license = "Apache-2.0"
+homepage = "https://bitconch.io/"
+edition = "2018"
+
+[dependencies]
+env_logger = "0.6.0"
+
+[lib]
+name = "buffett_logger"
