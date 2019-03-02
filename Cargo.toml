@@ -6,7 +6,8 @@ edition = "2018"
 description = "Call Rust Code in Go, in an easy way."
 
 [lib]
-crate-type = ["cdylib"] # refer to https://doc.rust-lang.org/reference/linkage.html
+crate-type = ["staticlib"]
+# crate-type = ["cdylib"]   # refer to https://doc.rust-lang.org/reference/linkage.html
                            # staticlib means a static library will be built 
                            # The static library is actually an *.a archive on linux and osx 
                            #                                    and a *.lib file on windows. 
@@ -70,12 +71,12 @@ buffett = {path="buffett"}
 # solana-bpfloader = { path = "programs/native/bpf_loader", version = "0.10.0" }
 # solana-lualoader = { path = "programs/native/lua_loader", version = "0.10.0" }
 
-# [profile.release]
-# lto = true                   #Link Time Optimization for LLVM, reduce size, increase compilation time
-# codegen-units = 1            #code generation units  (the current default) when using rustc with
+[profile.release]
+lto = true                   #Link Time Optimization for LLVM, reduce size, increase compilation time
+codegen-units = 1            #code generation units  (the current default) when using rustc with
                              #--opt-level=2 (a.k.a -O) or --opt-level=3.
                              # opt-level means Optimization Level for LLVM, can refer to this 
                              # http://clang-developers.42468.n3.nabble.com/Meaning-of-LLVM-optimization-levels-td4032493.html#a4032674
-# panic = 'abort'
-# incremental = false
-# debug = true
+panic = 'abort'
+incremental = false
+debug = true
