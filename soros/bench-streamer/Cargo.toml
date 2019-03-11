@@ -9,7 +9,7 @@ homepage = "https://bitconch.io/"
 
 [dependencies]
 clap = "2.32.0"
-soros = { path = "..", version = "0.12.0" }
+bitconch = { path = "..", version = "0.12.0" }
 bitconch-logger = { path = "../logger", version = "0.12.0" }
 bitconch-netutil = { path = "../netutil", version = "0.12.0" }
 

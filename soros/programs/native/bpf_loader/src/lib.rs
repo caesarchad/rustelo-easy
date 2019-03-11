@@ -3,7 +3,7 @@ pub mod bpf_verifier;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use libc::c_char;
 use log::*;
-use bitconch_rbpf::{EbpfVmRaw, MemoryRegion};
+use solana_rbpf::{EbpfVmRaw, MemoryRegion};
 use bitconch_sdk::account::KeyedAccount;
 use bitconch_sdk::loader_instruction::LoaderInstruction;
 use bitconch_sdk::native_program::ProgramError;
