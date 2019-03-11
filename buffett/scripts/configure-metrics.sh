@@ -1,10 +1,10 @@
 # |source| this file
 #
-# The SOLANA_METRICS_CONFIG environment variable is formatted as a
+# The BITCONCH_DASHBOARD_CONFIG environment variable is formatted as a
 # comma-delimited list of parameters. All parameters are optional.
 #
 # Example:
-#   export SOLANA_METRICS_CONFIG="host=<metrics host>,db=<database name>,u=<username>,p=<password>"
+#   export BITCONCH_DASHBOARD_CONFIG="host=<metrics host>,db=<database name>,u=<username>,p=<password>"
 #
 # The following directive disable complaints about unused variables in this
 # file:
@@ -13,10 +13,10 @@
 metricsWriteDatapoint="$(dirname "${BASH_SOURCE[0]}")"/metrics-write-datapoint.sh
 
 configureMetrics() {
-  [[ -n $SOLANA_METRICS_CONFIG ]] || return 0
+  [[ -n $BITCONCH_DASHBOARD_CONFIG ]] || return 0
 
   declare metricsParams
-  IFS=',' read -r -a metricsParams <<< "$SOLANA_METRICS_CONFIG"
+  IFS=',' read -r -a metricsParams <<< "$BITCONCH_DASHBOARD_CONFIG"
   for param in "${metricsParams[@]}"; do
     IFS='=' read -r -a pair <<< "$param"
     if [[ ${#pair[@]} != 2 ]]; then
