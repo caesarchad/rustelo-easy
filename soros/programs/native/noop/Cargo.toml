@@ -1,0 +1,19 @@
+[package]
+name = "bitconch-noop"
+version = "0.12.0"
+description = "Bitconch noop program"
+authors = ["Bitconch Dev <info@bitconch.io>"]
+repository = "https://github.com/bitconch/bus"
+license = "Apache-2.0"
+homepage = "https://bitconch.io/"
+edition = "2018"
+
+[dependencies]
+bitconch-sdk = { path = "../../../sdk", version = "0.12.0" }
+bitconch-logger = { path = "../../../logger", version = "0.12.0" }
+log = "0.4.2"
+
+[lib]
+name = "noop"
+crate-type = ["cdylib"]
+

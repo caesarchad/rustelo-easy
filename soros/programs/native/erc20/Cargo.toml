@@ -1,0 +1,22 @@
+[package]
+name = "bitconch-erc20"
+version = "0.12.0"
+description = "Bitconch reference erc20 program"
+authors = ["Bitconch Dev <info@bitconch.io>"]
+repository = "https://github.com/bitconch/bus"
+license = "Apache-2.0"
+homepage = "https://bitconch.io/"
+edition = "2018"
+
+[dependencies]
+bincode = "1.1.2"
+log = "0.4.2"
+serde = "1.0.88"
+serde_derive = "1.0.88"
+bitconch-logger = { path = "../../../logger", version = "0.12.0" }
+bitconch-sdk = { path = "../../../sdk", version = "0.12.0" }
+
+[lib]
+name = "bitconch_erc20"
+crate-type = ["cdylib"]
+

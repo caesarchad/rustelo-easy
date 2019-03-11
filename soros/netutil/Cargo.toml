@@ -1,0 +1,27 @@
+[package]
+name = "bitconch-netutil"
+version = "0.12.0"
+description = "Bitconch Network Utilities"
+authors = ["Bitconch Dev <info@bitconch.io>"]
+repository = "https://github.com/bitconch/bus"
+license = "Apache-2.0"
+homepage = "https://bitconch.io/"
+edition = "2018"
+
+[features]
+ipv6 = []
+
+[dependencies]
+log = "0.4.2"
+ipnetwork = "0.12.7"
+nix = "0.12.0"
+pnet_datalink = "0.21.0"
+rand = "0.6.1"
+reqwest = "0.9.0"
+socket2 = "0.3.8"
+
+[dev-dependencies]
+bitconch-logger = { path = "../logger", version = "0.12.0" }
+
+[lib]
+name = "bitconch_netutil"

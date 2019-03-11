@@ -1,0 +1,17 @@
+[package]
+authors = ["Bitconch Dev"]
+edition = "2018"
+name = "bitconch-bench-streamer"
+version = "0.12.0"
+repository = "https://github.com/bitconch/bus"
+license = "Apache-2.0"
+homepage = "https://bitconch.io/"
+
+[dependencies]
+clap = "2.32.0"
+soros = { path = "..", version = "0.12.0" }
+bitconch-logger = { path = "../logger", version = "0.12.0" }
+bitconch-netutil = { path = "../netutil", version = "0.12.0" }
+
+[features]
+cuda = ["bitconch/cuda"]

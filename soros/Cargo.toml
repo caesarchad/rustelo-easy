@@ -1,0 +1,117 @@
+[package]
+name = "bitconch"
+description = "Blockchain, Rebuilt for Scale"
+version = "0.12.0"
+documentation = "https://docs.rs/bitconch"
+homepage = "https://bitconch.io/"
+readme = "README.md"
+repository = "https://github.com/bitconch/bus"
+authors = ["Bitconch Dev <info@bitconch.io>"]
+license = "Apache-2.0"
+edition = "2018"
+
+[badges]
+codecov = { repository = "bitconch-labs/bitconch", branch = "master", service = "github" }
+
+[features]
+chacha = []
+cuda = []
+erasure = []
+ipv6 = ["bitconch-netutil/ipv6"]
+test = []
+unstable = []
+
+[dependencies]
+bincode = "1.1.2"
+bs58 = "0.2.0"
+byteorder = "1.3.1"
+chrono = { version = "0.4.0", features = ["serde"] }
+hashbrown = "0.1.8"
+indexmap = "1.0"
+itertools = "0.8.0"
+jsonrpc-core = "10.1.0"
+jsonrpc-derive = "10.1.0"
+jsonrpc-http-server = "10.1.0"
+jsonrpc-pubsub = "10.1.0"
+jsonrpc-ws-server = "10.1.0"
+libc = "0.2.49"
+log = "0.4.2"
+nix = "0.13.0"
+rand = "0.6.5"
+rand_chacha = "0.1.1"
+rayon = "1.0.0"
+reqwest = "0.9.10"
+ring = "0.13.2"
+rocksdb = "0.11.0"
+serde = "1.0.88"
+serde_derive = "1.0.88"
+serde_json = "1.0.38"
+bitconch-drone = { path = "drone", version = "0.12.0" }
+bitconch-logger = { path = "logger", version = "0.12.0" }
+bitconch-metrics = { path = "metrics", version = "0.12.0" }
+bitconch-netutil = { path = "netutil", version = "0.12.0" }
+bitconch-runtime = { path = "runtime", version = "0.12.0" }
+bitconch-sdk = { path = "sdk", version = "0.12.0" }
+bitconch-vote-signer = { path = "vote-signer", version = "0.12.0" }
+sys-info = "0.5.6"
+tokio = "0.1"
+tokio-codec = "0.1"
+untrusted = "0.6.2"
+
+[dev-dependencies]
+hex-literal = "0.1.3"
+matches = "0.1.6"
+bitconch-vote-program = { path = "programs/native/vote", version = "0.12.0" }
+bitconch-budget-program = { path = "programs/native/budget", version = "0.12.0" }
+
+[[bench]]
+name = "banking_stage"
+
+[[bench]]
+name = "blocktree"
+
+[[bench]]
+name = "ledger"
+
+[[bench]]
+name = "gen_keys"
+
+[[bench]]
+name = "sigverify"
+
+[[bench]]
+required-features = ["chacha"]
+name = "chacha"
+
+[workspace]
+members = [
+    ".",
+    "bench-streamer",
+    "bench-tps",
+    "drone",
+    "fullnode",
+    "fullnode-config",
+    "genesis",
+    "keygen",
+    "ledger-tool",
+    "logger",
+    "metrics",
+    "programs",
+    "programs/native/bpf_loader",
+    "programs/native/budget",
+    "programs/native/erc20",
+    "programs/native/failure",
+    "programs/native/native_loader",
+    "programs/native/noop",
+    "programs/native/rewards",
+    "programs/native/rewards_api",
+    "programs/native/storage",
+    "programs/native/system",
+    "programs/native/vote",
+    "replicator",
+    "sdk",
+    "upload-perf",
+    "vote-signer",
+    "wallet",
+]
+exclude = ["programs/bpf/rust/noop"]

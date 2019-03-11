@@ -1,0 +1,23 @@
+[package]
+name = "bitconch-metrics"
+version = "0.12.0"
+description = "Bitconch Metrics"
+authors = ["Bitconch Dev <info@bitconch.io>"]
+repository = "https://github.com/bitconch/bus"
+license = "Apache-2.0"
+homepage = "https://bitconch.io/"
+edition = "2018"
+
+[dependencies]
+influx_db_client = "0.3.6"
+log = "0.4.2"
+reqwest = "0.9.10"
+lazy_static = "1.3.0"
+sys-info = "0.5.6"
+bitconch-sdk = { path = "../sdk", version = "0.12.0" }
+
+[dev-dependencies]
+rand = "0.6.5"
+
+[lib]
+name = "bitconch_metrics"

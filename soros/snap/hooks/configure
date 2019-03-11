@@ -1,0 +1,44 @@
+#!/bin/bash -e
+
+echo Stopping daemons
+snapctl stop --disable bitconch.daemon-drone
+snapctl stop --disable bitconch.daemon-bootstrap-leader
+snapctl stop --disable bitconch.daemon-fullnode
+snapctl stop --disable bitconch.daemon-oom-monitor
+snapctl stop --disable bitconch.daemon-net-stats
+
+mode="$(snapctl get mode)"
+if [[ -z "$mode" ]]; then
+  exit 0
+fi
+
+skipSetup="$(snapctl get skip-setup)"
+if [[ "$skipSetup" != true ]]; then
+  numTokens="$(snapctl get num-tokens)"
+  numTokens="${numTokens:+-n $numTokens}"
+
+  setupArgs="$(snapctl get setup-args)"
+  "$SNAP"/multinode-demo/setup.sh $numTokens -p $setupArgs
+else
+  echo Setup skipped
+fi
+
+case $mode in
+bootstrap-leader+drone)
+  snapctl start --enable bitconch.daemon-drone
+  snapctl start --enable bitconch.daemon-bootstrap-leader
+  ;;
+bootstrap-leader)
+  snapctl start --enable bitconch.daemon-bootstrap-leader
+  ;;
+fullnode)
+  snapctl start --enable bitconch.daemon-fullnode
+  ;;
+*)
+  echo "Error: Unknown mode: $mode"
+  exit 1
+  ;;
+esac
+
+snapctl start --enable bitconch.daemon-oom-monitor
+snapctl start --enable bitconch.daemon-net-stats

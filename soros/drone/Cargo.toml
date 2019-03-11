@@ -1,0 +1,34 @@
+[package]
+name = "bitconch-drone"
+version = "0.12.0"
+description = "Bitconch Drone"
+authors = ["Bitconch Dev <info@bitconch.io>"]
+repository = "https://github.com/bitconch/bus"
+license = "Apache-2.0"
+homepage = "https://bitconch.io/"
+edition = "2018"
+
+[features]
+cuda = []
+
+[dependencies]
+bincode = "1.1.2"
+bytes = "0.4"
+byteorder = "1.3.1"
+clap = "2.31"
+log = "0.4.2"
+serde = "1.0.88"
+serde_derive = "1.0.88"
+bitconch-logger = { path = "../logger", version = "0.12.0" }
+bitconch-sdk = { path = "../sdk", version = "0.12.0" }
+bitconch-metrics = { path = "../metrics", version = "0.12.0" }
+tokio = "0.1"
+tokio-codec = "0.1"
+
+[lib]
+name = "bitconch_drone"
+crate-type = ["lib"]
+
+[[bin]]
+name = "bitconch-drone"
+path = "src/bin/drone.rs"
