@@ -12,8 +12,8 @@ if len(sys.argv) != 3:
 
 dashboard_json = sys.argv[1]
 channel = sys.argv[2]
-if channel not in ['edge', 'beta', 'stable']:
-    print('Error: Unknown channel:', channel)
+if channel not in ['nightly', 'beta', 'stable']:
+    print('Err!:The build parameter is not any known type (nightly, beta or stable)', channel)
     sys.exit(2)
 
 with open(dashboard_json, 'r') as read_file:
