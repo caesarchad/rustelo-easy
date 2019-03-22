@@ -23,7 +23,7 @@ $ok || {
   exit 1
 }
 
-entryStreamSocket=
+entryStreamSocket=/tmp/bitconch-blockstream.sock
 while [[ -n $1 ]]; do
   if [[ $1 = --entry-stream ]]; then
     entryStreamSocket=$2
