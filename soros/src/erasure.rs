@@ -502,7 +502,7 @@ fn categorize_blob(
 pub mod test {
     use super::*;
     use crate::blocktree::get_tmp_ledger_path;
-    use crate::blocktree::Blocktree;
+    use crate::blocktree::{Blocktree, DEFAULT_SLOT_HEIGHT};
     use crate::entry::{make_tiny_test_entries, EntrySlice};
 
     use crate::packet::{index_blobs, SharedBlob, BLOB_DATA_SIZE, BLOB_SIZE};
@@ -889,7 +889,7 @@ pub mod test {
         }
 
         // Make some dummy slots
-        index_blobs(&blobs, &mut (offset as u64), slot);
+        index_blobs(&blobs, &mut (offset as u64), &vec![slot; blobs.len()]);
 
         for b in blobs {
             let idx = b.read().unwrap().index() as usize % WINDOW_SIZE;
@@ -902,7 +902,11 @@ pub mod test {
     fn generate_test_blobs(offset: usize, num_blobs: usize) -> Vec<SharedBlob> {
         let blobs = make_tiny_test_entries(num_blobs).to_shared_blobs();
 
-        index_blobs(&blobs, &mut (offset as u64), 0);
+        index_blobs(
+            &blobs,
+            &mut (offset as u64),
+            &vec![DEFAULT_SLOT_HEIGHT; blobs.len()],
+        );
         blobs
     }
 
@@ -950,7 +954,7 @@ pub mod test {
         // Setup the window
         let offset = 0;
         let num_blobs = NUM_DATA + 2;
-        let mut window = setup_window_ledger(offset, num_blobs, true, 0);
+        let mut window = setup_window_ledger(offset, num_blobs, true, DEFAULT_SLOT_HEIGHT);
 
         // Test erasing a data block
         let erase_offset = offset % window.len();
@@ -960,7 +964,7 @@ pub mod test {
         window[erase_offset].data = None;
 
         // Generate the blocktree from the window
-        let ledger_path = get_tmp_ledger_path!();
+        let ledger_path = get_tmp_ledger_path("test_window_recover_basic");
         let blocktree = Arc::new(generate_blocktree_from_window(&ledger_path, &window, true));
 
         // Recover it from coding
@@ -983,7 +987,7 @@ pub mod test {
                 ref_l2.data[..ref_l2.data_size() as usize]
             );
             assert_eq!(result.index(), offset as u64);
-            assert_eq!(result.slot(), 0 as u64);
+            assert_eq!(result.slot(), DEFAULT_SLOT_HEIGHT as u64);
         }
         drop(blocktree);
         Blocktree::destroy(&ledger_path)
@@ -998,7 +1002,7 @@ pub mod test {
         // Setup the window
         let offset = 0;
         let num_blobs = NUM_DATA + 2;
-        let mut window = setup_window_ledger(offset, num_blobs, true, 0);
+        let mut window = setup_window_ledger(offset, num_blobs, true, DEFAULT_SLOT_HEIGHT);
 
         // Tests erasing a coding block and a data block
         let coding_start = offset - (offset % NUM_DATA) + (NUM_DATA - NUM_CODING);
@@ -1009,7 +1013,7 @@ pub mod test {
         let refwindowcoding = window[erase_offset].coding.clone();
         window[erase_offset].data = None;
         window[erase_offset].coding = None;
-        let ledger_path = get_tmp_ledger_path!();
+        let ledger_path = get_tmp_ledger_path("test_window_recover_basic2");
         let blocktree = Arc::new(generate_blocktree_from_window(&ledger_path, &window, true));
 
         // Recover it from coding
@@ -1036,7 +1040,7 @@ pub mod test {
                 ref_l2.data[..ref_l2.data_size() as usize]
             );
             assert_eq!(result.index(), coding_start as u64);
-            assert_eq!(result.slot(), 0 as u64);
+            assert_eq!(result.slot(), DEFAULT_SLOT_HEIGHT as u64);
 
             // Check the recovered erasure result
             let ref_l = refwindowcoding.clone().unwrap();
@@ -1049,7 +1053,7 @@ pub mod test {
                 ref_l2.data()[..ref_l2.size() as usize]
             );
             assert_eq!(result.index(), coding_start as u64);
-            assert_eq!(result.slot(), 0 as u64);
+            assert_eq!(result.slot(), DEFAULT_SLOT_HEIGHT as u64);
         }
         drop(blocktree);
         Blocktree::destroy(&ledger_path)

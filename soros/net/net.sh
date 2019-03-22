@@ -36,7 +36,6 @@ Operate a configured testnet
                                  (ignored if -s or -S is specified)
    -r                          - Reuse existing node/ledger configuration from a
                                  previous |start| (ie, don't run ./multinode-demo/setup.sh).
-   -D /path/to/programs        - Deploy custom programs from this location
 
  sanity/start/update-specific options:
    -o noLedgerVerify    - Skip ledger verification
@@ -63,13 +62,12 @@ sanityExtraArgs=
 cargoFeatures=
 skipSetup=false
 updateNodes=false
-customPrograms=
 
 command=$1
 [[ -n $command ]] || usage
 shift
 
-while getopts "h?S:s:T:t:o:f:r:D:" opt; do
+while getopts "h?S:s:T:t:o:f:r" opt; do
   case $opt in
   h | \?)
     usage
@@ -112,9 +110,6 @@ while getopts "h?S:s:T:t:o:f:r:D:" opt; do
   r)
     skipSetup=true
     ;;
-  D)
-    customPrograms=$OPTARG
-    ;;
   o)
     case $OPTARG in
     noLedgerVerify|noValidatorSanity|rejectExtraNodes)
@@ -154,9 +149,6 @@ build() {
     $MAYBE_DOCKER bash -c "
       set -ex
       scripts/cargo-install-all.sh farf \"$cargoFeatures\"
-      if [[ -n \"$customPrograms\" ]]; then
-        scripts/cargo-install-custom-programs.sh farf $customPrograms
-      fi
     "
   )
   echo "Build took $SECONDS seconds"
@@ -233,10 +225,9 @@ startBootstrapLeader() {
 
 startNode() {
   declare ipAddress=$1
-  declare nodeType=$2
   declare logFile="$netLogDir/fullnode-$ipAddress.log"
 
-  echo "--- Starting $nodeType: $ipAddress"
+  echo "--- Starting fullnode: $ipAddress"
   echo "start log: $logFile"
   (
     set -x
@@ -244,7 +235,7 @@ startNode() {
     ssh "${sshOptions[@]}" -n "$ipAddress" \
       "./bitconch/net/remote/remote-node.sh \
          $deployMethod \
-         $nodeType \
+         fullnode \
          $publicNetwork \
          $entrypointIp \
          ${#fullnodeIpList[@]} \
@@ -356,13 +347,8 @@ start() {
     $metricsWriteDatapoint "testnet-deploy net-start-begin=1"
   fi
 
-  declare bootstrapLeader=true
-  declare nodeType=fullnode
-  for ipAddress in "${fullnodeIpList[@]}" - "${blockstreamerIpList[@]}"; do
-    if [[ $ipAddress = - ]]; then
-      nodeType=blockstreamer
-      continue
-    fi
+  bootstrapLeader=true
+  for ipAddress in "${fullnodeIpList[@]}"; do
     if $updateNodes; then
       stopNode "$ipAddress"
     fi
@@ -378,7 +364,7 @@ start() {
       pids=()
       loopCount=0
     else
-      startNode "$ipAddress" $nodeType
+      startNode "$ipAddress"
 
       # Stagger additional node start time. If too many nodes start simultaneously
       # the bootstrap node gets more rsync requests from the additional nodes than
@@ -445,7 +431,7 @@ start() {
   echo
   echo "+++ Deployment Successful"
   echo "Bootstrap leader deployment took $bootstrapNodeDeployTime seconds"
-  echo "Additional fullnode deployment (${#fullnodeIpList[@]} full nodes, ${#blockstreamerIpList[@]} blockstreamer nodes) took $additionalNodeDeployTime seconds"
+  echo "Additional fullnode deployment (${#fullnodeIpList[@]} instances) took $additionalNodeDeployTime seconds"
   echo "Client deployment (${#clientIpList[@]} instances) took $clientDeployTime seconds"
   echo "Network start logs in $netLogDir:"
   ls -l "$netLogDir"
@@ -480,7 +466,7 @@ stop() {
   SECONDS=0
   $metricsWriteDatapoint "testnet-deploy net-stop-begin=1"
 
-  for ipAddress in "${fullnodeIpList[@]}" "${blockstreamerIpList[@]}" "${clientIpList[@]}"; do
+  for ipAddress in "${fullnodeIpList[@]}" "${clientIpList[@]}"; do
     stopNode "$ipAddress"
   done
 
@@ -528,9 +514,6 @@ logs)
   done
   for ipAddress in "${clientIpList[@]}"; do
     fetchRemoteLog "$ipAddress" client
-  done
-  for ipAddress in "${blockstreamerIpList[@]}"; do
-    fetchRemoteLog "$ipAddress" fullnode
   done
   ;;
 

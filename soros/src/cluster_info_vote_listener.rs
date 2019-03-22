@@ -1,9 +1,10 @@
 use crate::cluster_info::{ClusterInfo, GOSSIP_SLEEP_MILLIS};
+use crate::counter::Counter;
 use crate::packet;
 use crate::result::Result;
 use crate::service::Service;
 use crate::streamer::PacketSender;
-use bitconch_metrics::counter::Counter;
+use log::Level;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread::{self, sleep, Builder, JoinHandle};

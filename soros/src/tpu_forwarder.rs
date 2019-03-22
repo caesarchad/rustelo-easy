@@ -5,9 +5,10 @@
 use crate::banking_stage::UnprocessedPackets;
 use crate::cluster_info::ClusterInfo;
 use crate::contact_info::ContactInfo;
+use crate::counter::Counter;
 use crate::service::Service;
 use crate::streamer::{self, PacketReceiver};
-use bitconch_metrics::counter::Counter;
+use log::Level;
 use bitconch_sdk::pubkey::Pubkey;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -128,9 +129,7 @@ impl Service for TpuForwarder {
         for thread_hdl in self.thread_hdls {
             thread_hdl.join()?;
         }
-        if let Some(forwarder_thread) = self.forwarder_thread {
-            forwarder_thread.join()?;
-        }
+        self.forwarder_thread.unwrap().join()?;
         Ok(())
     }
 }

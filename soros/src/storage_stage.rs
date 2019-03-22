@@ -7,7 +7,7 @@ use crate::blocktree::Blocktree;
 use crate::chacha_cuda::chacha_cbc_encrypt_file_many_keys;
 use crate::client::mk_client_with_timeout;
 use crate::cluster_info::ClusterInfo;
-use crate::entry::{Entry, EntryReceiver};
+use crate::entry::EntryReceiver;
 use crate::result::{Error, Result};
 use crate::service::Service;
 use bincode::deserialize;
@@ -362,11 +362,7 @@ impl StorageStage {
         tx_sender: &TransactionSender,
     ) -> Result<()> {
         let timeout = Duration::new(1, 0);
-        let entries: Vec<Entry> = entry_receiver
-            .recv_timeout(timeout)?
-            .iter()
-            .map(|entry_meta| entry_meta.entry.clone())
-            .collect();
+        let entries = entry_receiver.recv_timeout(timeout)?;
         for entry in entries {
             // Go through the transactions, find votes, and use them to update
             // the storage_keys with their signatures.
@@ -448,9 +444,11 @@ impl Service for StorageStage {
 
 #[cfg(test)]
 mod tests {
-    use crate::blocktree::{create_tmp_sample_blocktree, Blocktree};
+    use crate::blocktree::{
+        create_tmp_sample_ledger, Blocktree, BlocktreeConfig, DEFAULT_SLOT_HEIGHT,
+    };
     use crate::cluster_info::{ClusterInfo, NodeInfo};
-    use crate::entry::{make_tiny_test_entries, Entry, EntryMeta};
+    use crate::entry::{make_tiny_test_entries, Entry};
     use crate::service::Service;
     use crate::storage_stage::StorageState;
     use crate::storage_stage::NUM_IDENTITIES;
@@ -458,7 +456,6 @@ mod tests {
         get_identity_index_from_signature, StorageStage, STORAGE_ROTATE_TEST_COUNT,
     };
     use rayon::prelude::*;
-    use bitconch_sdk::genesis_block::GenesisBlock;
     use bitconch_sdk::hash::Hash;
     use bitconch_sdk::hash::Hasher;
     use bitconch_sdk::pubkey::Pubkey;
@@ -507,15 +504,26 @@ mod tests {
         let keypair = Arc::new(Keypair::new());
         let exit = Arc::new(AtomicBool::new(false));
 
-        let (genesis_block, _mint_keypair) = GenesisBlock::new(1000);
-        let ticks_per_slot = genesis_block.ticks_per_slot;
-        let (ledger_path, tick_height, genesis_entry_height, _last_id, _last_entry_id) =
-            create_tmp_sample_blocktree("storage_stage_process_entries", &genesis_block, 1);
+        let blocktree_config = BlocktreeConfig::default();
+        let (_mint, ledger_path, tick_height, genesis_entry_height, _last_id, _last_entry_id) =
+            create_tmp_sample_ledger(
+                "storage_stage_process_entries",
+                1000,
+                1,
+                Keypair::new().pubkey(),
+                1,
+                &blocktree_config,
+            );
 
         let entries = make_tiny_test_entries(64);
-        let blocktree = Blocktree::open_config(&ledger_path, ticks_per_slot).unwrap();
+        let blocktree = Blocktree::open_config(&ledger_path, &blocktree_config).unwrap();
         blocktree
-            .write_entries(0, tick_height, genesis_entry_height, &entries)
+            .write_entries(
+                DEFAULT_SLOT_HEIGHT,
+                tick_height,
+                genesis_entry_height,
+                &entries,
+            )
             .unwrap();
 
         let cluster_info = test_cluster_info(keypair.pubkey());
@@ -532,8 +540,7 @@ mod tests {
             STORAGE_ROTATE_TEST_COUNT,
             &cluster_info,
         );
-        let entries_meta: Vec<EntryMeta> = entries.into_iter().map(EntryMeta::new).collect();
-        storage_entry_sender.send(entries_meta.clone()).unwrap();
+        storage_entry_sender.send(entries.clone()).unwrap();
 
         let keypair = Keypair::new();
         let hash = Hash::default();
@@ -542,7 +549,7 @@ mod tests {
         assert_eq!(result, Hash::default());
 
         for _ in 0..9 {
-            storage_entry_sender.send(entries_meta.clone()).unwrap();
+            storage_entry_sender.send(entries.clone()).unwrap();
         }
         for _ in 0..5 {
             result = storage_state.get_mining_result(&signature);
@@ -573,15 +580,26 @@ mod tests {
         let keypair = Arc::new(Keypair::new());
         let exit = Arc::new(AtomicBool::new(false));
 
-        let (genesis_block, _mint_keypair) = GenesisBlock::new(1000);
-        let ticks_per_slot = genesis_block.ticks_per_slot;;
-        let (ledger_path, tick_height, genesis_entry_height, _last_id, _last_entry_id) =
-            create_tmp_sample_blocktree("storage_stage_process_entries", &genesis_block, 1);
+        let blocktree_config = BlocktreeConfig::default();
+        let (_mint, ledger_path, tick_height, genesis_entry_height, _last_id, _last_entry_id) =
+            create_tmp_sample_ledger(
+                "storage_stage_process_entries",
+                1000,
+                1,
+                Keypair::new().pubkey(),
+                1,
+                &blocktree_config,
+            );
 
         let entries = make_tiny_test_entries(128);
-        let blocktree = Blocktree::open_config(&ledger_path, ticks_per_slot).unwrap();
+        let blocktree = Blocktree::open_config(&ledger_path, &blocktree_config).unwrap();
         blocktree
-            .write_entries(0, tick_height, genesis_entry_height, &entries)
+            .write_entries(
+                DEFAULT_SLOT_HEIGHT,
+                tick_height,
+                genesis_entry_height,
+                &entries,
+            )
             .unwrap();
 
         let cluster_info = test_cluster_info(keypair.pubkey());
@@ -598,8 +616,7 @@ mod tests {
             STORAGE_ROTATE_TEST_COUNT,
             &cluster_info,
         );
-        let entries_meta: Vec<EntryMeta> = entries.into_iter().map(EntryMeta::new).collect();
-        storage_entry_sender.send(entries_meta.clone()).unwrap();
+        storage_entry_sender.send(entries.clone()).unwrap();
 
         let mut reference_keys;
         {
@@ -611,7 +628,7 @@ mod tests {
         let keypair = Keypair::new();
         let vote_tx = VoteTransaction::new_vote(&keypair, 123456, Hash::default(), 1);
         vote_txs.push(vote_tx);
-        let vote_entries = vec![EntryMeta::new(Entry::new(&Hash::default(), 1, vote_txs))];
+        let vote_entries = vec![Entry::new(&Hash::default(), 0, 1, vote_txs)];
         storage_entry_sender.send(vote_entries).unwrap();
 
         for _ in 0..5 {

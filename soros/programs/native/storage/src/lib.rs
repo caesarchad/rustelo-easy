@@ -33,7 +33,7 @@ fn entrypoint(
 ) -> Result<(), ProgramError> {
     bitconch_logger::setup();
 
-    if keyed_accounts.len() != 1 {
+    if keyed_accounts.len() != 2 {
         // keyed_accounts[1] should be the main storage key
         // to access its userdata
         Err(ProgramError::InvalidArgument)?;
@@ -45,9 +45,18 @@ fn entrypoint(
         Err(ProgramError::GenericError)?;
     }
 
+    if *keyed_accounts[1].unsigned_key() != system_id() {
+        info!(
+            "invalid account id owner: {:?} system_id: {:?}",
+            keyed_accounts[1].unsigned_key(),
+            system_id()
+        );
+        Err(ProgramError::InvalidArgument)?;
+    }
+
     if let Ok(syscall) = bincode::deserialize(data) {
         let mut storage_account_state = if let Ok(storage_account_state) =
-            bincode::deserialize(&keyed_accounts[0].account.userdata)
+            bincode::deserialize(&keyed_accounts[1].account.userdata)
         {
             storage_account_state
         } else {
@@ -159,7 +168,7 @@ fn entrypoint(
         }
 
         if bincode::serialize_into(
-            &mut keyed_accounts[0].account.userdata[..],
+            &mut keyed_accounts[1].account.userdata[..],
             &storage_account_state,
         )
         .is_err()
@@ -180,6 +189,7 @@ mod test {
     use bitconch_sdk::account::{create_keyed_accounts, Account};
     use bitconch_sdk::hash::Hash;
     use bitconch_sdk::signature::{Keypair, KeypairUtil, Signature};
+    use bitconch_sdk::storage_program;
     use bitconch_sdk::storage_program::ProofStatus;
     use bitconch_sdk::storage_program::StorageTransaction;
     use bitconch_sdk::transaction::{Instruction, Transaction};
@@ -226,8 +236,11 @@ mod test {
         let keypair = Keypair::new();
         let mut keyed_accounts = Vec::new();
         let mut user_account = Account::default();
+        let mut system_account = Account::default();
         let pubkey = keypair.pubkey();
+        let system_key = storage_program::system_id();
         keyed_accounts.push(KeyedAccount::new(&pubkey, true, &mut user_account));
+        keyed_accounts.push(KeyedAccount::new(&system_key, false, &mut system_account));
 
         let tx = StorageTransaction::new_advertise_last_id(
             &keypair,
@@ -285,7 +298,7 @@ mod test {
         bitconch_logger::setup();
         let keypair = Keypair::new();
         let mut accounts = [Account::default(), Account::default()];
-        accounts[0].userdata.resize(16 * 1024, 0);
+        accounts[1].userdata.resize(16 * 1024, 0);
 
         let tx = StorageTransaction::new_advertise_last_id(
             &keypair,
@@ -312,7 +325,7 @@ mod test {
         bitconch_logger::setup();
         let keypair = Keypair::new();
         let mut accounts = [Account::default(), Account::default()];
-        accounts[0].userdata.resize(16 * 1024, 0);
+        accounts[1].userdata.resize(16 * 1024, 0);
 
         let entry_height = 0;
 

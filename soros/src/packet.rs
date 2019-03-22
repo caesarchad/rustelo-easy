@@ -1,10 +1,11 @@
 //! The `packet` module defines data structures and methods to pull data from the network.
+use crate::counter::Counter;
 use crate::recvmmsg::{recv_mmsg, NUM_RCVMMSGS};
 use crate::result::{Error, Result};
 use bincode::{serialize, serialize_into};
 use byteorder::{ByteOrder, LittleEndian};
+use log::Level;
 use serde::Serialize;
-use bitconch_metrics::counter::Counter;
 pub use bitconch_sdk::packet::PACKET_DATA_SIZE;
 use std::cmp;
 use std::fmt;
@@ -451,13 +452,13 @@ impl Blob {
     }
 }
 
-pub fn index_blobs(blobs: &[SharedBlob], blob_index: &mut u64, slot: u64) {
+pub fn index_blobs(blobs: &[SharedBlob], blob_index: &mut u64, slots: &[u64]) {
     // enumerate all the blobs, those are the indices
-    for blob in blobs.iter() {
+    for (blob, slot) in blobs.iter().zip(slots) {
         let mut blob = blob.write().unwrap();
 
         blob.set_index(*blob_index);
-        blob.set_slot(slot);
+        blob.set_slot(*slot);
         blob.forward(true);
         *blob_index += 1;
     }

@@ -1,9 +1,8 @@
 //! The `genesis_block` module is a library for generating the chain's genesis block.
 
-use crate::hash::{hash, Hash};
-use crate::pubkey::Pubkey;
-use crate::signature::{Keypair, KeypairUtil};
-use crate::timing::{DEFAULT_SLOTS_PER_EPOCH, DEFAULT_TICKS_PER_SLOT};
+use bitconch_sdk::hash::{hash, Hash};
+use bitconch_sdk::pubkey::Pubkey;
+use bitconch_sdk::signature::{Keypair, KeypairUtil};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -20,9 +19,6 @@ pub struct GenesisBlock {
     pub bootstrap_leader_vote_account_id: Pubkey,
     pub mint_id: Pubkey,
     pub tokens: u64,
-    pub ticks_per_slot: u64,
-    pub slots_per_epoch: u64,
-    pub stakers_slot_offset: u64,
 }
 
 impl GenesisBlock {
@@ -31,7 +27,19 @@ impl GenesisBlock {
         let tokens = tokens
             .checked_add(BOOTSTRAP_LEADER_TOKENS)
             .unwrap_or(tokens);
-        Self::new_with_leader(tokens, Keypair::new().pubkey(), BOOTSTRAP_LEADER_TOKENS)
+        let mint_keypair = Keypair::new();
+        let bootstrap_leader_keypair = Keypair::new();
+        let bootstrap_leader_vote_account_keypair = Keypair::new();
+        (
+            Self {
+                bootstrap_leader_id: bootstrap_leader_keypair.pubkey(),
+                bootstrap_leader_tokens: BOOTSTRAP_LEADER_TOKENS,
+                bootstrap_leader_vote_account_id: bootstrap_leader_vote_account_keypair.pubkey(),
+                mint_id: mint_keypair.pubkey(),
+                tokens,
+            },
+            mint_keypair,
+        )
     }
 
     pub fn new_with_leader(
@@ -48,9 +56,6 @@ impl GenesisBlock {
                 bootstrap_leader_vote_account_id: bootstrap_leader_vote_account_keypair.pubkey(),
                 mint_id: mint_keypair.pubkey(),
                 tokens,
-                ticks_per_slot: DEFAULT_TICKS_PER_SLOT,
-                slots_per_epoch: DEFAULT_SLOTS_PER_EPOCH,
-                stakers_slot_offset: DEFAULT_SLOTS_PER_EPOCH,
             },
             mint_keypair,
         )

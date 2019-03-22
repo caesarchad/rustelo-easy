@@ -1,12 +1,13 @@
 //! Set of functions for emulating windowing functions from a database ledger implementation
 use crate::blocktree::*;
+use crate::counter::Counter;
 #[cfg(feature = "erasure")]
 use crate::erasure;
 use crate::leader_scheduler::LeaderScheduler;
 use crate::packet::{SharedBlob, BLOB_HEADER_SIZE};
 use crate::result::Result;
 use crate::streamer::BlobSender;
-use bitconch_metrics::counter::Counter;
+use log::Level;
 use bitconch_metrics::{influxdb, submit};
 use bitconch_sdk::pubkey::Pubkey;
 use std::borrow::Borrow;
@@ -244,9 +245,9 @@ mod test {
 
     #[test]
     pub fn test_find_missing_data_indexes_sanity() {
-        let slot = 0;
+        let slot = DEFAULT_SLOT_HEIGHT;
 
-        let blocktree_path = get_tmp_ledger_path!();
+        let blocktree_path = get_tmp_ledger_path("test_find_missing_data_indexes_sanity");
         let blocktree = Blocktree::open(&blocktree_path).unwrap();
 
         // Early exit conditions
@@ -289,8 +290,8 @@ mod test {
 
     #[test]
     pub fn test_find_missing_data_indexes() {
-        let slot = 0;
-        let blocktree_path = get_tmp_ledger_path!();
+        let slot = DEFAULT_SLOT_HEIGHT;
+        let blocktree_path = get_tmp_ledger_path("test_find_missing_data_indexes");
         let blocktree = Blocktree::open(&blocktree_path).unwrap();
 
         // Write entries
@@ -373,7 +374,7 @@ mod test {
 
     #[test]
     pub fn test_find_missing_data_indexes_slots() {
-        let blocktree_path = get_tmp_ledger_path!();
+        let blocktree_path = get_tmp_ledger_path("test_find_missing_data_indexes_slots");
         let blocktree = Blocktree::open(&blocktree_path).unwrap();
 
         let num_entries_per_slot = 10;
@@ -441,15 +442,15 @@ mod test {
 
     #[test]
     pub fn test_no_missing_blob_indexes() {
-        let slot = 0;
-        let blocktree_path = get_tmp_ledger_path!();
+        let slot = DEFAULT_SLOT_HEIGHT;
+        let blocktree_path = get_tmp_ledger_path("test_find_missing_data_indexes");
         let blocktree = Blocktree::open(&blocktree_path).unwrap();
 
         // Write entries
         let num_entries = 10;
         let shared_blobs = make_tiny_test_entries(num_entries).to_shared_blobs();
 
-        index_blobs(&shared_blobs, &mut 0, slot);
+        index_blobs(&shared_blobs, &mut 0, &vec![slot; num_entries]);
 
         let blob_locks: Vec<_> = shared_blobs.iter().map(|b| b.read().unwrap()).collect();
         let blobs: Vec<&Blob> = blob_locks.iter().map(|b| &**b).collect();
@@ -475,7 +476,7 @@ mod test {
         // Setup the window
         let offset = 0;
         let num_blobs = NUM_DATA + 2;
-        let slot_height = 0;
+        let slot_height = DEFAULT_SLOT_HEIGHT;
         let mut window = setup_window_ledger(offset, num_blobs, false, slot_height);
         let end_index = (offset + num_blobs) % window.len();
 
@@ -491,10 +492,10 @@ mod test {
         window[erased_index].coding = None;
 
         // Generate the blocktree from the window
-        let ledger_path = get_tmp_ledger_path!();
+        let ledger_path = get_tmp_ledger_path("test_try_erasure");
         let blocktree = Arc::new(generate_blocktree_from_window(&ledger_path, &window, false));
 
-        try_erasure(&blocktree, 0).expect("Expected successful erasure attempt");
+        try_erasure(&blocktree, DEFAULT_SLOT_HEIGHT).expect("Expected successful erasure attempt");
         window[erased_index].data = erased_data;
 
         {
@@ -536,7 +537,7 @@ mod test {
         let mut leader_scheduler = LeaderScheduler::default();
         leader_scheduler.set_leader_schedule(vec![Keypair::new().pubkey()]);
 
-        let blocktree_path = get_tmp_ledger_path!();
+        let blocktree_path = get_tmp_ledger_path("test_process_blob");
         let blocktree = Arc::new(Blocktree::open(&blocktree_path).unwrap());
 
         let leader_scheduler = Arc::new(RwLock::new(leader_scheduler));
@@ -544,7 +545,11 @@ mod test {
         let original_entries = make_tiny_test_entries(num_entries);
         let shared_blobs = original_entries.clone().to_shared_blobs();
 
-        index_blobs(&shared_blobs, &mut 0, 0);
+        index_blobs(
+            &shared_blobs,
+            &mut 0,
+            &vec![DEFAULT_SLOT_HEIGHT; num_entries],
+        );
 
         for blob in shared_blobs.iter().rev() {
             process_blob(&leader_scheduler, &blocktree, blob)

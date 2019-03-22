@@ -5,12 +5,9 @@ extern crate log;
 #[macro_use]
 extern crate serde_json;
 
-#[macro_use]
-extern crate bitconch;
-
 use bincode::deserialize;
 use bitconch::blocktree::{
-    create_tmp_sample_blocktree, get_tmp_ledger_path, tmp_copy_blocktree, Blocktree,
+    create_tmp_sample_ledger, get_tmp_ledger_path, tmp_copy_ledger, Blocktree, DEFAULT_SLOT_HEIGHT,
 };
 use bitconch::client::mk_client;
 use bitconch::cluster_info::{ClusterInfo, Node, NodeInfo};
@@ -20,7 +17,6 @@ use bitconch::replicator::Replicator;
 use bitconch::storage_stage::STORAGE_ROTATE_TEST_COUNT;
 use bitconch::streamer::blob_receiver;
 use bitconch::voting_keypair::VotingKeypair;
-use bitconch_sdk::genesis_block::GenesisBlock;
 use bitconch_sdk::hash::Hash;
 use bitconch_sdk::signature::{Keypair, KeypairUtil};
 use bitconch_sdk::system_transaction::SystemTransaction;
@@ -35,7 +31,7 @@ use std::time::Duration;
 fn test_replicator_startup_basic() {
     bitconch_logger::setup();
     info!("starting replicator test");
-    let replicator_ledger_path = &get_tmp_ledger_path!();
+    let replicator_ledger_path = &get_tmp_ledger_path("replicator_test_replicator_ledger");
 
     info!("starting leader node");
     let leader_keypair = Arc::new(Keypair::new());
@@ -43,19 +39,34 @@ fn test_replicator_startup_basic() {
     let leader_info = leader_node.info.clone();
 
     let leader_ledger_path = "replicator_test_leader_ledger";
+    let mut fullnode_config = FullnodeConfig::default();
+    let blocktree_config = fullnode_config.ledger_config();
 
-    let (genesis_block, mint_keypair) =
-        GenesisBlock::new_with_leader(1_000_000_000, leader_info.id, 42);
+    let (
+        mint_keypair,
+        leader_ledger_path,
+        _tick_height,
+        _last_entry_height,
+        _last_id,
+        _last_entry_id,
+    ) = create_tmp_sample_ledger(
+        leader_ledger_path,
+        1_000_000_000,
+        0,
+        leader_info.id,
+        42,
+        &blocktree_config,
+    );
 
-    let (leader_ledger_path, _tick_height, _last_entry_height, _last_id, _last_entry_id) =
-        create_tmp_sample_blocktree(leader_ledger_path, &genesis_block, 0);
-
-    let validator_ledger_path = tmp_copy_blocktree!(&leader_ledger_path);
+    let validator_ledger_path = tmp_copy_ledger(
+        &leader_ledger_path,
+        "replicator_test_validator_ledger",
+        &blocktree_config,
+    );
 
     {
         let voting_keypair = VotingKeypair::new_local(&leader_keypair);
 
-        let mut fullnode_config = FullnodeConfig::default();
         fullnode_config.storage_rotate_count = STORAGE_ROTATE_TEST_COUNT;
         let leader = Fullnode::new(
             leader_node,
@@ -156,7 +167,7 @@ fn test_replicator_startup_basic() {
         let cluster_info = ClusterInfo::new(tn.info.clone());
         let repair_index = replicator.entry_height();
         let req = cluster_info
-            .window_index_request_bytes(0, repair_index)
+            .window_index_request_bytes(DEFAULT_SLOT_HEIGHT, repair_index)
             .unwrap();
 
         let exit = Arc::new(AtomicBool::new(false));
@@ -240,7 +251,7 @@ fn test_replicator_startup_leader_hang() {
     bitconch_logger::setup();
     info!("starting replicator test");
 
-    let replicator_ledger_path = &get_tmp_ledger_path!();
+    let replicator_ledger_path = &get_tmp_ledger_path("replicator_test_replicator_ledger");
     let leader_ledger_path = "replicator_test_leader_ledger";
 
     {
@@ -275,7 +286,7 @@ fn test_replicator_startup_ledger_hang() {
 
     bitconch_logger::setup();
     info!("starting replicator test");
-    let replicator_ledger_path = &get_tmp_ledger_path!();
+    let replicator_ledger_path = &get_tmp_ledger_path("replicator_test_replicator_ledger");
 
     info!("starting leader node");
     let leader_keypair = Arc::new(Keypair::new());
@@ -283,16 +294,33 @@ fn test_replicator_startup_ledger_hang() {
     let leader_info = leader_node.info.clone();
 
     let leader_ledger_path = "replicator_test_leader_ledger";
-    let (genesis_block, _mint_keypair) = GenesisBlock::new_with_leader(100, leader_info.id, 42);
-    let (leader_ledger_path, _tick_height, _last_entry_height, _last_id, _last_entry_id) =
-        create_tmp_sample_blocktree(leader_ledger_path, &genesis_block, 0);
+    let fullnode_config = FullnodeConfig::default();
+    let blocktree_config = fullnode_config.ledger_config();
+    let (
+        _mint_keypair,
+        leader_ledger_path,
+        _tick_height,
+        _last_entry_height,
+        _last_id,
+        _last_entry_id,
+    ) = create_tmp_sample_ledger(
+        leader_ledger_path,
+        100,
+        0,
+        leader_info.id,
+        42,
+        &blocktree_config,
+    );
 
-    let validator_ledger_path = tmp_copy_blocktree!(&leader_ledger_path);
+    let validator_ledger_path = tmp_copy_ledger(
+        &leader_ledger_path,
+        "replicator_test_validator_ledger",
+        &blocktree_config,
+    );
 
     {
         let voting_keypair = VotingKeypair::new_local(&leader_keypair);
 
-        let fullnode_config = FullnodeConfig::default();
         let _ = Fullnode::new(
             leader_node,
             &leader_keypair,

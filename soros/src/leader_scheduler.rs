@@ -1,22 +1,26 @@
 //! The `leader_scheduler` module implements a structure and functions for tracking and
 //! managing the schedule for leader rotation
 
+use crate::bank::Bank;
 use crate::entry::{create_ticks, next_entry_mut, Entry};
 use crate::voting_keypair::VotingKeypair;
 use bincode::serialize;
 use byteorder::{LittleEndian, ReadBytesExt};
-use bitconch_runtime::bank::Bank;
+use hashbrown::HashSet;
 use bitconch_sdk::hash::{hash, Hash};
 use bitconch_sdk::pubkey::Pubkey;
 use bitconch_sdk::signature::{Keypair, KeypairUtil};
 use bitconch_sdk::system_transaction::SystemTransaction;
-use bitconch_sdk::timing::{DEFAULT_SLOTS_PER_EPOCH, DEFAULT_TICKS_PER_SLOT};
 use bitconch_sdk::vote_program::VoteState;
 use bitconch_sdk::vote_transaction::VoteTransaction;
 use std::io::Cursor;
 use std::sync::Arc;
 
-pub const DEFAULT_ACTIVE_WINDOW_NUM_SLOTS: u64 = DEFAULT_SLOTS_PER_EPOCH;
+// At 10 ticks/s, 8 ticks per slot implies that leader rotation and voting will happen
+// every 800 ms. A fast voting cadence ensures faster finality and convergence
+pub const DEFAULT_TICKS_PER_SLOT: u64 = 8;
+pub const DEFAULT_SLOTS_PER_EPOCH: u64 = 64;
+pub const DEFAULT_ACTIVE_WINDOW_TICK_LENGTH: u64 = DEFAULT_SLOTS_PER_EPOCH * DEFAULT_TICKS_PER_SLOT;
 
 #[derive(Clone)]
 pub struct LeaderSchedulerConfig {
@@ -24,17 +28,17 @@ pub struct LeaderSchedulerConfig {
     pub slots_per_epoch: u64,
 
     // The tick length of the acceptable window for determining live validators
-    pub active_window_num_slots: u64,
+    pub active_window_tick_length: u64,
 }
 
 // Used to toggle leader rotation in fullnode so that tests that don't
 // need leader rotation don't break
 impl LeaderSchedulerConfig {
-    pub fn new(ticks_per_slot: u64, slots_per_epoch: u64, active_window_num_slots: u64) -> Self {
+    pub fn new(ticks_per_slot: u64, slots_per_epoch: u64, active_window_tick_length: u64) -> Self {
         LeaderSchedulerConfig {
             ticks_per_slot,
             slots_per_epoch,
-            active_window_num_slots,
+            active_window_tick_length,
         }
     }
 }
@@ -44,71 +48,23 @@ impl Default for LeaderSchedulerConfig {
         Self {
             ticks_per_slot: DEFAULT_TICKS_PER_SLOT,
             slots_per_epoch: DEFAULT_SLOTS_PER_EPOCH,
-            active_window_num_slots: DEFAULT_ACTIVE_WINDOW_NUM_SLOTS,
+            active_window_tick_length: DEFAULT_ACTIVE_WINDOW_TICK_LENGTH,
         }
     }
-}
-
-fn sort_stakes(stakes: &mut Vec<(Pubkey, u64)>) {
-    // Sort first by stake. If stakes are the same, sort by pubkey to ensure a
-    // deterministic result.
-    // Note: Use unstable sort, because we dedup right after to remove the equal elements.
-    stakes.sort_unstable_by(|(pubkey0, stake0), (pubkey1, stake1)| {
-        if stake0 == stake1 {
-            pubkey0.cmp(&pubkey1)
-        } else {
-            stake0.cmp(&stake1)
-        }
-    });
-
-    // Now that it's sorted, we can do an O(n) dedup.
-    stakes.dedup();
-}
-
-// Return true of the latest vote is between the lower and upper bounds (inclusive)
-fn is_active_staker(vote_state: &VoteState, lower_bound: u64, upper_bound: u64) -> bool {
-    vote_state
-        .votes
-        .back()
-        .filter(|vote| vote.slot_height >= lower_bound && vote.slot_height <= upper_bound)
-        .is_some()
-}
-
-/// Return a sorted, filtered list of node_id/stake pairs.
-fn get_active_stakes(
-    bank: &Bank,
-    active_window_num_slots: u64,
-    upper_bound: u64,
-) -> Vec<(Pubkey, u64)> {
-    let lower_bound = upper_bound.saturating_sub(active_window_num_slots);
-    let mut stakes: Vec<_> = bank
-        .vote_states(|vote_state| is_active_staker(vote_state, lower_bound, upper_bound))
-        .iter()
-        .filter_map(|vote_state| {
-            let stake = bank.get_balance(&vote_state.staker_id);
-            if stake > 0 {
-                Some((vote_state.node_id, stake))
-            } else {
-                None
-            }
-        })
-        .collect();
-    sort_stakes(&mut stakes);
-    stakes
 }
 
 #[derive(Clone, Debug)]
 pub struct LeaderScheduler {
     // A leader slot duration in ticks
-    ticks_per_slot: u64,
+    pub ticks_per_slot: u64,
 
     // Duration of an epoch (one or more slots) in ticks.
     // This value must be divisible by ticks_per_slot
-    slots_per_epoch: u64,
+    pub ticks_per_epoch: u64,
 
-    // The number of slots for which a vote qualifies a candidate for leader
+    // The length of time in ticks for which a vote qualifies a candidate for leader
     // selection
-    active_window_num_slots: u64,
+    active_window_tick_length: u64,
 
     // Round-robin ordering of the validators for the current epoch at epoch_schedule[0], and the
     // previous epoch at epoch_schedule[1]
@@ -138,50 +94,31 @@ pub struct LeaderScheduler {
 impl LeaderScheduler {
     pub fn new(config: &LeaderSchedulerConfig) -> Self {
         let ticks_per_slot = config.ticks_per_slot;
-        let slots_per_epoch = config.slots_per_epoch;
-        let active_window_num_slots = config.active_window_num_slots;
+        let ticks_per_epoch = config.ticks_per_slot * config.slots_per_epoch;
+        let active_window_tick_length = config.active_window_tick_length;
 
         // Enforced invariants
         assert!(ticks_per_slot > 0);
-        assert!(active_window_num_slots > 0);
+        assert!(ticks_per_epoch >= ticks_per_slot);
+        assert!(ticks_per_epoch % ticks_per_slot == 0);
+        assert!(active_window_tick_length > 0);
 
-        Self {
+        LeaderScheduler {
             ticks_per_slot,
-            slots_per_epoch,
-            active_window_num_slots,
+            ticks_per_epoch,
+            active_window_tick_length,
             seed: 0,
             epoch_schedule: [Vec::new(), Vec::new()],
             current_epoch: 0,
         }
     }
 
-    // Same as new_with_bank() but allows caller to override `active_window_slot_len`.
-    // Used by unit-tests.
-    fn new_with_window_len(active_window_slot_len: u64, bank: &Bank) -> Self {
-        let config = LeaderSchedulerConfig::new(
-            bank.ticks_per_slot(),
-            bank.slots_per_epoch(),
-            active_window_slot_len,
-        );
-        let mut leader_schedule = Self::new(&config);
-        leader_schedule.update_tick_height(bank.tick_height(), bank);
-        leader_schedule
-    }
-
-    pub fn new_with_bank(bank: &Bank) -> Self {
-        Self::new_with_window_len(DEFAULT_ACTIVE_WINDOW_NUM_SLOTS, bank)
-    }
-
     pub fn tick_height_to_slot(&self, tick_height: u64) -> u64 {
         tick_height / self.ticks_per_slot
     }
 
-    fn ticks_per_epoch(&self) -> u64 {
-        self.slots_per_epoch * self.ticks_per_slot
-    }
-
     fn tick_height_to_epoch(&self, tick_height: u64) -> u64 {
-        tick_height / self.ticks_per_epoch()
+        tick_height / self.ticks_per_epoch
     }
 
     // Returns the number of ticks remaining from the specified tick_height to
@@ -218,10 +155,6 @@ impl LeaderScheduler {
         }
     }
 
-    pub fn get_leader_for_tick(&self, tick: u64) -> Option<Pubkey> {
-        self.get_leader_for_slot(self.tick_height_to_slot(tick))
-    }
-
     // Returns the leader for the requested slot, or None if the slot is out of the schedule bounds
     pub fn get_leader_for_slot(&self, slot: u64) -> Option<Pubkey> {
         trace!("get_leader_for_slot: slot {}", slot);
@@ -254,12 +187,39 @@ impl LeaderScheduler {
                 panic!("leader_schedule is empty"); // Should never happen
             }
 
-            let first_tick_in_epoch = epoch * self.ticks_per_epoch();
+            let first_tick_in_epoch = epoch * self.ticks_per_epoch;
             let slot_index = (tick_height - first_tick_in_epoch) / self.ticks_per_slot;
 
             // Round robin through each node in the schedule
             Some(schedule[slot_index as usize % schedule.len()])
         }
+    }
+
+    // Return true of the latest vote is between the lower and upper bounds (inclusive)
+    fn is_active_staker(vote_state: &VoteState, lower_bound: u64, upper_bound: u64) -> bool {
+        vote_state
+            .votes
+            .back()
+            .filter(|vote| vote.tick_height >= lower_bound && vote.tick_height <= upper_bound)
+            .is_some()
+    }
+
+    // TODO: We use a HashSet for now because a single validator could potentially register
+    // multiple vote account. Once that is no longer possible (see the TODO in vote_program.rs,
+    // process_transaction(), case VoteInstruction::RegisterAccount), we can use a vector.
+    fn get_active_set(&mut self, tick_height: u64, bank: &Bank) -> HashSet<Pubkey> {
+        let upper_bound = tick_height;
+        let lower_bound = tick_height.saturating_sub(self.active_window_tick_length);
+        trace!(
+            "get_active_set: vote bounds ({}, {})",
+            lower_bound,
+            upper_bound
+        );
+
+        bank.vote_states(|vote_state| Self::is_active_staker(vote_state, lower_bound, upper_bound))
+            .iter()
+            .map(|vote_state| vote_state.staker_id)
+            .collect()
     }
 
     // Updates the leader schedule to include ticks from tick_height to the first tick of the next epoch
@@ -291,8 +251,8 @@ impl LeaderScheduler {
         }
 
         self.seed = Self::calculate_seed(tick_height);
-        let slot = self.tick_height_to_slot(tick_height);
-        let ranked_active_set = get_active_stakes(&bank, self.active_window_num_slots, slot);
+        let active_set = self.get_active_set(tick_height, &bank);
+        let ranked_active_set = Self::rank_active_set(bank, active_set.iter());
 
         if ranked_active_set.is_empty() {
             info!(
@@ -303,7 +263,7 @@ impl LeaderScheduler {
             let (mut validator_rankings, total_stake) = ranked_active_set.iter().fold(
                 (Vec::with_capacity(ranked_active_set.len()), 0),
                 |(mut ids, total_stake), (pubkey, stake)| {
-                    ids.push(*pubkey);
+                    ids.push(**pubkey);
                     (ids, total_stake + stake)
                 },
             );
@@ -322,17 +282,17 @@ impl LeaderScheduler {
                 let next_slot_leader = validator_rankings[0];
 
                 if last_slot_leader == next_slot_leader {
-                    if self.slots_per_epoch == 1 {
+                    let slots_per_epoch = self.ticks_per_epoch / self.ticks_per_slot;
+                    if slots_per_epoch == 1 {
                         // If there is only one slot per epoch, and the same leader as the last slot
                         // of the previous epoch was chosen, then pick the next leader in the
                         // rankings instead
                         validator_rankings[0] = validator_rankings[1];
-                        validator_rankings.truncate(self.slots_per_epoch as usize);
                     } else {
                         // If there is more than one leader in the schedule, truncate and set the most
                         // recent leader to the back of the line. This way that node will still remain
                         // in the rotation, just at a later slot.
-                        validator_rankings.truncate(self.slots_per_epoch as usize);
+                        validator_rankings.truncate(slots_per_epoch as usize);
                         validator_rankings.rotate_left(1);
                     }
                 }
@@ -344,9 +304,34 @@ impl LeaderScheduler {
         trace!(
             "generate_schedule: schedule for ticks ({}, {}): {:?} ",
             tick_height,
-            tick_height + self.ticks_per_epoch(),
+            tick_height + self.ticks_per_epoch,
             self.epoch_schedule[0]
         );
+    }
+
+    fn rank_active_set<'a, I>(bank: &Bank, active: I) -> Vec<(&'a Pubkey, u64)>
+    where
+        I: Iterator<Item = &'a Pubkey>,
+    {
+        let mut active_accounts: Vec<(&'a Pubkey, u64)> = active
+            .filter_map(|pubkey| {
+                let stake = bank.get_balance(pubkey);
+                if stake > 0 {
+                    Some((pubkey, stake as u64))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        active_accounts.sort_by(|(pubkey1, stake1), (pubkey2, stake2)| {
+            if stake1 == stake2 {
+                pubkey1.cmp(&pubkey2)
+            } else {
+                stake1.cmp(&stake2)
+            }
+        });
+        active_accounts
     }
 
     fn calculate_seed(tick_height: u64) -> u64 {
@@ -408,7 +393,7 @@ pub fn make_active_set_entries(
     active_keypair: &Arc<Keypair>,
     token_source: &Keypair,
     stake: u64,
-    slot_height_to_vote_on: u64,
+    tick_height_to_vote_on: u64,
     last_entry_id: &Hash,
     last_tick_id: &Hash,
     num_ending_ticks: u64,
@@ -434,7 +419,7 @@ pub fn make_active_set_entries(
 
     // 3) Create vote entry
     let vote_tx =
-        VoteTransaction::new_vote(&voting_keypair, slot_height_to_vote_on, *last_tick_id, 0);
+        VoteTransaction::new_vote(&voting_keypair, tick_height_to_vote_on, *last_tick_id, 0);
     let vote_entry = next_entry_mut(&mut last_entry_id, 1, vec![vote_tx]);
 
     // 4) Create the ending empty ticks
@@ -447,211 +432,69 @@ pub fn make_active_set_entries(
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::voting_keypair::tests::{new_vote_account_with_vote, push_vote};
+    use crate::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_TOKENS};
     use hashbrown::HashSet;
-    use bitconch_runtime::bank::Bank;
-    use bitconch_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_TOKENS};
-    use bitconch_sdk::pubkey::Pubkey;
-    use bitconch_sdk::signature::{Keypair, KeypairUtil};
-    use bitconch_sdk::timing::DEFAULT_SLOTS_PER_EPOCH;
+    use std::hash::Hash as StdHash;
+    use std::iter::FromIterator;
+    use std::sync::RwLock;
 
-    fn get_active_pubkeys(
+    fn to_hashset_owned<T>(slice: &[T]) -> HashSet<T>
+    where
+        T: Eq + StdHash + Clone,
+    {
+        HashSet::from_iter(slice.iter().cloned())
+    }
+
+    pub fn new_vote_account(
+        from_keypair: &Keypair,
+        voting_keypair: &VotingKeypair,
         bank: &Bank,
-        active_window_num_slots: u64,
-        upper_bound: u64,
-    ) -> Vec<Pubkey> {
-        let stakes = get_active_stakes(bank, active_window_num_slots, upper_bound);
-        stakes.into_iter().map(|x| x.0).collect()
+        num_tokens: u64,
+        last_id: Hash,
+    ) {
+        let tx = VoteTransaction::new_account(
+            from_keypair,
+            voting_keypair.pubkey(),
+            last_id,
+            num_tokens,
+            0,
+        );
+        bank.process_transaction(&tx).unwrap();
     }
 
-    #[test]
-    fn test_active_set() {
-        bitconch_logger::setup();
-
-        let leader_id = Keypair::new().pubkey();
-        let active_window_tick_length = 1000;
-        let (genesis_block, mint_keypair) = GenesisBlock::new_with_leader(10000, leader_id, 500);
-        let bank = Bank::new(&genesis_block);
-
-        let bootstrap_ids = vec![genesis_block.bootstrap_leader_id];
-
-        // Insert a bunch of votes at height "start_height"
-        let start_height = 3;
-        let num_old_ids = 20;
-        let mut old_ids = vec![];
-        for _ in 0..num_old_ids {
-            let new_keypair = Keypair::new();
-            let pk = new_keypair.pubkey();
-            old_ids.push(pk);
-
-            // Give the account some stake
-            bank.transfer(5, &mint_keypair, pk, genesis_block.last_id())
-                .unwrap();
-
-            // Create a vote account and push a vote
-            new_vote_account_with_vote(&new_keypair, &Keypair::new(), &bank, 1, start_height);
-        }
-        old_ids.sort();
-
-        // Insert a bunch of votes at height "start_height + active_window_tick_length"
-        let num_new_ids = 10;
-        let mut new_ids = vec![];
-        for _ in 0..num_new_ids {
-            let new_keypair = Keypair::new();
-            let pk = new_keypair.pubkey();
-            new_ids.push(pk);
-            // Give the account some stake
-            bank.transfer(5, &mint_keypair, pk, genesis_block.last_id())
-                .unwrap();
-
-            // Create a vote account and push a vote
-            let slot_height = start_height + active_window_tick_length + 1;
-            new_vote_account_with_vote(&new_keypair, &Keypair::new(), &bank, 1, slot_height);
-        }
-        new_ids.sort();
-
-        // Query for the active set at various heights
-        let result = get_active_pubkeys(&bank, active_window_tick_length, 0);
-        assert_eq!(result, bootstrap_ids);
-
-        let result = get_active_pubkeys(&bank, active_window_tick_length, start_height - 1);
-        assert_eq!(result, bootstrap_ids);
-
-        let result = get_active_pubkeys(
-            &bank,
-            active_window_tick_length,
-            active_window_tick_length + start_height - 1,
-        );
-        assert_eq!(result, old_ids);
-
-        let result = get_active_pubkeys(
-            &bank,
-            active_window_tick_length,
-            active_window_tick_length + start_height,
-        );
-        assert_eq!(result, old_ids);
-
-        let result = get_active_pubkeys(
-            &bank,
-            active_window_tick_length,
-            active_window_tick_length + start_height + 1,
-        );
-        assert_eq!(result, new_ids);
-
-        let result = get_active_pubkeys(
-            &bank,
-            active_window_tick_length,
-            2 * active_window_tick_length + start_height,
-        );
-        assert_eq!(result, new_ids);
-
-        let result = get_active_pubkeys(
-            &bank,
-            active_window_tick_length,
-            2 * active_window_tick_length + start_height + 1,
-        );
-        assert_eq!(result, new_ids);
-
-        let result = get_active_pubkeys(
-            &bank,
-            active_window_tick_length,
-            2 * active_window_tick_length + start_height + 2,
-        );
-        assert_eq!(result.len(), 0);
+    fn push_vote(voting_keypair: &VotingKeypair, bank: &Bank, tick_height: u64, last_id: Hash) {
+        let new_vote_tx = VoteTransaction::new_vote(voting_keypair, tick_height, last_id, 0);
+        bank.process_transaction(&new_vote_tx).unwrap();
     }
 
-    #[test]
-    fn test_multiple_vote() {
-        let leader_keypair = Keypair::new();
-        let leader_id = leader_keypair.pubkey();
-        let active_window_tick_length = 1000;
-        let (genesis_block, _mint_keypair) = GenesisBlock::new_with_leader(10000, leader_id, 500);
-        let bank = Bank::new(&genesis_block);
-
-        // Bootstrap leader should be in the active set even without explicit votes
-        {
-            let result = get_active_pubkeys(&bank, active_window_tick_length, 0);
-            assert_eq!(result, vec![leader_id]);
-
-            let result =
-                get_active_pubkeys(&bank, active_window_tick_length, active_window_tick_length);
-            assert_eq!(result, vec![leader_id]);
-
-            let result = get_active_pubkeys(
-                &bank,
-                active_window_tick_length,
-                active_window_tick_length + 1,
-            );
-            assert_eq!(result.len(), 0);
-        }
-
-        // Check that a node that votes twice in a row will get included in the active
-        // window
-
-        // Create a vote account
-        let voting_keypair = Keypair::new();
-        new_vote_account_with_vote(&leader_keypair, &voting_keypair, &bank, 1, 1);
-
-        {
-            let result = get_active_pubkeys(
-                &bank,
-                active_window_tick_length,
-                active_window_tick_length + 1,
-            );
-            assert_eq!(result, vec![leader_id]);
-
-            let result = get_active_pubkeys(
-                &bank,
-                active_window_tick_length,
-                active_window_tick_length + 2,
-            );
-            assert_eq!(result.len(), 0);
-        }
-
-        // Vote at slot_height 2
-        push_vote(&voting_keypair, &bank, 2);
-
-        {
-            let result = get_active_pubkeys(
-                &bank,
-                active_window_tick_length,
-                active_window_tick_length + 2,
-            );
-            assert_eq!(result, vec![leader_id]);
-
-            let result = get_active_pubkeys(
-                &bank,
-                active_window_tick_length,
-                active_window_tick_length + 3,
-            );
-            assert_eq!(result.len(), 0);
-        }
-    }
-
-    fn run_scheduler_test(num_validators: u64, ticks_per_slot: u64, slots_per_epoch: u64) {
+    fn run_scheduler_test(num_validators: usize, ticks_per_slot: u64, ticks_per_epoch: u64) {
         info!(
             "run_scheduler_test({}, {}, {})",
-            num_validators, ticks_per_slot, slots_per_epoch
+            num_validators, ticks_per_slot, ticks_per_epoch
         );
         // Allow the validators to be in the active window for the entire test
-        let active_window_num_slots = slots_per_epoch;
+        let active_window_tick_length = ticks_per_epoch;
+
+        // Set up the LeaderScheduler struct
+        let leader_scheduler_config = LeaderSchedulerConfig::new(
+            ticks_per_slot,
+            ticks_per_epoch / ticks_per_slot,
+            active_window_tick_length,
+        );
+        let leader_scheduler =
+            Arc::new(RwLock::new(LeaderScheduler::new(&leader_scheduler_config)));
 
         // Create the bank and validators, which are inserted in order of account balance
         let num_vote_account_tokens = 1;
-        let (mut genesis_block, mint_keypair) = GenesisBlock::new(10_000);
-        genesis_block.ticks_per_slot = ticks_per_slot;
-        genesis_block.slots_per_epoch = slots_per_epoch;
-
+        let (genesis_block, mint_keypair) = GenesisBlock::new(10_000);
         info!("bootstrap_leader_id: {}", genesis_block.bootstrap_leader_id);
-
-        let bank = Bank::new(&genesis_block);
-
+        let bank = Bank::new_with_leader_scheduler(&genesis_block, leader_scheduler.clone());
         let mut validators = vec![];
         let last_id = genesis_block.last_id();
         for i in 0..num_validators {
-            let new_validator = Keypair::new();
+            let new_validator = Arc::new(Keypair::new());
             let new_pubkey = new_validator.pubkey();
-            let voting_keypair = Keypair::new();
+            let voting_keypair = VotingKeypair::new_local(&new_validator);
             validators.push(new_pubkey);
             let stake = (i + 42) as u64;
             info!("validator {}: stake={} pubkey={}", i, stake, new_pubkey);
@@ -659,32 +502,41 @@ pub mod tests {
             bank.transfer(stake, &mint_keypair, new_pubkey, last_id)
                 .unwrap();
 
-            // Vote to make the validator part of the active set for the entire test
-            // (we made the active_window_num_slots large enough at the beginning of the test)
-            new_vote_account_with_vote(
+            // Create a vote account
+            new_vote_account(
                 &new_validator,
                 &voting_keypair,
                 &bank,
                 num_vote_account_tokens as u64,
-                slots_per_epoch,
+                genesis_block.last_id(),
+            );
+
+            // Vote to make the validator part of the active set for the entire test
+            // (we made the active_window_tick_length large enough at the beginning of the test)
+            push_vote(
+                &voting_keypair,
+                &bank,
+                ticks_per_epoch,
+                genesis_block.last_id(),
             );
         }
 
-        let mut leader_scheduler =
-            LeaderScheduler::new_with_window_len(active_window_num_slots, &bank);
-
+        let mut leader_scheduler = LeaderScheduler::new(&leader_scheduler_config);
         // Generate the schedule for first epoch, bootstrap_leader will be the only leader
         leader_scheduler.generate_schedule(0, &bank);
 
         // The leader outside of the newly generated schedule window:
-        // (0, slots_per_epoch]
+        // (0, ticks_per_epoch]
         assert_eq!(
             leader_scheduler.get_leader_for_slot(0),
             Some(genesis_block.bootstrap_leader_id)
         );
-        assert_eq!(leader_scheduler.get_leader_for_slot(slots_per_epoch), None);
+        assert_eq!(
+            leader_scheduler
+                .get_leader_for_slot(leader_scheduler.tick_height_to_slot(ticks_per_epoch)),
+            None
+        );
 
-        let ticks_per_epoch = slots_per_epoch * ticks_per_slot;
         // Generate schedule for second epoch.  This schedule won't be used but the schedule for
         // the third epoch cannot be generated without an existing schedule for the second epoch
         leader_scheduler.generate_schedule(ticks_per_epoch, &bank);
@@ -697,7 +549,7 @@ pub mod tests {
         // For the next ticks_per_epoch entries, call get_leader_for_slot every
         // ticks_per_slot entries, and the next leader should be the next validator
         // in order of stake
-        let num_slots = slots_per_epoch;
+        let num_slots = ticks_per_epoch / ticks_per_slot;
         let mut start_leader_index = None;
         for i in 0..num_slots {
             let tick_height = 2 * ticks_per_epoch + i * ticks_per_slot;
@@ -722,7 +574,7 @@ pub mod tests {
             }
 
             let expected_leader =
-                validators[((start_leader_index.unwrap() as u64 + i) % num_validators) as usize];
+                validators[(start_leader_index.unwrap() + i as usize) % num_validators];
             assert_eq!(current_leader, expected_leader);
             assert_eq!(
                 slot,
@@ -737,18 +589,6 @@ pub mod tests {
                 Some(current_leader)
             );
         }
-    }
-
-    #[test]
-    fn test_leader_after_genesis() {
-        bitconch_logger::setup();
-        let leader_id = Keypair::new().pubkey();
-        let leader_tokens = 2;
-        let (genesis_block, _) = GenesisBlock::new_with_leader(5, leader_id, leader_tokens);
-        let bank = Bank::new(&genesis_block);
-        let leader_scheduler = LeaderScheduler::new_with_bank(&bank);
-        let slot = leader_scheduler.tick_height_to_slot(bank.tick_height());
-        assert_eq!(leader_scheduler.get_leader_for_slot(slot), Some(leader_id));
     }
 
     #[test]
@@ -782,6 +622,115 @@ pub mod tests {
     }
 
     #[test]
+    fn test_active_set() {
+        bitconch_logger::setup();
+
+        let leader_id = Keypair::new().pubkey();
+        let active_window_tick_length = 1000;
+        let leader_scheduler_config = LeaderSchedulerConfig::new(100, 1, active_window_tick_length);
+        let leader_scheduler =
+            Arc::new(RwLock::new(LeaderScheduler::new(&leader_scheduler_config)));
+        let (genesis_block, mint_keypair) = GenesisBlock::new_with_leader(10000, leader_id, 500);
+        let bank = Bank::new_with_leader_scheduler(&genesis_block, leader_scheduler.clone());
+
+        let bootstrap_ids = to_hashset_owned(&vec![genesis_block.bootstrap_leader_id]);
+
+        // Insert a bunch of votes at height "start_height"
+        let start_height = 3;
+        let num_old_ids = 20;
+        let mut old_ids = HashSet::new();
+        for _ in 0..num_old_ids {
+            let new_keypair = Arc::new(Keypair::new());
+            let pk = new_keypair.pubkey();
+            old_ids.insert(pk.clone());
+
+            // Give the account some stake
+            bank.transfer(5, &mint_keypair, pk, genesis_block.last_id())
+                .unwrap();
+
+            // Create a vote account
+            let voting_keypair = VotingKeypair::new_local(&new_keypair);
+            new_vote_account(
+                &new_keypair,
+                &voting_keypair,
+                &bank,
+                1,
+                genesis_block.last_id(),
+            );
+
+            // Push a vote for the account
+            push_vote(
+                &voting_keypair,
+                &bank,
+                start_height,
+                genesis_block.last_id(),
+            );
+        }
+
+        // Insert a bunch of votes at height "start_height + active_window_tick_length"
+        let num_new_ids = 10;
+        let mut new_ids = HashSet::new();
+        for _ in 0..num_new_ids {
+            let new_keypair = Arc::new(Keypair::new());
+            let pk = new_keypair.pubkey();
+            new_ids.insert(pk);
+            // Give the account some stake
+            bank.transfer(5, &mint_keypair, pk, genesis_block.last_id())
+                .unwrap();
+
+            // Create a vote account
+            let voting_keypair = VotingKeypair::new_local(&new_keypair);
+            new_vote_account(
+                &new_keypair,
+                &voting_keypair,
+                &bank,
+                1,
+                genesis_block.last_id(),
+            );
+
+            push_vote(
+                &voting_keypair,
+                &bank,
+                start_height + active_window_tick_length + 1,
+                genesis_block.last_id(),
+            );
+        }
+
+        // Query for the active set at various heights
+        let mut leader_scheduler = leader_scheduler.write().unwrap();
+
+        let result = leader_scheduler.get_active_set(0, &bank);
+        assert_eq!(result, bootstrap_ids);
+
+        let result = leader_scheduler.get_active_set(start_height - 1, &bank);
+        assert_eq!(result, bootstrap_ids);
+
+        let result =
+            leader_scheduler.get_active_set(active_window_tick_length + start_height - 1, &bank);
+        assert_eq!(result, old_ids);
+
+        let result =
+            leader_scheduler.get_active_set(active_window_tick_length + start_height, &bank);
+        assert_eq!(result, old_ids);
+
+        let result =
+            leader_scheduler.get_active_set(active_window_tick_length + start_height + 1, &bank);
+        assert_eq!(result, new_ids);
+
+        let result =
+            leader_scheduler.get_active_set(2 * active_window_tick_length + start_height, &bank);
+        assert_eq!(result, new_ids);
+
+        let result = leader_scheduler
+            .get_active_set(2 * active_window_tick_length + start_height + 1, &bank);
+        assert_eq!(result, new_ids);
+
+        let result = leader_scheduler
+            .get_active_set(2 * active_window_tick_length + start_height + 2, &bank);
+        assert!(result.is_empty());
+    }
+
+    #[test]
     fn test_seed() {
         // Check that num_seeds different seeds are generated
         let num_seeds = 1000;
@@ -790,6 +739,93 @@ pub mod tests {
             let seed = LeaderScheduler::calculate_seed(i);
             assert!(!old_seeds.contains(&seed));
             old_seeds.insert(seed);
+        }
+    }
+
+    #[test]
+    fn test_rank_active_set() {
+        let num_validators: usize = 101;
+        // Give genesis_block sum(1..num_validators) tokens
+        let (genesis_block, mint_keypair) =
+            GenesisBlock::new((((num_validators + 1) / 2) * (num_validators + 1)) as u64);
+        let bank = Bank::new(&genesis_block);
+        let mut validators = vec![];
+        let last_id = genesis_block.last_id();
+        for i in 0..num_validators {
+            let new_validator = Keypair::new();
+            let new_pubkey = new_validator.pubkey();
+            validators.push(new_validator);
+            bank.transfer(
+                (num_validators - i) as u64,
+                &mint_keypair,
+                new_pubkey,
+                last_id,
+            )
+            .unwrap();
+        }
+
+        let validators_pubkey: Vec<Pubkey> = validators.iter().map(Keypair::pubkey).collect();
+        let result = LeaderScheduler::rank_active_set(&bank, validators_pubkey.iter());
+
+        assert_eq!(result.len(), validators.len());
+
+        // Expect the result to be the reverse of the list we passed into the rank_active_set()
+        for (i, (pubkey, stake)) in result.into_iter().enumerate() {
+            assert_eq!(stake, i as u64 + 1);
+            assert_eq!(*pubkey, validators[num_validators - i - 1].pubkey());
+        }
+
+        // Transfer all the tokens to a new set of validators, old validators should now
+        // have balance of zero and get filtered out of the rankings
+        let mut new_validators = vec![];
+        for i in 0..num_validators {
+            let new_validator = Keypair::new();
+            let new_pubkey = new_validator.pubkey();
+            new_validators.push(new_validator);
+            bank.transfer(
+                (num_validators - i) as u64,
+                &validators[i],
+                new_pubkey,
+                last_id,
+            )
+            .unwrap();
+        }
+
+        let all_validators: Vec<Pubkey> = validators
+            .iter()
+            .chain(new_validators.iter())
+            .map(Keypair::pubkey)
+            .collect();
+        let result = LeaderScheduler::rank_active_set(&bank, all_validators.iter());
+        assert_eq!(result.len(), new_validators.len());
+
+        for (i, (pubkey, balance)) in result.into_iter().enumerate() {
+            assert_eq!(balance, i as u64 + 1);
+            assert_eq!(*pubkey, new_validators[num_validators - i - 1].pubkey());
+        }
+
+        // Break ties between validators with the same balances using public key
+        let (genesis_block, mint_keypair) = GenesisBlock::new((num_validators + 1) as u64);
+        let bank = Bank::new(&genesis_block);
+        let mut tied_validators_pk = vec![];
+        let last_id = genesis_block.last_id();
+
+        for _i in 0..num_validators {
+            let new_validator = Keypair::new();
+            let new_pubkey = new_validator.pubkey();
+            tied_validators_pk.push(new_pubkey);
+            assert!(bank.get_balance(&mint_keypair.pubkey()) > 1);
+            bank.transfer(1, &mint_keypair, new_pubkey, last_id)
+                .unwrap();
+        }
+
+        let result = LeaderScheduler::rank_active_set(&bank, tied_validators_pk.iter());
+        let mut sorted: Vec<&Pubkey> = tied_validators_pk.iter().map(|x| x).collect();
+        sorted.sort_by(|pk1, pk2| pk1.cmp(pk2));
+        assert_eq!(result.len(), tied_validators_pk.len());
+        for (i, (pk, s)) in result.into_iter().enumerate() {
+            assert_eq!(s, 1);
+            assert_eq!(*pk, *sorted[i]);
         }
     }
 
@@ -842,28 +878,32 @@ pub mod tests {
         // is selected once
         let mut num_validators = 100;
         let mut ticks_per_slot = 100;
+        let mut ticks_per_epoch = ticks_per_slot * num_validators as u64;
 
-        run_scheduler_test(num_validators, ticks_per_slot, num_validators);
+        run_scheduler_test(num_validators, ticks_per_slot, ticks_per_epoch);
 
         // Test when there are fewer validators than
         // ticks_per_epoch / ticks_per_slot, so each validator
         // is selected multiple times
         num_validators = 3;
         ticks_per_slot = 100;
-        run_scheduler_test(num_validators, ticks_per_slot, num_validators);
+        ticks_per_epoch = 1000;
+        run_scheduler_test(num_validators, ticks_per_slot, ticks_per_epoch);
 
         // Test when there are fewer number of validators than
         // ticks_per_epoch / ticks_per_slot, so each validator
         // may not be selected
         num_validators = 10;
         ticks_per_slot = 100;
-        run_scheduler_test(num_validators, ticks_per_slot, num_validators);
+        ticks_per_epoch = 200;
+        run_scheduler_test(num_validators, ticks_per_slot, ticks_per_epoch);
 
         // Test when ticks_per_epoch == ticks_per_slot,
         // only one validator should be selected
         num_validators = 10;
         ticks_per_slot = 2;
-        run_scheduler_test(num_validators, ticks_per_slot, num_validators);
+        ticks_per_epoch = 2;
+        run_scheduler_test(num_validators, ticks_per_slot, ticks_per_epoch);
     }
 
     #[test]
@@ -878,25 +918,25 @@ pub mod tests {
         // is the cause of validators being truncated later)
         let ticks_per_slot = 100;
         let slots_per_epoch = num_validators;
-        let active_window_num_slots = slots_per_epoch;
+        let active_window_tick_length = ticks_per_slot * slots_per_epoch;
 
-        // Create the bazzznk and validators
-        let (mut genesis_block, mint_keypair) = GenesisBlock::new(
+        let leader_scheduler_config =
+            LeaderSchedulerConfig::new(ticks_per_slot, slots_per_epoch, active_window_tick_length);
+        let leader_scheduler =
+            Arc::new(RwLock::new(LeaderScheduler::new(&leader_scheduler_config)));
+
+        // Create the bank and validators
+        let (genesis_block, mint_keypair) = GenesisBlock::new(
             ((((num_validators + 1) / 2) * (num_validators + 1))
                 + (num_vote_account_tokens * num_validators)) as u64,
         );
-        genesis_block.ticks_per_slot = ticks_per_slot;
-        genesis_block.slots_per_epoch = slots_per_epoch;
-        let bank = Bank::new(&genesis_block);
-        let mut leader_scheduler =
-            LeaderScheduler::new_with_window_len(active_window_num_slots, &bank);
-
+        let bank = Bank::new_with_leader_scheduler(&genesis_block, leader_scheduler.clone());
         let mut validators = vec![];
         let last_id = genesis_block.last_id();
         for i in 0..num_validators {
-            let new_validator = Keypair::new();
+            let new_validator = Arc::new(Keypair::new());
             let new_pubkey = new_validator.pubkey();
-            let voting_keypair = Keypair::new();
+            let voting_keypair = VotingKeypair::new_local(&new_validator);
             validators.push(new_pubkey);
             // Give the validator some tokens
             bank.transfer(
@@ -907,14 +947,27 @@ pub mod tests {
             )
             .unwrap();
 
-            // Create a vote account and push a vote
-            let tick_height = (i + 2) * active_window_num_slots - 1;
-            new_vote_account_with_vote(&new_validator, &voting_keypair, &bank, 1, tick_height);
+            // Create a vote account
+            new_vote_account(
+                &new_validator,
+                &voting_keypair,
+                &bank,
+                num_vote_account_tokens as u64,
+                genesis_block.last_id(),
+            );
+
+            push_vote(
+                &voting_keypair,
+                &bank,
+                (i + 2) * active_window_tick_length - 1,
+                genesis_block.last_id(),
+            );
         }
 
-        // Generate schedule every active_window_num_slots entries and check that
+        // Generate schedule every active_window_tick_length entries and check that
         // validators are falling out of the rotation as they fall out of the
         // active set
+        let mut leader_scheduler = leader_scheduler.write().unwrap();
         trace!("bootstrap_leader_id: {}", genesis_block.bootstrap_leader_id);
         for i in 0..num_validators {
             trace!("validators[{}]: {}", i, validators[i as usize]);
@@ -924,8 +977,7 @@ pub mod tests {
         assert_eq!(leader_scheduler.current_epoch, 0);
         for i in 0..=num_validators {
             info!("i === {}", i);
-            leader_scheduler
-                .generate_schedule((i + 1) * ticks_per_slot * active_window_num_slots, &bank);
+            leader_scheduler.generate_schedule((i + 1) * active_window_tick_length, &bank);
             assert_eq!(leader_scheduler.current_epoch, i + 1);
             if i == 0 {
                 assert_eq!(
@@ -942,23 +994,86 @@ pub mod tests {
     }
 
     #[test]
+    fn test_multiple_vote() {
+        let leader_keypair = Arc::new(Keypair::new());
+        let leader_id = leader_keypair.pubkey();
+        let active_window_tick_length = 1000;
+        let (genesis_block, _mint_keypair) = GenesisBlock::new_with_leader(10000, leader_id, 500);
+        let leader_scheduler_config = LeaderSchedulerConfig::new(100, 1, active_window_tick_length);
+        let leader_scheduler =
+            Arc::new(RwLock::new(LeaderScheduler::new(&leader_scheduler_config)));
+        let bank = Bank::new_with_leader_scheduler(&genesis_block, leader_scheduler.clone());
+
+        // Bootstrap leader should be in the active set even without explicit votes
+        {
+            let mut leader_scheduler = leader_scheduler.write().unwrap();
+            let result = leader_scheduler.get_active_set(0, &bank);
+            assert_eq!(result, to_hashset_owned(&vec![leader_id]));
+
+            let result = leader_scheduler.get_active_set(active_window_tick_length, &bank);
+            assert_eq!(result, to_hashset_owned(&vec![leader_id]));
+
+            let result = leader_scheduler.get_active_set(active_window_tick_length + 1, &bank);
+            assert!(result.is_empty());
+        }
+
+        // Check that a node that votes twice in a row will get included in the active
+        // window
+
+        let voting_keypair = VotingKeypair::new_local(&leader_keypair);
+        // Create a vote account
+        new_vote_account(
+            &leader_keypair,
+            &voting_keypair,
+            &bank,
+            1,
+            genesis_block.last_id(),
+        );
+
+        // Vote at tick_height 1
+        push_vote(&voting_keypair, &bank, 1, genesis_block.last_id());
+
+        {
+            let mut leader_scheduler = leader_scheduler.write().unwrap();
+            let result = leader_scheduler.get_active_set(active_window_tick_length + 1, &bank);
+            assert_eq!(result, to_hashset_owned(&vec![leader_id]));
+
+            let result = leader_scheduler.get_active_set(active_window_tick_length + 2, &bank);
+            assert!(result.is_empty());
+        }
+
+        // Vote at tick_height 2
+        push_vote(&voting_keypair, &bank, 2, genesis_block.last_id());
+
+        {
+            let mut leader_scheduler = leader_scheduler.write().unwrap();
+            let result = leader_scheduler.get_active_set(active_window_tick_length + 2, &bank);
+            assert_eq!(result, to_hashset_owned(&vec![leader_id]));
+
+            let result = leader_scheduler.get_active_set(active_window_tick_length + 3, &bank);
+            assert!(result.is_empty());
+        }
+    }
+
+    #[test]
     fn test_update_tick_height() {
         bitconch_logger::setup();
 
         let ticks_per_slot = 100;
         let slots_per_epoch = 2;
         let ticks_per_epoch = ticks_per_slot * slots_per_epoch;
-        let active_window_num_slots = 1;
+        let active_window_tick_length = 1;
+
+        let leader_scheduler_config =
+            LeaderSchedulerConfig::new(ticks_per_slot, slots_per_epoch, active_window_tick_length);
+        let leader_scheduler =
+            Arc::new(RwLock::new(LeaderScheduler::new(&leader_scheduler_config)));
 
         // Check that the generate_schedule() function is being called by the
         // update_tick_height() function at the correct entry heights.
-        let (mut genesis_block, _) = GenesisBlock::new(10_000);
-        genesis_block.ticks_per_slot = ticks_per_slot;
-        genesis_block.slots_per_epoch = slots_per_epoch;
-
-        let bank = Bank::new(&genesis_block);
-        let mut leader_scheduler =
-            LeaderScheduler::new_with_window_len(active_window_num_slots, &bank);
+        let (genesis_block, _) = GenesisBlock::new(10_000);
+        let bank = Bank::new_with_leader_scheduler(&genesis_block, leader_scheduler.clone());
+        let mut leader_scheduler = leader_scheduler.write().unwrap();
         info!(
             "bootstrap_leader_id: {:?}",
             genesis_block.bootstrap_leader_id
@@ -1064,32 +1179,43 @@ pub mod tests {
         let leader_scheduler = LeaderScheduler::new(&leader_scheduler_config);
 
         assert_eq!(leader_scheduler.ticks_per_slot, DEFAULT_TICKS_PER_SLOT);
-        assert_eq!(leader_scheduler.slots_per_epoch, DEFAULT_SLOTS_PER_EPOCH);
+        assert_eq!(
+            leader_scheduler.ticks_per_epoch,
+            DEFAULT_TICKS_PER_SLOT * DEFAULT_SLOTS_PER_EPOCH
+        );
 
         // Check actual arguments for LeaderScheduler
         let ticks_per_slot = 100;
         let slots_per_epoch = 2;
-        let active_window_num_slots = 1;
+        let active_window_tick_length = 1;
 
         let leader_scheduler_config =
-            LeaderSchedulerConfig::new(ticks_per_slot, slots_per_epoch, active_window_num_slots);
+            LeaderSchedulerConfig::new(ticks_per_slot, slots_per_epoch, active_window_tick_length);
 
         let leader_scheduler = LeaderScheduler::new(&leader_scheduler_config);
 
         assert_eq!(leader_scheduler.ticks_per_slot, ticks_per_slot);
-        assert_eq!(leader_scheduler.slots_per_epoch, slots_per_epoch);
+        assert_eq!(
+            leader_scheduler.ticks_per_epoch,
+            ticks_per_slot * slots_per_epoch
+        );
     }
 
     fn run_consecutive_leader_test(slots_per_epoch: u64, add_validator: bool) {
         let bootstrap_leader_keypair = Arc::new(Keypair::new());
         let bootstrap_leader_id = bootstrap_leader_keypair.pubkey();
         let ticks_per_slot = 100;
-        let active_window_num_slots = slots_per_epoch;
+        let active_window_tick_length = slots_per_epoch * ticks_per_slot;
+
+        let leader_scheduler_config =
+            LeaderSchedulerConfig::new(ticks_per_slot, slots_per_epoch, active_window_tick_length);
+        let leader_scheduler =
+            Arc::new(RwLock::new(LeaderScheduler::new(&leader_scheduler_config)));
 
         // Create mint and bank
         let (genesis_block, mint_keypair) =
             GenesisBlock::new_with_leader(10_000, bootstrap_leader_id, BOOTSTRAP_LEADER_TOKENS);
-        let bank = Bank::new(&genesis_block);
+        let bank = Bank::new_with_leader_scheduler(&genesis_block, leader_scheduler.clone());
         let last_id = genesis_block.last_id();
         let initial_vote_height = 1;
 
@@ -1099,14 +1225,21 @@ pub mod tests {
         if add_validator {
             bank.transfer(5, &mint_keypair, validator_id, last_id)
                 .unwrap();
-
-            // Create a vote account and push a vote
-            new_vote_account_with_vote(
+            // Create a vote account
+            let voting_keypair = VotingKeypair::new_local(&validator_keypair);
+            new_vote_account(
                 &validator_keypair,
-                &Keypair::new(),
+                &voting_keypair,
                 &bank,
                 1,
+                genesis_block.last_id(),
+            );
+
+            push_vote(
+                &voting_keypair,
+                &bank,
                 initial_vote_height,
+                genesis_block.last_id(),
             );
         }
 
@@ -1127,28 +1260,33 @@ pub mod tests {
         )
         .unwrap();
 
-        // Create a vote account and push a vote to add the leader to the active set
-        let voting_keypair = Keypair::new();
-        new_vote_account_with_vote(
+        // Create a vote account
+        let voting_keypair = VotingKeypair::new_local(&bootstrap_leader_keypair);
+        new_vote_account(
             &bootstrap_leader_keypair,
             &voting_keypair,
             &bank,
             vote_account_tokens as u64,
-            0,
+            genesis_block.last_id(),
         );
 
-        let leader_scheduler_config =
-            LeaderSchedulerConfig::new(ticks_per_slot, slots_per_epoch, active_window_num_slots);
-        let mut leader_scheduler = LeaderScheduler::new(&leader_scheduler_config);
+        // Add leader to the active set
+        push_vote(
+            &voting_keypair,
+            &bank,
+            initial_vote_height,
+            genesis_block.last_id(),
+        );
 
+        let mut leader_scheduler = LeaderScheduler::default();
         leader_scheduler.generate_schedule(0, &bank);
         assert_eq!(leader_scheduler.current_epoch, 0);
         assert_eq!(leader_scheduler.epoch_schedule[0], [bootstrap_leader_id]);
 
         // Make sure the validator, not the leader is selected on the first slot of the
         // next epoch
-        leader_scheduler.generate_schedule(ticks_per_slot * slots_per_epoch, &bank);
-        assert_eq!(leader_scheduler.current_epoch, 1);
+        leader_scheduler.generate_schedule(1, &bank);
+        assert_eq!(leader_scheduler.current_epoch, 0);
         if add_validator {
             assert_eq!(leader_scheduler.epoch_schedule[0][0], validator_id);
         } else {
@@ -1167,32 +1305,5 @@ pub mod tests {
         run_consecutive_leader_test(1, false);
         run_consecutive_leader_test(2, false);
         run_consecutive_leader_test(10, false);
-    }
-
-    #[test]
-    fn test_sort_stakes_basic() {
-        let pubkey0 = Keypair::new().pubkey();
-        let pubkey1 = Keypair::new().pubkey();
-        let mut stakes = vec![(pubkey0, 2), (pubkey1, 1)];
-        sort_stakes(&mut stakes);
-        assert_eq!(stakes, vec![(pubkey1, 1), (pubkey0, 2)]);
-    }
-
-    #[test]
-    fn test_sort_stakes_with_dup() {
-        let pubkey0 = Keypair::new().pubkey();
-        let pubkey1 = Keypair::new().pubkey();
-        let mut stakes = vec![(pubkey0, 1), (pubkey1, 2), (pubkey0, 1)];
-        sort_stakes(&mut stakes);
-        assert_eq!(stakes, vec![(pubkey0, 1), (pubkey1, 2)]);
-    }
-
-    #[test]
-    fn test_sort_stakes_with_equal_stakes() {
-        let pubkey0 = Pubkey::default();
-        let pubkey1 = Keypair::new().pubkey();
-        let mut stakes = vec![(pubkey0, 1), (pubkey1, 1)];
-        sort_stakes(&mut stakes);
-        assert_eq!(stakes, vec![(pubkey0, 1), (pubkey1, 1)]);
     }
 }

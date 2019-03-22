@@ -1,5 +1,5 @@
 [package]
-authors = ["Bitconch Dev"]
+authors = ["Bitconch Dev <info@bitconch.io>"]
 edition = "2018"
 name = "bitconch-bench-streamer"
 version = "0.12.0"

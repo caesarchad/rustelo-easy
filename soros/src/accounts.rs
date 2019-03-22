@@ -1,9 +1,10 @@
-use crate::bank::{BankError, Result};
-use crate::runtime::has_duplicates;
+use crate::bank::BankError;
+use crate::bank::Result;
+use crate::counter::Counter;
 use bincode::serialize;
 use hashbrown::{HashMap, HashSet};
-use log::debug;
-use bitconch_metrics::counter::Counter;
+use log::Level;
+use bitconch_runtime::has_duplicates;
 use bitconch_sdk::account::Account;
 use bitconch_sdk::hash::{hash, Hash};
 use bitconch_sdk::native_loader;
@@ -255,28 +256,12 @@ impl AccountsDB {
     pub fn transaction_count(&self) -> u64 {
         self.transaction_count
     }
-
-    /// become the root accountsDB
-    fn squash<U>(&mut self, parents: &[U])
-    where
-        U: Deref<Target = Self>,
-    {
-        self.transaction_count += parents
-            .iter()
-            .fold(0, |sum, parent| sum + parent.transaction_count);
-
-        // for every account in all the parents, load latest and update self if
-        //   absent
-        for pubkey in parents.iter().flat_map(|parent| parent.accounts.keys()) {
-            // update self with data from parents unless in self
-            if self.accounts.get(pubkey).is_none() {
-                self.accounts
-                    .insert(pubkey.clone(), Self::load(parents, pubkey).unwrap().clone());
-            }
-        }
-
-        // toss any zero-balance accounts, since self is root now
-        self.accounts.retain(|_, account| account.tokens != 0);
+    pub fn account_values_slow(&self) -> Vec<(Pubkey, bitconch_sdk::account::Account)> {
+        self.accounts.iter().map(|(x, y)| (*x, y.clone())).collect()
+    }
+    fn merge(&mut self, other: Self) {
+        self.transaction_count += other.transaction_count;
+        self.accounts.extend(other.accounts)
     }
 }
 
@@ -290,7 +275,7 @@ impl Accounts {
             .iter()
             .map(|obj| obj.accounts_db.read().unwrap())
             .collect();
-        AccountsDB::load(&dbs, pubkey).filter(|acc| acc.tokens != 0)
+        AccountsDB::load(&dbs, pubkey)
     }
     /// Slow because lock is held for 1 operation insted of many
     /// * purge - if the account token value is 0 and purge is true then delete the account.
@@ -405,21 +390,26 @@ impl Accounts {
     pub fn transaction_count(&self) -> u64 {
         self.accounts_db.read().unwrap().transaction_count()
     }
+    /// accounts starts with an empty data structure for every fork
+    /// self is root, merge the fork into self
+    pub fn merge_into_root(&self, other: Self) {
+        assert!(other.account_locks.lock().unwrap().is_empty());
+        let db = other.accounts_db.into_inner().unwrap();
+        let mut mydb = self.accounts_db.write().unwrap();
+        mydb.merge(db)
+    }
+    pub fn copy_for_tpu(&self) -> Self {
+        //TODO: deprecate this in favor of forks and merge_into_root
+        let copy = Accounts::default();
 
-    /// accounts starts with an empty data structure for every child/fork
-    ///   this function squashes all the parents into this instance
-    pub fn squash<U>(&self, parents: &[U])
-    where
-        U: Deref<Target = Self>,
-    {
-        assert!(self.account_locks.lock().unwrap().is_empty());
-
-        let dbs: Vec<_> = parents
-            .iter()
-            .map(|obj| obj.accounts_db.read().unwrap())
-            .collect();
-
-        self.accounts_db.write().unwrap().squash(&dbs);
+        {
+            let mut accounts_db = copy.accounts_db.write().unwrap();
+            for (key, val) in self.accounts_db.read().unwrap().accounts.iter() {
+                accounts_db.accounts.insert(key.clone(), val.clone());
+            }
+            accounts_db.transaction_count = self.transaction_count();
+        }
+        copy
     }
 }
 
@@ -830,53 +820,4 @@ mod tests {
         loaded_accounts[0].clone().unwrap_err();
         assert_eq!(loaded_accounts[0], Err(BankError::AccountLoadedTwice));
     }
-
-    #[test]
-    fn test_accountsdb_squash() {
-        let mut db0 = AccountsDB::default();
-        let key = Pubkey::default();
-        let account0 = Account::new(1, 0, key);
-
-        // store value 1 in the "root", i.e. db zero
-        db0.store(true, &key, &account0);
-
-        // store value 0 in the child, but don't purge (see purge test above)
-        let mut db1 = AccountsDB::default();
-        let account1 = Account::new(0, 0, key);
-        db1.store(false, &key, &account1);
-
-        // masking accounts is done at the Accounts level, at accountsDB we see
-        // original account
-        assert_eq!(AccountsDB::load(&[&db1, &db0], &key), Some(account1));
-
-        // squash, which should whack key's account
-        db1.squash(&[&db0]);
-        assert_eq!(AccountsDB::load(&[&db1], &key), None);
-    }
-
-    #[test]
-    fn test_accounts_unsquashed() {
-        let key = Pubkey::default();
-
-        // 1 token in the "root", i.e. db zero
-        let mut db0 = AccountsDB::default();
-        let account0 = Account::new(1, 0, key);
-        db0.store(true, &key, &account0);
-
-        // 0 tokens in the child
-        let mut db1 = AccountsDB::default();
-        let account1 = Account::new(0, 0, key);
-        db1.store(false, &key, &account1);
-
-        // masking accounts is done at the Accounts level, at accountsDB we see
-        // original account
-        assert_eq!(AccountsDB::load(&[&db1, &db0], &key), Some(account1));
-
-        let mut accounts0 = Accounts::default();
-        accounts0.accounts_db = RwLock::new(db0);
-        let mut accounts1 = Accounts::default();
-        accounts1.accounts_db = RwLock::new(db1);
-        assert_eq!(Accounts::load_slow(&[&accounts1, &accounts0], &key), None);
-    }
-
 }

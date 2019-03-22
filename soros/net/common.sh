@@ -29,8 +29,6 @@ fullnodeIpList=()
 fullnodeIpListPrivate=()
 clientIpList=()
 clientIpListPrivate=()
-blockstreamerIpList=()
-blockstreamerIpListPrivate=()
 leaderRotation=
 
 buildSshOptions() {

@@ -62,7 +62,7 @@ else
   query() {
     echo "$*"
     curl -XPOST \
-      "https://127.0.0.1:8086/query?u=${username}&p=${password}" \
+      "https://metrics.bitconch.com:8086/query?u=${username}&p=${password}" \
       --data-urlencode "q=$*"
   }
 

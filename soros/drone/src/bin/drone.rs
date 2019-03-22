@@ -1,5 +1,5 @@
 use clap::{crate_version, App, Arg};
-use log::info;
+use log::*;
 use bitconch_drone::drone::{Drone, DRONE_PORT};
 use bitconch_drone::socketaddr;
 use bitconch_sdk::signature::read_keypair;
@@ -9,7 +9,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tokio::net::TcpListener;
-use tokio::prelude::{Future, Sink, Stream};
+use tokio::prelude::*;
 use tokio_codec::{BytesCodec, Decoder};
 
 fn main() -> Result<(), Box<error::Error>> {

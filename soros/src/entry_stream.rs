@@ -1,17 +1,18 @@
-//! The `blockstream` module provides a method for streaming entries out via a
+//! The `entry_stream` module provides a method for streaming entries out via a
 //! local unix socket, to provide client services such as a block explorer with
 //! real-time access to entries.
 
 use crate::entry::Entry;
+use crate::leader_scheduler::LeaderScheduler;
 use crate::result::Result;
 use chrono::{SecondsFormat, Utc};
 use bitconch_sdk::hash::Hash;
-use bitconch_sdk::pubkey::Pubkey;
 use std::cell::RefCell;
 use std::io::prelude::*;
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::sync::{Arc, RwLock};
 
 pub trait EntryWriter: std::fmt::Debug {
     fn write(&self, payload: String) -> Result<()>;
@@ -58,46 +59,34 @@ impl EntryWriter for EntrySocket {
     }
 }
 
-pub trait BlockstreamEvents {
-    fn emit_entry_event(
-        &self,
-        slot: u64,
-        tick_height: u64,
-        leader_id: Pubkey,
-        entries: &Entry,
-    ) -> Result<()>;
+pub trait EntryStreamHandler {
+    fn emit_entry_event(&self, slot: u64, leader_id: &str, entries: &Entry) -> Result<()>;
     fn emit_block_event(
         &self,
         slot: u64,
+        leader_id: &str,
         tick_height: u64,
-        leader_id: Pubkey,
         last_id: Hash,
     ) -> Result<()>;
 }
 
 #[derive(Debug)]
-pub struct Blockstream<T: EntryWriter> {
+pub struct EntryStream<T: EntryWriter> {
     pub output: T,
-    pub queued_block: Option<BlockData>,
+    pub leader_scheduler: Arc<RwLock<LeaderScheduler>>,
+    pub queued_block: Option<EntryStreamBlock>,
 }
 
-impl<T> BlockstreamEvents for Blockstream<T>
+impl<T> EntryStreamHandler for EntryStream<T>
 where
     T: EntryWriter,
 {
-    fn emit_entry_event(
-        &self,
-        slot: u64,
-        tick_height: u64,
-        leader_id: Pubkey,
-        entry: &Entry,
-    ) -> Result<()> {
+    fn emit_entry_event(&self, slot: u64, leader_id: &str, entry: &Entry) -> Result<()> {
         let json_entry = serde_json::to_string(&entry)?;
         let payload = format!(
-            r#"{{"dt":"{}","t":"entry","s":{},"h":{},"l":"{:?}","entry":{}}}"#,
+            r#"{{"dt":"{}","t":"entry","s":{},"l":{:?},"entry":{}}}"#,
             Utc::now().to_rfc3339_opts(SecondsFormat::Nanos, true),
             slot,
-            tick_height,
             leader_id,
             json_entry,
         );
@@ -108,12 +97,12 @@ where
     fn emit_block_event(
         &self,
         slot: u64,
+        leader_id: &str,
         tick_height: u64,
-        leader_id: Pubkey,
         last_id: Hash,
     ) -> Result<()> {
         let payload = format!(
-            r#"{{"dt":"{}","t":"block","s":{},"h":{},"l":"{:?}","id":"{:?}"}}"#,
+            r#"{{"dt":"{}","t":"block","s":{},"h":{},"l":{:?},"id":"{:?}"}}"#,
             Utc::now().to_rfc3339_opts(SecondsFormat::Nanos, true),
             slot,
             tick_height,
@@ -125,23 +114,25 @@ where
     }
 }
 
-pub type SocketBlockstream = Blockstream<EntrySocket>;
+pub type SocketEntryStream = EntryStream<EntrySocket>;
 
-impl SocketBlockstream {
-    pub fn new(socket: String) -> Self {
-        Blockstream {
+impl SocketEntryStream {
+    pub fn new(socket: String, leader_scheduler: Arc<RwLock<LeaderScheduler>>) -> Self {
+        EntryStream {
             output: EntrySocket { socket },
+            leader_scheduler,
             queued_block: None,
         }
     }
 }
 
-pub type MockBlockstream = Blockstream<EntryVec>;
+pub type MockEntryStream = EntryStream<EntryVec>;
 
-impl MockBlockstream {
-    pub fn new(_: String) -> Self {
-        Blockstream {
+impl MockEntryStream {
+    pub fn new(_: String, leader_scheduler: Arc<RwLock<LeaderScheduler>>) -> Self {
+        EntryStream {
             output: EntryVec::new(),
+            leader_scheduler,
             queued_block: None,
         }
     }
@@ -152,27 +143,36 @@ impl MockBlockstream {
 }
 
 #[derive(Debug)]
-pub struct BlockData {
+pub struct EntryStreamBlock {
     pub slot: u64,
     pub tick_height: u64,
     pub id: Hash,
-    pub leader_id: Pubkey,
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::bank::Bank;
     use crate::entry::Entry;
+    use crate::genesis_block::GenesisBlock;
+    use crate::leader_scheduler::LeaderSchedulerConfig;
     use chrono::{DateTime, FixedOffset};
     use serde_json::Value;
     use bitconch_sdk::hash::Hash;
-    use bitconch_sdk::signature::{Keypair, KeypairUtil};
     use std::collections::HashSet;
 
     #[test]
-    fn test_blockstream() -> () {
-        let blockstream = MockBlockstream::new("test_stream".to_string());
-        let ticks_per_slot = 5;
+    fn test_entry_stream() -> () {
+        // Set up bank and leader_scheduler
+        let leader_scheduler_config = LeaderSchedulerConfig::new(5, 2, 10);
+        let (genesis_block, _mint_keypair) = GenesisBlock::new(1_000_000);
+        let leader_scheduler =
+            Arc::new(RwLock::new(LeaderScheduler::new(&leader_scheduler_config)));
+        let bank = Bank::new_with_leader_scheduler(&genesis_block, leader_scheduler.clone());
+        // Set up entry stream
+        let entry_stream =
+            MockEntryStream::new("test_stream".to_string(), leader_scheduler.clone());
+        let ticks_per_slot = leader_scheduler.read().unwrap().ticks_per_slot;
 
         let mut last_id = Hash::default();
         let mut entries = Vec::new();
@@ -180,27 +180,43 @@ mod test {
 
         let tick_height_initial = 0;
         let tick_height_final = tick_height_initial + ticks_per_slot + 2;
-        let mut curr_slot = 0;
-        let leader_id = Keypair::new().pubkey();
+        let mut previous_slot = leader_scheduler
+            .read()
+            .unwrap()
+            .tick_height_to_slot(tick_height_initial);
+        let leader_id = leader_scheduler
+            .read()
+            .unwrap()
+            .get_leader_for_slot(previous_slot)
+            .map(|leader| leader.to_string())
+            .unwrap_or_else(|| "None".to_string());
 
         for tick_height in tick_height_initial..=tick_height_final {
-            if tick_height == 5 {
-                blockstream
-                    .emit_block_event(curr_slot, tick_height - 1, leader_id, last_id)
+            leader_scheduler
+                .write()
+                .unwrap()
+                .update_tick_height(tick_height, &bank);
+            let curr_slot = leader_scheduler
+                .read()
+                .unwrap()
+                .tick_height_to_slot(tick_height);
+            if curr_slot != previous_slot {
+                entry_stream
+                    .emit_block_event(previous_slot, &leader_id, tick_height - 1, last_id)
                     .unwrap();
-                curr_slot += 1;
             }
-            let entry = Entry::new(&mut last_id, 1, vec![]); // just ticks
+            let entry = Entry::new(&mut last_id, tick_height, 1, vec![]); // just ticks
             last_id = entry.id;
-            blockstream
-                .emit_entry_event(curr_slot, tick_height, leader_id, &entry)
+            previous_slot = curr_slot;
+            entry_stream
+                .emit_entry_event(curr_slot, &leader_id, &entry)
                 .unwrap();
             expected_entries.push(entry.clone());
             entries.push(entry);
         }
 
         assert_eq!(
-            blockstream.entries().len() as u64,
+            entry_stream.entries().len() as u64,
             // one entry per tick (0..=N+2) is +3, plus one block
             ticks_per_slot + 3 + 1
         );
@@ -210,7 +226,7 @@ mod test {
         let mut matched_slots = HashSet::new();
         let mut matched_blocks = HashSet::new();
 
-        for item in blockstream.entries() {
+        for item in entry_stream.entries() {
             let json: Value = serde_json::from_str(&item).unwrap();
             let dt_str = json["dt"].as_str().unwrap();
 

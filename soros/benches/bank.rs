@@ -2,9 +2,9 @@
 
 extern crate test;
 
-use bitconch_runtime::bank::*;
-use bitconch_runtime::last_id_queue::MAX_ENTRY_IDS;
-use bitconch_sdk::genesis_block::GenesisBlock;
+use bitconch::bank::*;
+use bitconch::genesis_block::GenesisBlock;
+use bitconch::last_id_queue::MAX_ENTRY_IDS;
 use bitconch_sdk::hash::hash;
 use bitconch_sdk::signature::{Keypair, KeypairUtil};
 use bitconch_sdk::system_transaction::SystemTransaction;

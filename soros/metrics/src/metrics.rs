@@ -193,7 +193,7 @@ pub fn submit(point: influxdb::Point) {
 
 fn get_env_settings() -> Result<(String, String, String, String), env::VarError> {
     let host =
-        env::var("INFLUX_HOST").unwrap_or_else(|_| "https://127.0.0.1:8086".to_string());
+        env::var("INFLUX_HOST").unwrap_or_else(|_| "https://metrics.bitconch.com:8086".to_string());
     let db = env::var("INFLUX_DATABASE")?.to_string();
     let username = env::var("INFLUX_USERNAME")?.to_string();
     let password = env::var("INFLUX_PASSWORD")?.to_string();

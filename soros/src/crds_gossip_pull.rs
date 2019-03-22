@@ -9,9 +9,9 @@
 //! with random hash functions.  So each subsequent request will have a different distribution
 //! of false positives.
 
-use crate::contact_info::ContactInfo;
+use crate::bloom::Bloom;
 use crate::crds::Crds;
-use crate::crds_gossip::{get_stake, get_weight, CRDS_GOSSIP_BLOOM_SIZE};
+use crate::crds_gossip::CRDS_GOSSIP_BLOOM_SIZE;
 use crate::crds_gossip_error::CrdsGossipError;
 use crate::crds_value::{CrdsValue, CrdsValueLabel};
 use crate::packet::BLOB_DATA_SIZE;
@@ -19,7 +19,6 @@ use bincode::serialized_size;
 use hashbrown::HashMap;
 use rand;
 use rand::distributions::{Distribution, WeightedIndex};
-use bitconch_runtime::bloom::Bloom;
 use bitconch_sdk::hash::Hash;
 use bitconch_sdk::pubkey::Pubkey;
 use std::cmp;
@@ -55,9 +54,23 @@ impl CrdsGossipPull {
         crds: &Crds,
         self_id: Pubkey,
         now: u64,
-        stakes: &HashMap<Pubkey, u64>,
     ) -> Result<(Pubkey, Bloom<Hash>, CrdsValue), CrdsGossipError> {
-        let options = self.pull_options(crds, &self_id, now, stakes);
+        let options: Vec<_> = crds
+            .table
+            .values()
+            .filter_map(|v| v.value.contact_info())
+            .filter(|v| {
+                v.id != self_id && !v.gossip.ip().is_unspecified() && !v.gossip.ip().is_multicast()
+            })
+            .map(|item| {
+                let req_time: u64 = *self.pull_request_time.get(&item.id).unwrap_or(&0);
+                let weight = cmp::max(
+                    1,
+                    cmp::min(u64::from(u16::max_value()) - 1, (now - req_time) / 1024) as u32,
+                );
+                (weight, item)
+            })
+            .collect();
         if options.is_empty() {
             return Err(CrdsGossipError::NoPeers);
         }
@@ -68,28 +81,6 @@ impl CrdsGossipPull {
             .lookup(&CrdsValueLabel::ContactInfo(self_id))
             .unwrap_or_else(|| panic!("self_id invalid {}", self_id));
         Ok((options[random].1.id, filter, self_info.clone()))
-    }
-
-    fn pull_options<'a>(
-        &self,
-        crds: &'a Crds,
-        self_id: &Pubkey,
-        now: u64,
-        stakes: &HashMap<Pubkey, u64>,
-    ) -> Vec<(f32, &'a ContactInfo)> {
-        crds.table
-            .values()
-            .filter_map(|v| v.value.contact_info())
-            .filter(|v| v.id != *self_id && ContactInfo::is_valid_address(&v.gossip))
-            .map(|item| {
-                let max_weight = f32::from(u16::max_value()) - 1.0;
-                let req_time: u64 = *self.pull_request_time.get(&item.id).unwrap_or(&0);
-                let since = ((now - req_time) / 1024) as u32;
-                let stake = get_stake(&item.id, stakes);
-                let weight = get_weight(max_weight, since, stake);
-                (weight, item)
-            })
-            .collect()
     }
 
     /// time when a request to `from` was initiated
@@ -213,50 +204,25 @@ mod test {
     use bitconch_sdk::signature::{Keypair, KeypairUtil};
 
     #[test]
-    fn test_new_pull_with_stakes() {
-        let mut crds = Crds::default();
-        let mut stakes = HashMap::new();
-        let node = CrdsGossipPull::default();
-        let me = CrdsValue::ContactInfo(ContactInfo::new_localhost(Keypair::new().pubkey(), 0));
-        crds.insert(me.clone(), 0).unwrap();
-        for i in 1..=30 {
-            let entry =
-                CrdsValue::ContactInfo(ContactInfo::new_localhost(Keypair::new().pubkey(), 0));
-            let id = entry.label().pubkey();
-            crds.insert(entry.clone(), 0).unwrap();
-            stakes.insert(id, i * 100);
-        }
-        let now = 1024;
-        let mut options = node.pull_options(&crds, &me.label().pubkey(), now, &stakes);
-        assert!(!options.is_empty());
-        options.sort_by(|(weight_l, _), (weight_r, _)| weight_r.partial_cmp(weight_l).unwrap());
-        // check that the highest stake holder is also the heaviest weighted.
-        assert_eq!(
-            *stakes.get(&options.get(0).unwrap().1.id).unwrap(),
-            3000_u64
-        );
-    }
-
-    #[test]
     fn test_new_pull_request() {
         let mut crds = Crds::default();
         let entry = CrdsValue::ContactInfo(ContactInfo::new_localhost(Keypair::new().pubkey(), 0));
         let id = entry.label().pubkey();
         let node = CrdsGossipPull::default();
         assert_eq!(
-            node.new_pull_request(&crds, id, 0, &HashMap::new()),
+            node.new_pull_request(&crds, id, 0),
             Err(CrdsGossipError::NoPeers)
         );
 
         crds.insert(entry.clone(), 0).unwrap();
         assert_eq!(
-            node.new_pull_request(&crds, id, 0, &HashMap::new()),
+            node.new_pull_request(&crds, id, 0),
             Err(CrdsGossipError::NoPeers)
         );
 
         let new = CrdsValue::ContactInfo(ContactInfo::new_localhost(Keypair::new().pubkey(), 0));
         crds.insert(new.clone(), 0).unwrap();
-        let req = node.new_pull_request(&crds, id, 0, &HashMap::new());
+        let req = node.new_pull_request(&crds, id, 0);
         let (to, _, self_info) = req.unwrap();
         assert_eq!(to, new.label().pubkey());
         assert_eq!(self_info, entry);
@@ -279,7 +245,7 @@ mod test {
 
         // odds of getting the other request should be 1 in u64::max_value()
         for _ in 0..10 {
-            let req = node.new_pull_request(&crds, node_id, u64::max_value(), &HashMap::new());
+            let req = node.new_pull_request(&crds, node_id, u64::max_value());
             let (to, _, self_info) = req.unwrap();
             assert_eq!(to, old.label().pubkey());
             assert_eq!(self_info, entry);
@@ -295,7 +261,7 @@ mod test {
         node_crds.insert(entry.clone(), 0).unwrap();
         let new = CrdsValue::ContactInfo(ContactInfo::new_localhost(Keypair::new().pubkey(), 0));
         node_crds.insert(new.clone(), 0).unwrap();
-        let req = node.new_pull_request(&node_crds, node_id, 0, &HashMap::new());
+        let req = node.new_pull_request(&node_crds, node_id, 0);
 
         let mut dest_crds = Crds::default();
         let mut dest = CrdsGossipPull::default();
@@ -347,7 +313,7 @@ mod test {
         let mut done = false;
         for _ in 0..30 {
             // there is a chance of a false positive with bloom filters
-            let req = node.new_pull_request(&node_crds, node_id, 0, &HashMap::new());
+            let req = node.new_pull_request(&node_crds, node_id, 0);
             let (_, filter, caller) = req.unwrap();
             let rsp = dest.process_pull_request(&mut dest_crds, caller, filter, 0);
             // if there is a false positive this is empty

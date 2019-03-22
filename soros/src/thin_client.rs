@@ -256,18 +256,13 @@ impl ThinClient {
     /// Request a new last Entry ID from the server. This method blocks
     /// until the server sends a response.
     pub fn get_next_last_id(&mut self, previous_last_id: &Hash) -> Hash {
-        self.get_next_last_id_ext(previous_last_id, &|| {
-            sleep(Duration::from_millis(100));
-        })
-    }
-    pub fn get_next_last_id_ext(&mut self, previous_last_id: &Hash, func: &Fn()) -> Hash {
         loop {
             let last_id = self.get_last_id();
             if last_id != *previous_last_id {
                 break last_id;
             }
             debug!("Got same last_id ({:?}), will retry...", last_id);
-            func()
+            sleep(Duration::from_millis(100));
         }
     }
 
@@ -378,13 +373,8 @@ pub fn poll_gossip_for_leader(leader_gossip: SocketAddr, timeout: Option<u64>) -
     let (node, gossip_socket) = ClusterInfo::spy_node();
     let my_addr = gossip_socket.local_addr().unwrap();
     let cluster_info = Arc::new(RwLock::new(ClusterInfo::new(node)));
-    let gossip_service = GossipService::new(
-        &cluster_info.clone(),
-        None,
-        None,
-        gossip_socket,
-        exit.clone(),
-    );
+    let gossip_service =
+        GossipService::new(&cluster_info.clone(), None, gossip_socket, exit.clone());
 
     let leader_entry_point = NodeInfo::new_entry_point(&leader_gossip);
     cluster_info
@@ -457,21 +447,26 @@ pub fn retry_get_balance(
 }
 
 pub fn new_fullnode(ledger_name: &'static str) -> (Fullnode, NodeInfo, Keypair, String) {
-    use crate::blocktree::create_tmp_sample_blocktree;
+    use crate::blocktree::create_tmp_sample_ledger;
     use crate::cluster_info::Node;
     use crate::fullnode::Fullnode;
     use crate::voting_keypair::VotingKeypair;
-    use bitconch_sdk::genesis_block::GenesisBlock;
     use bitconch_sdk::signature::KeypairUtil;
 
     let node_keypair = Arc::new(Keypair::new());
     let node = Node::new_localhost_with_pubkey(node_keypair.pubkey());
     let node_info = node.info.clone();
 
-    let (genesis_block, mint_keypair) = GenesisBlock::new_with_leader(10_000, node_info.id, 42);
-
-    let (ledger_path, _tick_height, _last_entry_height, _last_id, _last_entry_id) =
-        create_tmp_sample_blocktree(ledger_name, &genesis_block, genesis_block.ticks_per_slot);
+    let fullnode_config = &FullnodeConfig::default();
+    let (mint_keypair, ledger_path, _tick_height, _last_entry_height, _last_id, _last_entry_id) =
+        create_tmp_sample_ledger(
+            ledger_name,
+            10_000,
+            0,
+            node_info.id,
+            42,
+            &fullnode_config.ledger_config(),
+        );
 
     let vote_account_keypair = Arc::new(Keypair::new());
     let voting_keypair = VotingKeypair::new_local(&vote_account_keypair);
@@ -500,7 +495,7 @@ mod tests {
     #[test]
     fn test_thin_client_basic() {
         bitconch_logger::setup();
-        let (server, leader_data, alice, ledger_path) = new_fullnode("test_thin_client_basic");
+        let (server, leader_data, alice, ledger_path) = new_fullnode("thin_client");
         let server_exit = server.run(None);
         let bob_pubkey = Keypair::new().pubkey();
 
@@ -570,7 +565,7 @@ mod tests {
     #[test]
     fn test_register_vote_account() {
         bitconch_logger::setup();
-        let (server, leader_data, alice, ledger_path) = new_fullnode("test_register_vote_account");
+        let (server, leader_data, alice, ledger_path) = new_fullnode("thin_client");
         let server_exit = server.run(None);
         info!(
             "found leader: {:?}",
@@ -639,8 +634,7 @@ mod tests {
     #[test]
     fn test_zero_balance_after_nonzero() {
         bitconch_logger::setup();
-        let (server, leader_data, alice, ledger_path) =
-            new_fullnode("test_zero_balance_after_nonzero");
+        let (server, leader_data, alice, ledger_path) = new_fullnode("thin_client");
         let server_exit = server.run(None);
         let bob_keypair = Keypair::new();
 

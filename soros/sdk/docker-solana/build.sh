@@ -11,7 +11,7 @@ if [[ -z $CHANNEL ]]; then
 fi
 
 rm -rf usr/
-../../ci/docker-run.sh bitconchlabs/rust:1.32.0 \
+../../ci/docker-run.sh bitconchlabs/rust:1.31.0 \
   scripts/cargo-install-all.sh sdk/docker-bitconch/usr
 
 cp -f ../../run.sh usr/bin/bitconch-run.sh

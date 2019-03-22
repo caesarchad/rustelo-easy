@@ -125,6 +125,7 @@ pub enum RpcRequest {
     ConfirmTransaction,
     GetAccountInfo,
     GetBalance,
+    GetConfirmationTime,
     GetLastId,
     GetSignatureStatus,
     GetTransactionCount,
@@ -145,6 +146,7 @@ impl RpcRequest {
             RpcRequest::ConfirmTransaction => "confirmTransaction",
             RpcRequest::GetAccountInfo => "getAccountInfo",
             RpcRequest::GetBalance => "getBalance",
+            RpcRequest::GetConfirmationTime => "getConfirmationTime",
             RpcRequest::GetLastId => "getLastId",
             RpcRequest::GetSignatureStatus => "getSignatureStatus",
             RpcRequest::GetTransactionCount => "getTransactionCount",
@@ -212,6 +214,11 @@ mod tests {
         let test_request = RpcRequest::GetBalance;
         let request = test_request.build_request_json(1, Some(addr));
         assert_eq!(request["method"], "getBalance");
+
+        let test_request = RpcRequest::GetConfirmationTime;
+        let request = test_request.build_request_json(1, None);
+        assert_eq!(request["method"], "getConfirmationTime");
+        assert_eq!(request["params"], json!(null));
 
         let test_request = RpcRequest::GetLastId;
         let request = test_request.build_request_json(1, None);

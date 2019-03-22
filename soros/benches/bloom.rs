@@ -3,7 +3,7 @@
 extern crate test;
 use bv::BitVec;
 use fnv::FnvHasher;
-use bitconch_runtime::bloom::{Bloom, BloomHashIndex};
+use bitconch::bloom::{Bloom, BloomHashIndex};
 use bitconch_sdk::hash::{hash, Hash};
 use bitconch_sdk::signature::Signature;
 //use std::collections::HashSet;

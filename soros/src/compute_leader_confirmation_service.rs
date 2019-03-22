@@ -1,10 +1,11 @@
-//! The `leader_confirmation_service` module implements the tools necessary
+//! The `compute_leader_confirmation_service` module implements the tools necessary
 //! to generate a thread which regularly calculates the last confirmation times
 //! observed by the leader
 
+use crate::bank::Bank;
+
 use crate::service::Service;
 use bitconch_metrics::{influxdb, submit};
-use bitconch_runtime::bank::Bank;
 use bitconch_sdk::pubkey::Pubkey;
 use bitconch_sdk::timing;
 use std::result;
@@ -21,11 +22,11 @@ pub enum ConfirmationError {
 
 pub const COMPUTE_CONFIRMATION_MS: u64 = 100;
 
-pub struct LeaderConfirmationService {
-    thread_hdl: JoinHandle<()>,
+pub struct ComputeLeaderConfirmationService {
+    compute_confirmation_thread: JoinHandle<()>,
 }
 
-impl LeaderConfirmationService {
+impl ComputeLeaderConfirmationService {
     fn get_last_supermajority_timestamp(
         bank: &Arc<Bank>,
         leader_id: Pubkey,
@@ -47,13 +48,7 @@ impl LeaderConfirmationService {
                 vote_state
                     .votes
                     .back()
-                    // A vote for a slot is like a vote for the last tick in that slot
-                    .map(|vote| {
-                        (
-                            (vote.slot_height + 1) * bank.ticks_per_slot() - 1,
-                            validator_stake,
-                        )
-                    })
+                    .map(|vote| (vote.tick_height, validator_stake))
             })
             .collect();
 
@@ -104,10 +99,10 @@ impl LeaderConfirmationService {
         }
     }
 
-    /// Create a new LeaderConfirmationService for computing confirmation.
+    /// Create a new ComputeLeaderConfirmationService for computing confirmation.
     pub fn new(bank: Arc<Bank>, leader_id: Pubkey, exit: Arc<AtomicBool>) -> Self {
-        let thread_hdl = Builder::new()
-            .name("bitconch-leader-confirmation-service".to_string())
+        let compute_confirmation_thread = Builder::new()
+            .name("bitconch-leader-confirmation-stage".to_string())
             .spawn(move || {
                 let mut last_valid_validator_timestamp = 0;
                 loop {
@@ -124,29 +119,35 @@ impl LeaderConfirmationService {
             })
             .unwrap();
 
-        Self { thread_hdl }
+        (ComputeLeaderConfirmationService {
+            compute_confirmation_thread,
+        })
     }
 }
 
-impl Service for LeaderConfirmationService {
+impl Service for ComputeLeaderConfirmationService {
     type JoinReturnType = ();
 
     fn join(self) -> thread::Result<()> {
-        self.thread_hdl.join()
+        self.compute_confirmation_thread.join()
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::voting_keypair::tests::{new_vote_account, push_vote};
+pub mod tests {
+    use crate::bank::Bank;
+    use crate::compute_leader_confirmation_service::ComputeLeaderConfirmationService;
     use crate::voting_keypair::VotingKeypair;
+
+    use crate::genesis_block::GenesisBlock;
+    use crate::leader_scheduler::tests::new_vote_account;
     use bincode::serialize;
-    use bitconch_sdk::genesis_block::GenesisBlock;
     use bitconch_sdk::hash::hash;
     use bitconch_sdk::signature::{Keypair, KeypairUtil};
     use bitconch_sdk::vote_transaction::VoteTransaction;
     use std::sync::Arc;
+    use std::thread::sleep;
+    use std::time::Duration;
 
     #[test]
     fn test_compute_confirmation() {
@@ -155,10 +156,12 @@ mod tests {
         let (genesis_block, mint_keypair) = GenesisBlock::new(1234);
         let bank = Arc::new(Bank::new(&genesis_block));
         // generate 10 validators, but only vote for the first 6 validators
-        let ids: Vec<_> = (0..10 * bank.ticks_per_slot())
+        let ids: Vec<_> = (0..10)
             .map(|i| {
                 let last_id = hash(&serialize(&i).unwrap()); // Unique hash
                 bank.register_tick(&last_id);
+                // sleep to get a different timestamp in the bank
+                sleep(Duration::from_millis(1));
                 last_id
             })
             .collect();
@@ -171,15 +174,16 @@ mod tests {
                 let validator_keypair = Arc::new(Keypair::new());
                 let last_id = ids[i];
                 let voting_keypair = VotingKeypair::new_local(&validator_keypair);
-                let voting_pubkey = voting_keypair.pubkey();
 
                 // Give the validator some tokens
                 bank.transfer(2, &mint_keypair, validator_keypair.pubkey(), last_id)
                     .unwrap();
-                new_vote_account(&validator_keypair, &voting_pubkey, &bank, 1);
+                new_vote_account(&validator_keypair, &voting_keypair, &bank, 1, last_id);
 
                 if i < 6 {
-                    push_vote(&voting_keypair, &bank, (i + 1) as u64);
+                    let vote_tx =
+                        VoteTransaction::new_vote(&voting_keypair, (i + 1) as u64, last_id, 0);
+                    bank.process_transaction(&vote_tx).unwrap();
                 }
                 (voting_keypair, validator_keypair)
             })
@@ -187,7 +191,7 @@ mod tests {
 
         // There isn't 2/3 consensus, so the bank's confirmation value should be the default
         let mut last_confirmation_time = 0;
-        LeaderConfirmationService::compute_confirmation(
+        ComputeLeaderConfirmationService::compute_confirmation(
             &bank,
             genesis_block.bootstrap_leader_id,
             &mut last_confirmation_time,
@@ -198,7 +202,7 @@ mod tests {
         let vote_tx = VoteTransaction::new_vote(voting_keypair, 7, ids[6], 0);
         bank.process_transaction(&vote_tx).unwrap();
 
-        LeaderConfirmationService::compute_confirmation(
+        ComputeLeaderConfirmationService::compute_confirmation(
             &bank,
             genesis_block.bootstrap_leader_id,
             &mut last_confirmation_time,

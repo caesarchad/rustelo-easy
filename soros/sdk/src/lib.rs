@@ -4,7 +4,6 @@ pub mod budget_expr;
 pub mod budget_instruction;
 pub mod budget_program;
 pub mod budget_transaction;
-pub mod genesis_block;
 pub mod hash;
 pub mod loader_instruction;
 pub mod loader_transaction;

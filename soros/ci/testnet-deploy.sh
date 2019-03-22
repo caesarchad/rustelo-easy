@@ -18,7 +18,6 @@ enableGpu=false
 bootDiskType=""
 leaderRotation=true
 useTarReleaseChannel=false
-blockstreamer=false
 
 usage() {
   exitcode=0
@@ -44,7 +43,6 @@ Deploys a CD testnet
                                  (default: $tarChannelOrTag)
    -n [number]          - Number of additional full nodes (default: $additionalFullNodeCount)
    -c [number]          - Number of client bencher nodes (default: $clientNodeCount)
-   -u                   - Include a Blockstreamer (default: $blockstreamer)
    -P                   - Use public network IP addresses (default: $publicNetwork)
    -G                   - Enable GPU, and set count/type of GPUs to use (e.g n1-standard-16 --accelerator count=4,type=nvidia-tesla-k80)
    -g                   - Enable GPU (default: $enableGpu)
@@ -69,7 +67,7 @@ zone=$3
 [[ -n $zone ]] || usage "Zone not specified"
 shift 3
 
-while getopts "h?p:Pn:c:s:t:gG:a:Dbd:ru" opt; do
+while getopts "h?p:Pn:c:s:t:gG:a:Dbd:r" opt; do
   case $opt in
   h | \?)
     usage
@@ -126,9 +124,6 @@ while getopts "h?p:Pn:c:s:t:gG:a:Dbd:ru" opt; do
   r)
     skipSetup=true
     ;;
-  u)
-    blockstreamer=true
-    ;;
   *)
     usage "Error: unhandled option: $opt"
     ;;
@@ -170,10 +165,6 @@ if ! $skipSetup; then
     -c "$clientNodeCount"
     -n "$additionalFullNodeCount"
   )
-
-  if $blockstreamer; then
-    create_args+=(-u)
-  fi
 
   if [[ -n $bootDiskType ]]; then
     create_args+=(-d "$bootDiskType")

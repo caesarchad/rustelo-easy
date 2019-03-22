@@ -3,7 +3,7 @@ pub mod bpf_verifier;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use libc::c_char;
 use log::*;
-use solana_rbpf::{EbpfVmRaw, MemoryRegion};
+use bitconch_rbpf::{EbpfVmRaw, MemoryRegion};
 use bitconch_sdk::account::KeyedAccount;
 use bitconch_sdk::loader_instruction::LoaderInstruction;
 use bitconch_sdk::native_program::ProgramError;
@@ -29,51 +29,15 @@ fn dump_program(key: &Pubkey, prog: &[u8]) {
     }
 }
 
-pub fn helper_abort_verify(
-    _arg1: u64,
-    _arg2: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    _ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion],
-) -> Result<(()), Error> {
-    Err(Error::new(
-        ErrorKind::Other,
-        "Error: BPF program called abort()!",
-    ))
-}
-
-pub fn helper_abort(_arg1: u64, _arg2: u64, _arg3: u64, _arg4: u64, _arg5: u64) -> u64 {
-    // Never called because its verify function always returns an error
-    0
-}
-
-pub fn helper_sol_panic_verify(
-    _arg1: u64,
-    _arg2: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    _ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion],
-) -> Result<(()), Error> {
-    Err(Error::new(ErrorKind::Other, "Error: BPF program Panic!"))
-}
-
-pub fn helper_sol_panic(_arg1: u64, _arg2: u64, _arg3: u64, _arg4: u64, _arg5: u64) -> u64 {
-    // Never called because its verify function always returns an error
-    0
-}
-
+#[allow(unused_variables)]
 pub fn helper_sol_log_verify(
     addr: u64,
-    _arg2: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
+    unused2: u64,
+    unused3: u64,
+    unused4: u64,
+    unused5: u64,
     ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion],
+    unused7: &[MemoryRegion],
 ) -> Result<(()), Error> {
     for region in ro_regions.iter() {
         if region.addr <= addr && (addr as u64) < region.addr + region.len {
@@ -116,15 +80,8 @@ pub fn helper_sol_log_u64(arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64)
 pub fn create_vm(prog: &[u8]) -> Result<EbpfVmRaw, Error> {
     let mut vm = EbpfVmRaw::new(None)?;
     vm.set_verifier(bpf_verifier::check)?;
-    vm.set_max_instruction_count(36000)?; // TODO 36000 is a wag, need to tune
+    vm.set_max_instruction_count(36000)?; // 36000 is a wag, need to tune
     vm.set_elf(&prog)?;
-    vm.register_helper_ex("abort", Some(helper_abort_verify), helper_abort)?;
-    vm.register_helper_ex("sol_panic", Some(helper_sol_panic_verify), helper_sol_panic)?;
-    vm.register_helper_ex(
-        "sol_panic_",
-        Some(helper_sol_panic_verify),
-        helper_sol_panic,
-    )?;
     vm.register_helper_ex("sol_log", Some(helper_sol_log_verify), helper_sol_log)?;
     vm.register_helper_ex("sol_log_", Some(helper_sol_log_verify), helper_sol_log)?;
     vm.register_helper_ex("sol_log_64", None, helper_sol_log_u64)?;
@@ -196,7 +153,7 @@ fn entrypoint(
         let mut vm = match create_vm(prog) {
             Ok(vm) => vm,
             Err(e) => {
-                warn!("Failed to create BPF VM: {}", e);
+                warn!("create_vm failed: {}", e);
                 return Err(ProgramError::GenericError);
             }
         };
@@ -204,12 +161,11 @@ fn entrypoint(
         match vm.execute_program(v.as_mut_slice()) {
             Ok(status) => {
                 if 0 == status {
-                    warn!("BPF program failed: {}", status);
                     return Err(ProgramError::GenericError);
                 }
             }
             Err(e) => {
-                warn!("BPF VM failed to run program: {}", e);
+                warn!("execute_program failed: {}", e);
                 return Err(ProgramError::GenericError);
             }
         }
@@ -256,22 +212,32 @@ fn entrypoint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bitconch_rbpf::helpers;
 
     #[test]
     #[should_panic(expected = "Error: Execution exceeded maximum number of instructions")]
     fn test_non_terminating_program() {
         #[rustfmt::skip]
         let prog = &[
-            0x07, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // r6 + 1
-            0x05, 0x00, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, // goto -2
+            0xb7, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r6 = 0
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r1 = 0
+            0xb7, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r2 = 0
+            0xb7, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r3 = 0
+            0xb7, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r4 = 0
+            0xbf, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r5 = r6
+            0x85, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, // call 6
+            0x07, 0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // r6 + 1
+            0x05, 0x00, 0xf8, 0xff, 0x00, 0x00, 0x00, 0x00, // goto -8
             0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
         ];
         let input = &mut [0x00];
 
         let mut vm = EbpfVmRaw::new(None).unwrap();
         vm.set_verifier(bpf_verifier::check).unwrap();
-        vm.set_max_instruction_count(10).unwrap();
+        vm.set_max_instruction_count(36000).unwrap(); // 36000 is a wag, need to tune
         vm.set_program(prog).unwrap();
+        vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf)
+            .unwrap();
         vm.execute_program(input).unwrap();
     }
 }

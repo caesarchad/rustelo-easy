@@ -2,13 +2,14 @@
 //!
 use crate::blocktree::Blocktree;
 use crate::cluster_info::ClusterInfo;
+use crate::counter::Counter;
 use crate::db_window::*;
 use crate::leader_scheduler::LeaderScheduler;
 use crate::repair_service::RepairService;
 use crate::result::{Error, Result};
 use crate::service::Service;
 use crate::streamer::{BlobReceiver, BlobSender};
-use bitconch_metrics::counter::Counter;
+use log::Level;
 use bitconch_metrics::{influxdb, submit};
 use bitconch_sdk::pubkey::Pubkey;
 use bitconch_sdk::timing::duration_as_ms;
@@ -190,7 +191,7 @@ mod test {
         let t_receiver =
             blob_receiver(Arc::new(leader_node.sockets.gossip), exit.clone(), s_reader);
         let (s_retransmit, r_retransmit) = channel();
-        let blocktree_path = get_tmp_ledger_path!();
+        let blocktree_path = get_tmp_ledger_path("window_send_test");
         let blocktree = Arc::new(
             Blocktree::open(&blocktree_path).expect("Expected to be able to open database ledger"),
         );
@@ -260,7 +261,7 @@ mod test {
         let t_receiver =
             blob_receiver(Arc::new(leader_node.sockets.gossip), exit.clone(), s_reader);
         let (s_retransmit, r_retransmit) = channel();
-        let blocktree_path = get_tmp_ledger_path!();
+        let blocktree_path = get_tmp_ledger_path("window_send_late_leader_test");
         let blocktree = Arc::new(
             Blocktree::open(&blocktree_path).expect("Expected to be able to open database ledger"),
         );

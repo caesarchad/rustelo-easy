@@ -2,7 +2,6 @@
 use bv::BitVec;
 use fnv::FnvHasher;
 use rand::{self, Rng};
-use serde::{Deserialize, Serialize};
 use std::cmp;
 use std::hash::Hasher;
 use std::marker::PhantomData;

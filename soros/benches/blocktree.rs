@@ -3,9 +3,6 @@ use rand;
 
 extern crate test;
 
-#[macro_use]
-extern crate bitconch;
-
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use bitconch::blocktree::{get_tmp_ledger_path, Blocktree};
@@ -65,7 +62,7 @@ fn setup_read_bench(
 #[bench]
 #[ignore]
 fn bench_write_small(bench: &mut Bencher) {
-    let ledger_path = get_tmp_ledger_path!();
+    let ledger_path = get_tmp_ledger_path("bench_write_small");
     let num_entries = 32 * 1024;
     let entries = make_tiny_test_entries(num_entries);
     let mut blobs = entries.to_blobs();
@@ -79,7 +76,7 @@ fn bench_write_small(bench: &mut Bencher) {
 #[bench]
 #[ignore]
 fn bench_write_big(bench: &mut Bencher) {
-    let ledger_path = get_tmp_ledger_path!();
+    let ledger_path = get_tmp_ledger_path("bench_write_big");
     let num_entries = 32 * 1024;
     let entries = make_large_test_entries(num_entries);
     let mut blobs = entries.to_blobs();
@@ -93,7 +90,7 @@ fn bench_write_big(bench: &mut Bencher) {
 #[bench]
 #[ignore]
 fn bench_read_sequential(bench: &mut Bencher) {
-    let ledger_path = get_tmp_ledger_path!();
+    let ledger_path = get_tmp_ledger_path("bench_read_sequential");
     let mut blocktree =
         Blocktree::open(&ledger_path).expect("Expected to be able to open database ledger");
 
@@ -120,7 +117,7 @@ fn bench_read_sequential(bench: &mut Bencher) {
 #[bench]
 #[ignore]
 fn bench_read_random(bench: &mut Bencher) {
-    let ledger_path = get_tmp_ledger_path!();
+    let ledger_path = get_tmp_ledger_path("bench_read_random");
     let mut blocktree =
         Blocktree::open(&ledger_path).expect("Expected to be able to open database ledger");
 
@@ -151,7 +148,7 @@ fn bench_read_random(bench: &mut Bencher) {
 #[bench]
 #[ignore]
 fn bench_insert_data_blob_small(bench: &mut Bencher) {
-    let ledger_path = get_tmp_ledger_path!();
+    let ledger_path = get_tmp_ledger_path("bench_insert_data_blob_small");
     let blocktree =
         Blocktree::open(&ledger_path).expect("Expected to be able to open database ledger");
     let num_entries = 32 * 1024;
@@ -174,7 +171,7 @@ fn bench_insert_data_blob_small(bench: &mut Bencher) {
 #[bench]
 #[ignore]
 fn bench_insert_data_blob_big(bench: &mut Bencher) {
-    let ledger_path = get_tmp_ledger_path!();
+    let ledger_path = get_tmp_ledger_path("bench_insert_data_blob_big");
     let blocktree =
         Blocktree::open(&ledger_path).expect("Expected to be able to open database ledger");
     let num_entries = 32 * 1024;

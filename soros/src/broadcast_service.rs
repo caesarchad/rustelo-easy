@@ -1,18 +1,20 @@
 //! The `broadcast_service` broadcasts data from a leader node to validators
 //!
+use crate::bank::Bank;
 use crate::blocktree::Blocktree;
 use crate::cluster_info::{ClusterInfo, ClusterInfoError, NodeInfo, DATA_PLANE_FANOUT};
+use crate::counter::Counter;
 use crate::entry::Entry;
 use crate::entry::EntrySlice;
 #[cfg(feature = "erasure")]
 use crate::erasure::CodingGenerator;
+use crate::leader_scheduler::LeaderScheduler;
 use crate::packet::index_blobs;
 use crate::result::{Error, Result};
 use crate::service::Service;
+use log::Level;
 use rayon::prelude::*;
-use bitconch_metrics::counter::Counter;
 use bitconch_metrics::{influxdb, submit};
-use bitconch_runtime::bank::Bank;
 use bitconch_sdk::pubkey::Pubkey;
 use bitconch_sdk::timing::duration_as_ms;
 use std::net::UdpSocket;
@@ -31,6 +33,7 @@ pub enum BroadcastServiceReturnType {
 
 struct Broadcast {
     id: Pubkey,
+    max_tick_height: u64,
     blob_index: u64,
 
     #[cfg(feature = "erasure")]
@@ -40,11 +43,10 @@ struct Broadcast {
 impl Broadcast {
     fn run(
         &mut self,
-        slot_height: u64,
-        max_tick_height: u64,
         broadcast_table: &[NodeInfo],
-        receiver: &Receiver<Vec<(Entry, u64)>>,
+        receiver: &Receiver<Vec<Entry>>,
         sock: &UdpSocket,
+        leader_scheduler: &Arc<RwLock<LeaderScheduler>>,
         blocktree: &Arc<Blocktree>,
     ) -> Result<()> {
         let timer = Duration::new(1, 0);
@@ -52,34 +54,40 @@ impl Broadcast {
         let now = Instant::now();
         let mut num_entries = entries.len();
         let mut ventries = Vec::new();
-        let mut last_tick = entries.last().map(|v| v.1).unwrap_or(0);
         ventries.push(entries);
 
         while let Ok(entries) = receiver.try_recv() {
             num_entries += entries.len();
-            last_tick = entries.last().map(|v| v.1).unwrap_or(0);
             ventries.push(entries);
         }
+        let contains_last_tick = {
+            if let Some(Some(last)) = ventries.last().map(|entries| entries.last()) {
+                last.tick_height == self.max_tick_height
+            } else {
+                false
+            }
+        };
 
         inc_new_counter_info!("broadcast_service-entries_received", num_entries);
 
         let to_blobs_start = Instant::now();
 
+        // Generate the slot heights for all the entries inside ventries
+        //  this may span slots if this leader broadcasts for consecutive slots...
+        let slots = generate_slots(&ventries, leader_scheduler);
+
         let blobs: Vec<_> = ventries
             .into_par_iter()
-            .flat_map(|p| {
-                let entries: Vec<_> = p.into_iter().map(|e| e.0).collect();
-                entries.to_shared_blobs()
-            })
+            .flat_map(|p| p.to_shared_blobs())
             .collect();
 
         // TODO: blob_index should be slot-relative...
-        index_blobs(&blobs, &mut self.blob_index, slot_height);
+        index_blobs(&blobs, &mut self.blob_index, &slots);
         let parent = {
-            if slot_height == 0 {
+            if slots[0] == 0 {
                 0
             } else {
-                slot_height - 1
+                slots[0] - 1
             }
         };
         for b in blobs.iter() {
@@ -91,9 +99,6 @@ impl Broadcast {
         let broadcast_start = Instant::now();
 
         inc_new_counter_info!("streamer-broadcast-sent", blobs.len());
-
-        assert!(last_tick <= max_tick_height);
-        let contains_last_tick = last_tick == max_tick_height;
 
         if contains_last_tick {
             blobs.last().unwrap().write().unwrap().set_is_last_in_slot();
@@ -137,6 +142,32 @@ impl Broadcast {
     }
 }
 
+fn generate_slots(
+    ventries: &[Vec<Entry>],
+    leader_scheduler: &Arc<RwLock<LeaderScheduler>>,
+) -> Vec<u64> {
+    // Generate the slot heights for all the entries inside ventries
+    let r_leader_scheduler = leader_scheduler.read().unwrap();
+    ventries
+        .iter()
+        .flat_map(|p| {
+            let slot_heights: Vec<u64> = p
+                .iter()
+                .map(|e| {
+                    let tick_height = if e.is_tick() {
+                        e.tick_height
+                    } else {
+                        e.tick_height + 1
+                    };
+                    r_leader_scheduler.tick_height_to_slot(tick_height)
+                })
+                .collect();
+
+            slot_heights
+        })
+        .collect()
+}
+
 // Implement a destructor for the BroadcastService3 thread to signal it exited
 // even on panics
 struct Finalizer {
@@ -162,12 +193,13 @@ pub struct BroadcastService {
 impl BroadcastService {
     #[allow(clippy::too_many_arguments)]
     fn run(
-        slot_height: u64,
         bank: &Arc<Bank>,
         sock: &UdpSocket,
         cluster_info: &Arc<RwLock<ClusterInfo>>,
         blob_index: u64,
-        receiver: &Receiver<Vec<(Entry, u64)>>,
+        leader_scheduler: &Arc<RwLock<LeaderScheduler>>,
+        receiver: &Receiver<Vec<Entry>>,
+        max_tick_height: u64,
         exit_signal: &Arc<AtomicBool>,
         blocktree: &Arc<Blocktree>,
     ) -> BroadcastServiceReturnType {
@@ -175,30 +207,25 @@ impl BroadcastService {
 
         let mut broadcast = Broadcast {
             id: me.id,
+            max_tick_height,
             blob_index,
             #[cfg(feature = "erasure")]
             coding_generator: CodingGenerator::new(),
         };
 
-        let max_tick_height = (slot_height + 1) * bank.ticks_per_slot() - 1;
-
         loop {
             if exit_signal.load(Ordering::Relaxed) {
                 return BroadcastServiceReturnType::ExitSignal;
             }
-            let mut broadcast_table = cluster_info
-                .read()
-                .unwrap()
-                .sorted_tvu_peers(&bank.staked_nodes());
+            let mut broadcast_table = cluster_info.read().unwrap().sorted_tvu_peers(&bank);
             // Layer 1, leader nodes are limited to the fanout size.
             broadcast_table.truncate(DATA_PLANE_FANOUT);
             inc_new_counter_info!("broadcast_service-num_peers", broadcast_table.len() + 1);
             if let Err(e) = broadcast.run(
-                slot_height,
-                max_tick_height,
                 &broadcast_table,
                 receiver,
                 sock,
+                leader_scheduler,
                 blocktree,
             ) {
                 match e {
@@ -233,12 +260,13 @@ impl BroadcastService {
     /// completing the cycle.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        slot_height: u64,
         bank: Arc<Bank>,
         sock: UdpSocket,
         cluster_info: Arc<RwLock<ClusterInfo>>,
         blob_index: u64,
-        receiver: Receiver<Vec<(Entry, u64)>>,
+        leader_scheduler: Arc<RwLock<LeaderScheduler>>,
+        receiver: Receiver<Vec<Entry>>,
+        max_tick_height: u64,
         exit_sender: Arc<AtomicBool>,
         blocktree: &Arc<Blocktree>,
     ) -> Self {
@@ -249,12 +277,13 @@ impl BroadcastService {
             .spawn(move || {
                 let _exit = Finalizer::new(exit_sender);
                 Self::run(
-                    slot_height,
                     &bank,
                     &sock,
                     &cluster_info,
                     blob_index,
+                    &leader_scheduler,
                     &receiver,
+                    max_tick_height,
                     &exit_signal,
                     &blocktree,
                 )
@@ -276,14 +305,13 @@ impl Service for BroadcastService {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::blocktree::{get_tmp_ledger_path, Blocktree};
+    use crate::blocktree::get_tmp_ledger_path;
+    use crate::blocktree::Blocktree;
     use crate::cluster_info::{ClusterInfo, Node};
     use crate::entry::create_ticks;
-    use crate::leader_scheduler::LeaderScheduler;
     use crate::service::Service;
     use bitconch_sdk::hash::Hash;
     use bitconch_sdk::signature::{Keypair, KeypairUtil};
-    use bitconch_sdk::timing::DEFAULT_TICKS_PER_SLOT;
     use std::sync::atomic::AtomicBool;
     use std::sync::mpsc::channel;
     use std::sync::{Arc, RwLock};
@@ -296,11 +324,12 @@ mod test {
     }
 
     fn setup_dummy_broadcast_service(
-        slot_height: u64,
         leader_pubkey: Pubkey,
         ledger_path: &str,
-        entry_receiver: Receiver<Vec<(Entry, u64)>>,
+        leader_scheduler: Arc<RwLock<LeaderScheduler>>,
+        entry_receiver: Receiver<Vec<Entry>>,
         blob_index: u64,
+        max_tick_height: u64,
     ) -> MockBroadcastService {
         // Make the database ledger
         let blocktree = Arc::new(Blocktree::open(ledger_path).unwrap());
@@ -322,12 +351,13 @@ mod test {
 
         // Start up the broadcast stage
         let broadcast_service = BroadcastService::new(
-            slot_height,
             bank.clone(),
             leader_info.sockets.broadcast,
             cluster_info,
             blob_index,
+            leader_scheduler,
             entry_receiver,
+            max_tick_height,
             exit_sender,
             &blocktree,
         );
@@ -351,21 +381,25 @@ mod test {
             // Mock the tick height to look like the tick height right after a leader transition
             leader_scheduler.set_leader_schedule(vec![leader_keypair.pubkey()]);
             let start_tick_height = 0;
-            let max_tick_height = start_tick_height + DEFAULT_TICKS_PER_SLOT;
+            let max_tick_height = start_tick_height + leader_scheduler.ticks_per_slot;
 
+            let leader_scheduler = Arc::new(RwLock::new(leader_scheduler));
             let (entry_sender, entry_receiver) = channel();
             let broadcast_service = setup_dummy_broadcast_service(
-                0,
                 leader_keypair.pubkey(),
                 &ledger_path,
+                leader_scheduler.clone(),
                 entry_receiver,
                 0,
+                max_tick_height,
             );
 
             let ticks = create_ticks(max_tick_height - start_tick_height, Hash::default());
-            for (i, tick) in ticks.into_iter().enumerate() {
+            for (i, mut tick) in ticks.into_iter().enumerate() {
+                // Simulate the tick heights generated in poh.rs
+                tick.tick_height = start_tick_height + i as u64 + 1;
                 entry_sender
-                    .send(vec![(tick, i as u64 + 1)])
+                    .send(vec![tick])
                     .expect("Expect successful send to broadcast service");
             }
 
@@ -373,7 +407,10 @@ mod test {
             let blocktree = broadcast_service.blocktree;
             let mut blob_index = 0;
             for i in 0..max_tick_height - start_tick_height {
-                let slot = leader_scheduler.tick_height_to_slot(start_tick_height + i + 1);
+                let slot = leader_scheduler
+                    .read()
+                    .unwrap()
+                    .tick_height_to_slot(start_tick_height + i + 1);
 
                 let result = blocktree.get_data_blob(slot, blob_index).unwrap();
 

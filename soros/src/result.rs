@@ -1,5 +1,6 @@
 //! The `result` module exposes a Result type that propagates one of many different Error types.
 
+use crate::bank;
 use crate::blocktree;
 use crate::cluster_info;
 #[cfg(feature = "erasure")]
@@ -8,7 +9,6 @@ use crate::packet;
 use crate::poh_recorder;
 use bincode;
 use serde_json;
-use bitconch_runtime::bank;
 use std;
 use std::any::Any;
 
@@ -20,7 +20,6 @@ pub enum Error {
     JoinError(Box<dyn Any + Send + 'static>),
     RecvError(std::sync::mpsc::RecvError),
     RecvTimeoutError(std::sync::mpsc::RecvTimeoutError),
-    TryRecvError(std::sync::mpsc::TryRecvError),
     Serialize(std::boxed::Box<bincode::ErrorKind>),
     BankError(bank::BankError),
     ClusterInfoError(cluster_info::ClusterInfoError),
@@ -45,11 +44,6 @@ impl std::error::Error for Error {}
 impl std::convert::From<std::sync::mpsc::RecvError> for Error {
     fn from(e: std::sync::mpsc::RecvError) -> Error {
         Error::RecvError(e)
-    }
-}
-impl std::convert::From<std::sync::mpsc::TryRecvError> for Error {
-    fn from(e: std::sync::mpsc::TryRecvError) -> Error {
-        Error::TryRecvError(e)
     }
 }
 impl std::convert::From<std::sync::mpsc::RecvTimeoutError> for Error {

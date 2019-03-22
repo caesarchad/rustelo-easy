@@ -9,7 +9,7 @@ homepage = "https://bitconch.io/"
 edition = "2018"
 
 [dependencies]
-bincode = "1.1.2"
+bincode = "1.0.0"
 serde = "1.0.88"
 serde_derive = "1.0.88"
 bitconch-sdk = { path = "../../../sdk", version = "0.12.0" }

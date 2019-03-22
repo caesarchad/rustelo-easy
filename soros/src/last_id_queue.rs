@@ -1,6 +1,15 @@
+use crate::poh_service::NUM_TICKS_PER_SECOND;
 use hashbrown::HashMap;
 use bitconch_sdk::hash::Hash;
-use bitconch_sdk::timing::{timestamp, MAX_ENTRY_IDS};
+use bitconch_sdk::timing::timestamp;
+
+/// The number of most recent `last_id` values that the bank will track the signatures
+/// of. Once the bank discards a `last_id`, it will reject any transactions that use
+/// that `last_id` in a transaction. Lowering this value reduces memory consumption,
+/// but requires clients to update its `last_id` more frequently. Raising the value
+/// lengthens the time a client must wait to be certain a missing transaction will
+/// not be processed by the network.
+pub const MAX_ENTRY_IDS: usize = NUM_TICKS_PER_SECOND * 120;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct LastIdEntry {
@@ -12,10 +21,10 @@ struct LastIdEntry {
 #[derive(Clone)]
 pub struct LastIdQueue {
     /// updated whenever an id is registered, at each tick ;)
-    tick_height: u64,
+    pub tick_height: u64,
 
     /// last tick to be registered
-    last_id: Option<Hash>,
+    pub last_id: Option<Hash>,
 
     entries: HashMap<Hash, LastIdEntry>,
 }
@@ -30,14 +39,6 @@ impl Default for LastIdQueue {
 }
 
 impl LastIdQueue {
-    pub fn tick_height(&self) -> u64 {
-        self.tick_height
-    }
-
-    pub fn last_id(&self) -> Hash {
-        self.last_id.expect("no last_id has been set")
-    }
-
     /// Check if the age of the entry_id is within the max_age
     /// return false for any entries with an age equal to or above max_age
     pub fn check_entry_id_age(&self, entry_id: Hash, max_age: usize) -> bool {
@@ -48,7 +49,6 @@ impl LastIdQueue {
         }
     }
     /// check if entry is valid
-    #[cfg(test)]
     pub fn check_entry(&self, entry_id: Hash) -> bool {
         self.entries.get(&entry_id).is_some()
     }
@@ -125,11 +125,25 @@ impl LastIdQueue {
         None
     }
 
-    #[cfg(test)]
     pub fn clear(&mut self) {
         self.entries = HashMap::new();
         self.tick_height = 0;
         self.last_id = None;
+    }
+    /// fork for LastIdQueue is a simple clone
+    pub fn fork(&self) -> Self {
+        Self {
+            entries: self.entries.clone(),
+            tick_height: self.tick_height,
+            last_id: self.last_id,
+        }
+    }
+    /// merge for entryq is a swap
+    pub fn merge_into_root(&mut self, other: Self) {
+        let (entries, tick_height, last_id) = { (other.entries, other.tick_height, other.last_id) };
+        self.entries = entries;
+        self.tick_height = tick_height;
+        self.last_id = last_id;
     }
 }
 #[cfg(test)]
@@ -156,5 +170,24 @@ mod tests {
         }
         // Assert we're no longer able to use the oldest entry ID.
         assert!(!entry_queue.check_entry(last_id));
+    }
+    #[test]
+    fn test_fork() {
+        let last_id = Hash::default();
+        let mut first = LastIdQueue::default();
+        assert!(!first.check_entry(last_id));
+        first.register_tick(&last_id);
+        let second = first.fork();
+        assert!(second.check_entry(last_id));
+    }
+    #[test]
+    fn test_merge() {
+        let last_id = Hash::default();
+        let mut first = LastIdQueue::default();
+        assert!(!first.check_entry(last_id));
+        let mut second = first.fork();
+        second.register_tick(&last_id);
+        first.merge_into_root(second);
+        assert!(first.check_entry(last_id));
     }
 }

@@ -98,21 +98,14 @@ snap)
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
   fi
 
-  case $nodeType in
-  bootstrap-leader)
+  if [[ $nodeType = bootstrap-leader ]]; then
     nodeConfig="mode=bootstrap-leader+drone $commonNodeConfig"
     ln -sf -T /var/snap/bitconch/current/bootstrap-leader/current fullnode.log
     ln -sf -T /var/snap/bitconch/current/drone/current drone.log
-    ;;
-  fullnode)
+  else
     nodeConfig="mode=fullnode $commonNodeConfig"
     ln -sf -T /var/snap/bitconch/current/fullnode/current fullnode.log
-    ;;
-  *)
-    echo "Error: unknown node type: $nodeType"
-    exit 1
-    ;;
-  esac
+  fi
 
   logmarker="bitconch deploy $(date)/$RANDOM"
   logger "$logmarker"
@@ -150,6 +143,12 @@ local|tar)
   scripts/net-stats.sh  > net-stats.log 2>&1 &
   echo $! > net-stats.pid
 
+  maybeNoLeaderRotation=
+  if ! $leaderRotation; then
+    maybeNoLeaderRotation="--no-leader-rotation"
+  fi
+
+
   case $nodeType in
   bootstrap-leader)
     if [[ -e /dev/nvidia0 && -x ~/.cargo/bin/bitconch-fullnode-cuda ]]; then
@@ -161,15 +160,10 @@ local|tar)
       ./multinode-demo/setup.sh -t bootstrap-leader $setupArgs
     fi
     ./multinode-demo/drone.sh > drone.log 2>&1 &
-
-    maybeNoLeaderRotation=
-    if ! $leaderRotation; then
-      maybeNoLeaderRotation="--no-leader-rotation"
-    fi
     ./multinode-demo/bootstrap-leader.sh $maybeNoLeaderRotation > bootstrap-leader.log 2>&1 &
     ln -sTf bootstrap-leader.log fullnode.log
     ;;
-  fullnode|blockstreamer)
+  fullnode)
     net/scripts/rsync-retry.sh -vPrc "$entrypointIp":~/.cargo/bin/ ~/.cargo/bin/
 
     if [[ -e /dev/nvidia0 && -x ~/.cargo/bin/bitconch-fullnode-cuda ]]; then
@@ -177,27 +171,11 @@ local|tar)
       export BITCONCH_CUDA=1
     fi
 
-    args=()
-    if ! $leaderRotation; then
-      args+=("--no-leader-rotation")
-    fi
-    if [[ $nodeType = blockstreamer ]]; then
-      args+=(
-        --blockstream /tmp/bitconch-blockstream.sock
-        --no-signer
-      )
-    fi
-
     set -x
     if [[ $skipSetup != true ]]; then
       ./multinode-demo/setup.sh -t fullnode $setupArgs
     fi
-
-    if [[ $nodeType = blockstreamer ]]; then
-      npm install @bitconch/blockexplorer@1
-      npx bitconch-blockexplorer > blockexplorer.log 2>&1 &
-    fi
-    ./multinode-demo/fullnode.sh "${args[@]}" "$entrypointIp":~/bitconch "$entrypointIp:8001" > fullnode.log 2>&1 &
+    ./multinode-demo/fullnode.sh $maybeNoLeaderRotation "$entrypointIp":~/bitconch "$entrypointIp:8001" > fullnode.log 2>&1 &
     ;;
   *)
     echo "Error: unknown node type: $nodeType"

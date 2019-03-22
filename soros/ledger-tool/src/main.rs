@@ -1,8 +1,7 @@
 use clap::{crate_version, App, Arg, SubCommand};
+use bitconch::bank::Bank;
 use bitconch::blocktree::Blocktree;
-use bitconch::blocktree_processor;
-use bitconch_runtime::bank::Bank;
-use bitconch_sdk::genesis_block::GenesisBlock;
+use bitconch::genesis_block::GenesisBlock;
 use std::io::{stdout, Write};
 use std::process::exit;
 
@@ -130,7 +129,7 @@ fn main() {
                 last_id = entry.id;
                 num_entries += 1;
 
-                if let Err(e) = blocktree_processor::process_entry(&bank, &entry) {
+                if let Err(e) = bank.process_entry(&entry) {
                     eprintln!("verify failed at entry[{}], err: {:?}", i + 2, e);
                     if !matches.is_present("continue") {
                         exit(1);

@@ -2,7 +2,7 @@
 
 use clap::{crate_version, value_t_or_exit, App, Arg};
 use bitconch::blocktree::create_new_ledger;
-use bitconch_sdk::genesis_block::GenesisBlock;
+use bitconch::genesis_block::GenesisBlock;
 use bitconch_sdk::signature::{read_keypair, Keypair, KeypairUtil};
 use std::error;
 
@@ -67,14 +67,18 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let mint_keypair = read_keypair(mint_keypair_file)?;
 
     let bootstrap_leader_vote_account_keypair = Keypair::new();
-    let (mut genesis_block, _mint_keypair) = GenesisBlock::new_with_leader(
-        num_tokens,
-        bootstrap_leader_keypair.pubkey(),
-        BOOTSTRAP_LEADER_TOKENS,
-    );
-    genesis_block.mint_id = mint_keypair.pubkey();
-    genesis_block.bootstrap_leader_vote_account_id = bootstrap_leader_vote_account_keypair.pubkey();
+    let genesis_block = GenesisBlock {
+        mint_id: mint_keypair.pubkey(),
+        tokens: num_tokens,
+        bootstrap_leader_id: bootstrap_leader_keypair.pubkey(),
+        bootstrap_leader_tokens: BOOTSTRAP_LEADER_TOKENS,
+        bootstrap_leader_vote_account_id: bootstrap_leader_vote_account_keypair.pubkey(),
+    };
 
-    create_new_ledger(ledger_path, &genesis_block)?;
+    create_new_ledger(
+        ledger_path,
+        &genesis_block,
+        &bitconch::blocktree::BlocktreeConfig::default(),
+    )?;
     Ok(())
 }

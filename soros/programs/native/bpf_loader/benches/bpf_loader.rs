@@ -2,11 +2,11 @@
 #![cfg(feature = "bpf_c")]
 extern crate byteorder;
 extern crate bitconch_bpf_loader;
-extern crate solana_rbpf;
+extern crate bitconch_rbpf;
 extern crate test;
 
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use solana_rbpf::EbpfVmRaw;
+use bitconch_rbpf::EbpfVmRaw;
 use std::env;
 use std::fs::File;
 use std::io::Error;

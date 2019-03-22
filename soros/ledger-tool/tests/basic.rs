@@ -1,7 +1,7 @@
-use assert_cmd::prelude::*;
-use bitconch::blocktree::create_tmp_sample_blocktree;
-use bitconch_sdk::genesis_block::GenesisBlock;
+use bitconch::blocktree::{create_tmp_sample_ledger, BlocktreeConfig};
 use bitconch_sdk::signature::{Keypair, KeypairUtil};
+
+use assert_cmd::prelude::*;
 use std::process::Command;
 use std::process::Output;
 use std::sync::Arc;
@@ -32,13 +32,15 @@ fn bad_arguments() {
 #[test]
 fn nominal() {
     let keypair = Arc::new(Keypair::new());
-    let (genesis_block, _mint_keypair) = GenesisBlock::new_with_leader(100, keypair.pubkey(), 50);
-    let ticks_per_slot = genesis_block.ticks_per_slot;
-    let (ledger_path, tick_height, _last_entry_height, _last_id, _last_entry_id) =
-        create_tmp_sample_blocktree(
+    let blocktree_config = BlocktreeConfig::default();
+    let (_mint_keypair, ledger_path, tick_height, _last_entry_height, _last_id, _last_entry_id) =
+        create_tmp_sample_ledger(
             "test_ledger_tool_nominal",
-            &genesis_block,
-            ticks_per_slot - 2,
+            100,
+            blocktree_config.ticks_per_slot - 2,
+            keypair.pubkey(),
+            50,
+            &blocktree_config,
         );
 
     // Basic validation

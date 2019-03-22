@@ -4,13 +4,12 @@ use chrono::prelude::*;
 use clap::ArgMatches;
 use serde_json;
 use serde_json::json;
+use bitconch::rpc::{RpcSignatureStatus, RPC_PORT};
 #[cfg(test)]
 use bitconch::rpc_mock::{request_airdrop_transaction, MockRpcClient as RpcClient};
 #[cfg(not(test))]
 use bitconch::rpc_request::RpcClient;
 use bitconch::rpc_request::{get_rpc_request_str, RpcRequest};
-use bitconch::rpc_service::RPC_PORT;
-use bitconch::rpc_status::RpcSignatureStatus;
 #[cfg(not(test))]
 use bitconch_drone::drone::request_airdrop_transaction;
 use bitconch_drone::drone::DRONE_PORT;

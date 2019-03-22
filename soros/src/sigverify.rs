@@ -4,9 +4,10 @@
 //! offloaded to the GPU.
 //!
 
+use crate::counter::Counter;
 use crate::packet::{Packet, SharedPackets};
 use crate::result::Result;
-use bitconch_metrics::counter::Counter;
+use log::Level;
 use bitconch_sdk::pubkey::Pubkey;
 use bitconch_sdk::shortvec::decode_len;
 use bitconch_sdk::signature::Signature;

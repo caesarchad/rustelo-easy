@@ -1,135 +1,110 @@
 //! The `rpc` module implements the Bitconch RPC interface.
 
+use crate::bank::{self, Bank, BankError};
 use crate::cluster_info::ClusterInfo;
 use crate::packet::PACKET_DATA_SIZE;
-use crate::rpc_status::RpcSignatureStatus;
+use crate::service::Service;
 use crate::storage_stage::StorageState;
 use bincode::{deserialize, serialize};
 use bs58;
-use jsonrpc_core::{Error, ErrorCode, Metadata, Result};
+use jsonrpc_core::{Error, ErrorCode, MetaIoHandler, Metadata, Result};
 use jsonrpc_derive::rpc;
+use jsonrpc_http_server::{hyper, AccessControlAllowOrigin, DomainsValidation, ServerBuilder};
 use bitconch_drone::drone::request_airdrop_transaction;
-use bitconch_runtime::bank::{self, Bank, BankError};
 use bitconch_sdk::account::Account;
 use bitconch_sdk::pubkey::Pubkey;
 use bitconch_sdk::signature::Signature;
 use bitconch_sdk::transaction::Transaction;
 use std::mem;
 use std::net::{SocketAddr, UdpSocket};
+use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::thread::sleep;
+use std::thread::{self, sleep, Builder, JoinHandle};
 use std::time::{Duration, Instant};
 
-#[derive(Clone)]
-pub struct JsonRpcRequestProcessor {
-    bank: Option<Arc<Bank>>,
-    storage_state: StorageState,
+pub const RPC_PORT: u16 = 8899;
+
+pub struct JsonRpcService {
+    thread_hdl: JoinHandle<()>,
+    exit: Arc<AtomicBool>,
+    request_processor: Arc<RwLock<JsonRpcRequestProcessor>>,
 }
 
-impl JsonRpcRequestProcessor {
-    fn bank(&self) -> Result<&Arc<Bank>> {
-        self.bank.as_ref().ok_or(Error {
-            code: ErrorCode::InternalError,
-            message: "No bank available".into(),
-            data: None,
-        })
-    }
-
-    pub fn set_bank(&mut self, bank: Arc<Bank>) {
-        self.bank = Some(bank);
-    }
-
-    pub fn new(storage_state: StorageState) -> Self {
-        JsonRpcRequestProcessor {
-            bank: None,
+impl JsonRpcService {
+    pub fn new(
+        bank: &Arc<Bank>,
+        cluster_info: &Arc<RwLock<ClusterInfo>>,
+        rpc_addr: SocketAddr,
+        drone_addr: SocketAddr,
+        storage_state: StorageState,
+    ) -> Self {
+        info!("rpc bound to {:?}", rpc_addr);
+        let exit = Arc::new(AtomicBool::new(false));
+        let request_processor = Arc::new(RwLock::new(JsonRpcRequestProcessor::new(
+            bank.clone(),
             storage_state,
+        )));
+        request_processor.write().unwrap().bank = bank.clone();
+        let request_processor_ = request_processor.clone();
+
+        let info = cluster_info.clone();
+        let exit_ = exit.clone();
+
+        let thread_hdl = Builder::new()
+            .name("bitconch-jsonrpc".to_string())
+            .spawn(move || {
+                let mut io = MetaIoHandler::default();
+                let rpc = RpcSolImpl;
+                io.extend_with(rpc.to_delegate());
+
+                let server =
+                    ServerBuilder::with_meta_extractor(io, move |_req: &hyper::Request<hyper::Body>| Meta {
+                        request_processor: request_processor_.clone(),
+                        cluster_info: info.clone(),
+                        drone_addr,
+                        rpc_addr,
+                    }).threads(4)
+                        .cors(DomainsValidation::AllowOnly(vec![
+                            AccessControlAllowOrigin::Any,
+                        ]))
+                        .start_http(&rpc_addr);
+                if let Err(e) = server {
+                    warn!("JSON RPC service unavailable error: {:?}. \nAlso, check that port {} is not already in use by another application", e, rpc_addr.port());
+                    return;
+                }
+                while !exit_.load(Ordering::Relaxed) {
+                    sleep(Duration::from_millis(100));
+                }
+                server.unwrap().close();
+            })
+            .unwrap();
+        Self {
+            thread_hdl,
+            exit,
+            request_processor,
         }
     }
 
-    pub fn get_account_info(&self, pubkey: Pubkey) -> Result<Account> {
-        self.bank()?
-            .get_account(&pubkey)
-            .ok_or_else(Error::invalid_request)
+    pub fn set_bank(&mut self, bank: &Arc<Bank>) {
+        self.request_processor.write().unwrap().bank = bank.clone();
     }
 
-    pub fn get_balance(&self, pubkey: Pubkey) -> Result<u64> {
-        let val = self.bank()?.get_balance(&pubkey);
-        Ok(val)
+    pub fn exit(&self) {
+        self.exit.store(true, Ordering::Relaxed);
     }
 
-    fn get_last_id(&self) -> Result<String> {
-        let id = self.bank()?.last_id();
-        Ok(bs58::encode(id).into_string())
-    }
-
-    pub fn get_signature_status(&self, signature: Signature) -> Option<bank::Result<()>> {
-        self.bank()
-            .ok()
-            .and_then(|bank| bank.get_signature_status(&signature))
-    }
-
-    fn get_transaction_count(&self) -> Result<u64> {
-        Ok(self.bank()?.transaction_count() as u64)
-    }
-
-    fn get_storage_mining_last_id(&self) -> Result<String> {
-        let id = self.storage_state.get_last_id();
-        Ok(bs58::encode(id).into_string())
-    }
-
-    fn get_storage_mining_entry_height(&self) -> Result<u64> {
-        let entry_height = self.storage_state.get_entry_height();
-        Ok(entry_height)
-    }
-
-    fn get_storage_pubkeys_for_entry_height(&self, entry_height: u64) -> Result<Vec<Pubkey>> {
-        Ok(self
-            .storage_state
-            .get_pubkeys_for_entry_height(entry_height))
+    pub fn close(self) -> thread::Result<()> {
+        self.exit();
+        self.join()
     }
 }
 
-fn get_leader_addr(cluster_info: &Arc<RwLock<ClusterInfo>>) -> Result<SocketAddr> {
-    if let Some(leader_data) = cluster_info.read().unwrap().leader_data() {
-        Ok(leader_data.tpu)
-    } else {
-        Err(Error {
-            code: ErrorCode::InternalError,
-            message: "No leader detected".into(),
-            data: None,
-        })
-    }
-}
+impl Service for JsonRpcService {
+    type JoinReturnType = ();
 
-fn verify_pubkey(input: String) -> Result<Pubkey> {
-    let pubkey_vec = bs58::decode(input).into_vec().map_err(|err| {
-        info!("verify_pubkey: invalid input: {:?}", err);
-        Error::invalid_request()
-    })?;
-    if pubkey_vec.len() != mem::size_of::<Pubkey>() {
-        info!(
-            "verify_pubkey: invalid pubkey_vec length: {}",
-            pubkey_vec.len()
-        );
-        Err(Error::invalid_request())
-    } else {
-        Ok(Pubkey::new(&pubkey_vec))
-    }
-}
-
-fn verify_signature(input: &str) -> Result<Signature> {
-    let signature_vec = bs58::decode(input).into_vec().map_err(|err| {
-        info!("verify_signature: invalid input: {}: {:?}", input, err);
-        Error::invalid_request()
-    })?;
-    if signature_vec.len() != mem::size_of::<Signature>() {
-        info!(
-            "verify_signature: invalid signature_vec length: {}",
-            signature_vec.len()
-        );
-        Err(Error::invalid_request())
-    } else {
-        Ok(Signature::new(&signature_vec))
+    fn join(self) -> thread::Result<()> {
+        self.thread_hdl.join()
     }
 }
 
@@ -141,6 +116,31 @@ pub struct Meta {
     pub drone_addr: SocketAddr,
 }
 impl Metadata for Meta {}
+
+#[derive(Copy, Clone, PartialEq, Serialize, Debug)]
+pub enum RpcSignatureStatus {
+    AccountInUse,
+    AccountLoadedTwice,
+    Confirmed,
+    GenericFailure,
+    ProgramRuntimeError,
+    SignatureNotFound,
+}
+impl FromStr for RpcSignatureStatus {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<RpcSignatureStatus> {
+        match s {
+            "AccountInUse" => Ok(RpcSignatureStatus::AccountInUse),
+            "AccountLoadedTwice" => Ok(RpcSignatureStatus::AccountLoadedTwice),
+            "Confirmed" => Ok(RpcSignatureStatus::Confirmed),
+            "GenericFailure" => Ok(RpcSignatureStatus::GenericFailure),
+            "ProgramRuntimeError" => Ok(RpcSignatureStatus::ProgramRuntimeError),
+            "SignatureNotFound" => Ok(RpcSignatureStatus::SignatureNotFound),
+            _ => Err(Error::parse_error()),
+        }
+    }
+}
 
 #[rpc]
 pub trait RpcSol {
@@ -202,18 +202,15 @@ impl RpcSol for RpcSolImpl {
             .unwrap()
             .get_account_info(pubkey)
     }
-
     fn get_balance(&self, meta: Self::Metadata, id: String) -> Result<u64> {
         info!("get_balance rpc request received: {:?}", id);
         let pubkey = verify_pubkey(id)?;
         meta.request_processor.read().unwrap().get_balance(pubkey)
     }
-
     fn get_last_id(&self, meta: Self::Metadata) -> Result<String> {
         info!("get_last_id rpc request received");
         meta.request_processor.read().unwrap().get_last_id()
     }
-
     fn get_signature_status(&self, meta: Self::Metadata, id: String) -> Result<RpcSignatureStatus> {
         info!("get_signature_status rpc request received: {:?}", id);
         let signature = verify_signature(&id)?;
@@ -242,7 +239,6 @@ impl RpcSol for RpcSolImpl {
         info!("get_signature_status rpc request status: {:?}", status);
         Ok(status)
     }
-
     fn get_transaction_count(&self, meta: Self::Metadata) -> Result<u64> {
         info!("get_transaction_count rpc request received");
         meta.request_processor
@@ -250,12 +246,11 @@ impl RpcSol for RpcSolImpl {
             .unwrap()
             .get_transaction_count()
     }
-
     fn request_airdrop(&self, meta: Self::Metadata, id: String, tokens: u64) -> Result<String> {
         trace!("request_airdrop id={} tokens={}", id, tokens);
         let pubkey = verify_pubkey(id)?;
 
-        let last_id = meta.request_processor.read().unwrap().bank()?.last_id();
+        let last_id = meta.request_processor.read().unwrap().bank.last_id();
         let transaction = request_airdrop_transaction(&meta.drone_addr, &pubkey, tokens, last_id)
             .map_err(|err| {
             info!("request_airdrop_transaction failed: {:?}", err);
@@ -296,7 +291,6 @@ impl RpcSol for RpcSolImpl {
             sleep(Duration::from_millis(100));
         }
     }
-
     fn send_transaction(&self, meta: Self::Metadata, data: Vec<u8>) -> Result<String> {
         let tx: Transaction = deserialize(&data).map_err(|err| {
             info!("send_transaction: deserialize error: {:?}", err);
@@ -327,21 +321,18 @@ impl RpcSol for RpcSolImpl {
         );
         Ok(signature)
     }
-
     fn get_storage_mining_last_id(&self, meta: Self::Metadata) -> Result<String> {
         meta.request_processor
             .read()
             .unwrap()
             .get_storage_mining_last_id()
     }
-
     fn get_storage_mining_entry_height(&self, meta: Self::Metadata) -> Result<u64> {
         meta.request_processor
             .read()
             .unwrap()
             .get_storage_mining_entry_height()
     }
-
     fn get_storage_pubkeys_for_entry_height(
         &self,
         meta: Self::Metadata,
@@ -353,31 +344,123 @@ impl RpcSol for RpcSolImpl {
             .get_storage_pubkeys_for_entry_height(entry_height)
     }
 }
+#[derive(Clone)]
+pub struct JsonRpcRequestProcessor {
+    bank: Arc<Bank>,
+    storage_state: StorageState,
+}
+impl JsonRpcRequestProcessor {
+    /// Create a new request processor that wraps the given Bank.
+    pub fn new(bank: Arc<Bank>, storage_state: StorageState) -> Self {
+        JsonRpcRequestProcessor {
+            bank,
+            storage_state,
+        }
+    }
+
+    /// Process JSON-RPC request items sent via JSON-RPC.
+    pub fn get_account_info(&self, pubkey: Pubkey) -> Result<Account> {
+        self.bank
+            .get_account(&pubkey)
+            .ok_or_else(Error::invalid_request)
+    }
+    fn get_balance(&self, pubkey: Pubkey) -> Result<u64> {
+        let val = self.bank.get_balance(&pubkey);
+        Ok(val)
+    }
+    fn get_last_id(&self) -> Result<String> {
+        let id = self.bank.last_id();
+        Ok(bs58::encode(id).into_string())
+    }
+    pub fn get_signature_status(&self, signature: Signature) -> Option<bank::Result<()>> {
+        self.bank.get_signature_status(&signature)
+    }
+    fn get_transaction_count(&self) -> Result<u64> {
+        Ok(self.bank.transaction_count() as u64)
+    }
+    fn get_storage_mining_last_id(&self) -> Result<String> {
+        let id = self.storage_state.get_last_id();
+        Ok(bs58::encode(id).into_string())
+    }
+    fn get_storage_mining_entry_height(&self) -> Result<u64> {
+        let entry_height = self.storage_state.get_entry_height();
+        Ok(entry_height)
+    }
+    fn get_storage_pubkeys_for_entry_height(&self, entry_height: u64) -> Result<Vec<Pubkey>> {
+        Ok(self
+            .storage_state
+            .get_pubkeys_for_entry_height(entry_height))
+    }
+}
+
+fn get_leader_addr(cluster_info: &Arc<RwLock<ClusterInfo>>) -> Result<SocketAddr> {
+    if let Some(leader_data) = cluster_info.read().unwrap().leader_data() {
+        Ok(leader_data.tpu)
+    } else {
+        Err(Error {
+            code: ErrorCode::InternalError,
+            message: "No leader detected".into(),
+            data: None,
+        })
+    }
+}
+
+fn verify_pubkey(input: String) -> Result<Pubkey> {
+    let pubkey_vec = bs58::decode(input).into_vec().map_err(|err| {
+        info!("verify_pubkey: invalid input: {:?}", err);
+        Error::invalid_request()
+    })?;
+    if pubkey_vec.len() != mem::size_of::<Pubkey>() {
+        info!(
+            "verify_pubkey: invalid pubkey_vec length: {}",
+            pubkey_vec.len()
+        );
+        Err(Error::invalid_request())
+    } else {
+        Ok(Pubkey::new(&pubkey_vec))
+    }
+}
+
+fn verify_signature(input: &str) -> Result<Signature> {
+    let signature_vec = bs58::decode(input).into_vec().map_err(|err| {
+        info!("verify_signature: invalid input: {}: {:?}", input, err);
+        Error::invalid_request()
+    })?;
+    if signature_vec.len() != mem::size_of::<Signature>() {
+        info!(
+            "verify_signature: invalid signature_vec length: {}",
+            signature_vec.len()
+        );
+        Err(Error::invalid_request())
+    } else {
+        Ok(Signature::new(&signature_vec))
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bank::Bank;
     use crate::cluster_info::NodeInfo;
-    use jsonrpc_core::{MetaIoHandler, Response};
-    use bitconch_sdk::genesis_block::GenesisBlock;
+    use crate::genesis_block::GenesisBlock;
+    use jsonrpc_core::Response;
     use bitconch_sdk::hash::{hash, Hash};
     use bitconch_sdk::signature::{Keypair, KeypairUtil};
     use bitconch_sdk::system_transaction::SystemTransaction;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    use std::thread;
 
     fn start_rpc_handler_with_tx(pubkey: Pubkey) -> (MetaIoHandler<Meta>, Meta, Hash, Keypair) {
         let (genesis_block, alice) = GenesisBlock::new(10_000);
-        let bank = Arc::new(Bank::new(&genesis_block));
+        let bank = Bank::new(&genesis_block);
 
         let last_id = bank.last_id();
         let tx = SystemTransaction::new_move(&alice, pubkey, 20, last_id, 0);
         bank.process_transaction(&tx).expect("process transaction");
 
         let request_processor = Arc::new(RwLock::new(JsonRpcRequestProcessor::new(
+            Arc::new(bank),
             StorageState::default(),
         )));
-        request_processor.write().unwrap().set_bank(bank);
         let cluster_info = Arc::new(RwLock::new(ClusterInfo::new(NodeInfo::default())));
         let leader = NodeInfo::new_with_socketaddr(&socketaddr!("127.0.0.1:1234"));
 
@@ -399,16 +482,55 @@ mod tests {
     }
 
     #[test]
+    fn test_rpc_new() {
+        let (genesis_block, alice) = GenesisBlock::new(10_000);
+        let bank = Bank::new(&genesis_block);
+        let cluster_info = Arc::new(RwLock::new(ClusterInfo::new(NodeInfo::default())));
+        let rpc_addr = SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            bitconch_netutil::find_available_port_in_range((10000, 65535)).unwrap(),
+        );
+        let drone_addr = SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            bitconch_netutil::find_available_port_in_range((10000, 65535)).unwrap(),
+        );
+        let rpc_service = JsonRpcService::new(
+            &Arc::new(bank),
+            &cluster_info,
+            rpc_addr,
+            drone_addr,
+            StorageState::default(),
+        );
+        let thread = rpc_service.thread_hdl.thread();
+        assert_eq!(thread.name().unwrap(), "bitconch-jsonrpc");
+
+        assert_eq!(
+            10_000,
+            rpc_service
+                .request_processor
+                .read()
+                .unwrap()
+                .get_balance(alice.pubkey())
+                .unwrap()
+        );
+
+        rpc_service.close().unwrap();
+    }
+
+    #[test]
     fn test_rpc_request_processor_new() {
         let (genesis_block, alice) = GenesisBlock::new(10_000);
         let bob_pubkey = Keypair::new().pubkey();
-        let bank = Arc::new(Bank::new(&genesis_block));
-        let mut request_processor = JsonRpcRequestProcessor::new(StorageState::default());
-        request_processor.set_bank(bank.clone());
+        let bank = Bank::new(&genesis_block);
+        let arc_bank = Arc::new(bank);
+        let request_processor =
+            JsonRpcRequestProcessor::new(arc_bank.clone(), StorageState::default());
         thread::spawn(move || {
-            let last_id = bank.last_id();
+            let last_id = arc_bank.last_id();
             let tx = SystemTransaction::new_move(&alice, bob_pubkey, 20, last_id, 0);
-            bank.process_transaction(&tx).expect("process transaction");
+            arc_bank
+                .process_transaction(&tx)
+                .expect("process transaction");
         })
         .join()
         .unwrap();
@@ -565,17 +687,16 @@ mod tests {
     #[test]
     fn test_rpc_send_bad_tx() {
         let (genesis_block, _) = GenesisBlock::new(10_000);
-        let bank = Arc::new(Bank::new(&genesis_block));
+        let bank = Bank::new(&genesis_block);
 
         let mut io = MetaIoHandler::default();
         let rpc = RpcSolImpl;
         io.extend_with(rpc.to_delegate());
         let meta = Meta {
-            request_processor: {
-                let mut request_processor = JsonRpcRequestProcessor::new(StorageState::default());
-                request_processor.set_bank(bank);
-                Arc::new(RwLock::new(request_processor))
-            },
+            request_processor: Arc::new(RwLock::new(JsonRpcRequestProcessor::new(
+                Arc::new(bank),
+                StorageState::default(),
+            ))),
             cluster_info: Arc::new(RwLock::new(ClusterInfo::new(NodeInfo::default()))),
             drone_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
             rpc_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),

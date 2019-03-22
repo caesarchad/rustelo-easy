@@ -4,31 +4,29 @@ extern crate test;
 
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
+use bitconch::bank::Bank;
 use bitconch::banking_stage::BankingStage;
 use bitconch::entry::Entry;
+use bitconch::genesis_block::GenesisBlock;
+use bitconch::last_id_queue::MAX_ENTRY_IDS;
 use bitconch::packet::to_packets_chunked;
-use bitconch::poh_recorder::PohRecorder;
-use bitconch::poh_service::{PohService, PohServiceConfig};
-use bitconch_runtime::bank::Bank;
-use bitconch_sdk::genesis_block::GenesisBlock;
+use bitconch::poh_service::PohServiceConfig;
 use bitconch_sdk::hash::hash;
 use bitconch_sdk::pubkey::Pubkey;
 use bitconch_sdk::signature::{KeypairUtil, Signature};
 use bitconch_sdk::system_transaction::SystemTransaction;
-use bitconch_sdk::timing::MAX_ENTRY_IDS;
 use std::iter;
-use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{channel, Receiver};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use test::Bencher;
 
-fn check_txs(receiver: &Receiver<Vec<(Entry, u64)>>, ref_tx_count: usize) {
+fn check_txs(receiver: &Receiver<Vec<Entry>>, ref_tx_count: usize) {
     let mut total = 0;
     loop {
         let entries = receiver.recv_timeout(Duration::new(1, 0));
         if let Ok(entries) = entries {
-            for (entry, _) in &entries {
+            for entry in &entries {
                 total += entry.transactions.len();
             }
         } else {
@@ -41,22 +39,7 @@ fn check_txs(receiver: &Receiver<Vec<(Entry, u64)>>, ref_tx_count: usize) {
     assert_eq!(total, ref_tx_count);
 }
 
-fn create_test_recorder(bank: &Arc<Bank>) -> (Arc<Mutex<PohRecorder>>, PohService) {
-    let exit = Arc::new(AtomicBool::new(false));
-    let poh_recorder = Arc::new(Mutex::new(PohRecorder::new(
-        bank.tick_height(),
-        bank.last_id(),
-    )));
-    let poh_service = PohService::new(
-        poh_recorder.clone(),
-        &PohServiceConfig::default(),
-        exit.clone(),
-    );
-    (poh_recorder, poh_service)
-}
-
 #[bench]
-#[ignore]
 fn bench_banking_stage_multi_accounts(bencher: &mut Bencher) {
     let num_threads = BankingStage::num_threads() as usize;
     //   a multiple of packet chunk  2X duplicates to avoid races
@@ -117,13 +100,15 @@ fn bench_banking_stage_multi_accounts(bencher: &mut Bencher) {
             (x, iter::repeat(1).take(len).collect())
         })
         .collect();
-    let (poh_recorder, poh_service) = create_test_recorder(&bank);
+    let (to_leader_sender, _to_leader_recvr) = channel();
     let (_stage, signal_receiver) = BankingStage::new(
         &bank,
-        &poh_recorder,
         verified_receiver,
+        PohServiceConfig::default(),
+        &genesis_block.last_id(),
         std::u64::MAX,
         genesis_block.bootstrap_leader_id,
+        &to_leader_sender,
     );
 
     let mut id = genesis_block.last_id();
@@ -145,11 +130,9 @@ fn bench_banking_stage_multi_accounts(bencher: &mut Bencher) {
         start += half_len;
         start %= verified.len();
     });
-    poh_service.close().unwrap();
 }
 
 #[bench]
-#[ignore]
 fn bench_banking_stage_multi_programs(bencher: &mut Bencher) {
     let progs = 4;
     let num_threads = BankingStage::num_threads() as usize;
@@ -226,13 +209,15 @@ fn bench_banking_stage_multi_programs(bencher: &mut Bencher) {
             (x, iter::repeat(1).take(len).collect())
         })
         .collect();
-    let (poh_recorder, poh_service) = create_test_recorder(&bank);
+    let (to_leader_sender, _to_leader_recvr) = channel();
     let (_stage, signal_receiver) = BankingStage::new(
         &bank,
-        &poh_recorder,
         verified_receiver,
+        PohServiceConfig::default(),
+        &genesis_block.last_id(),
         std::u64::MAX,
         genesis_block.bootstrap_leader_id,
+        &to_leader_sender,
     );
 
     let mut id = genesis_block.last_id();
@@ -254,5 +239,4 @@ fn bench_banking_stage_multi_programs(bencher: &mut Bencher) {
         start += half_len;
         start %= verified.len();
     });
-    poh_service.close().unwrap();
 }

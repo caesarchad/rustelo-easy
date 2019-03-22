@@ -12,27 +12,26 @@
 //! * layer 2 - Everyone else, if layer 1 is `2^10`, layer 2 should be able to fit `2^20` number of nodes.
 //!
 //! Bank needs to provide an interface for us to query the stake weight
-use crate::bank_forks::BankForks;
+use crate::bank::Bank;
 use crate::blocktree::Blocktree;
+use crate::bloom::Bloom;
 use crate::contact_info::ContactInfo;
+use crate::counter::Counter;
 use crate::crds_gossip::CrdsGossip;
 use crate::crds_gossip_error::CrdsGossipError;
 use crate::crds_gossip_pull::CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS;
 use crate::crds_value::{CrdsValue, CrdsValueLabel, LeaderId, Vote};
 use crate::packet::{to_shared_blob, Blob, SharedBlob, BLOB_SIZE};
 use crate::result::Result;
-use crate::rpc_service::RPC_PORT;
+use crate::rpc::RPC_PORT;
 use crate::streamer::{BlobReceiver, BlobSender};
 use bincode::{deserialize, serialize};
-use core::cmp;
 use hashbrown::HashMap;
 use log::Level;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
-use bitconch_metrics::counter::Counter;
 use bitconch_metrics::{influxdb, submit};
 use bitconch_netutil::{bind_in_range, bind_to, find_available_port_in_range, multi_bind_in_range};
-use bitconch_runtime::bloom::Bloom;
 use bitconch_sdk::hash::Hash;
 use bitconch_sdk::pubkey::Pubkey;
 use bitconch_sdk::signature::{Keypair, KeypairUtil, Signable, Signature};
@@ -174,16 +173,16 @@ impl ClusterInfo {
         let id = node_info.id;
         me.gossip.set_self(id);
         me.insert_info(node_info);
-        me.push_self(&HashMap::new());
+        me.push_self();
         me
     }
-    pub fn push_self(&mut self, stakes: &HashMap<Pubkey, u64>) {
+    pub fn push_self(&mut self) {
         let mut my_data = self.my_data();
         let now = timestamp();
         my_data.wallclock = now;
         let mut entry = CrdsValue::ContactInfo(my_data);
         entry.sign(&self.keypair);
-        self.gossip.refresh_push_active_set(stakes);
+        self.gossip.refresh_push_active_set();
         self.gossip.process_push_message(&[entry], now);
     }
     pub fn insert_info(&mut self, node_info: NodeInfo) {
@@ -365,40 +364,28 @@ impl ClusterInfo {
             .collect()
     }
 
-    fn sort_by_stake<S: std::hash::BuildHasher>(
-        peers: &[NodeInfo],
-        stakes: &HashMap<Pubkey, u64, S>,
-    ) -> Vec<(u64, NodeInfo)> {
+    fn sort_by_stake(peers: &[NodeInfo], bank: &Arc<Bank>) -> Vec<(u64, NodeInfo)> {
         let mut peers_with_stakes: Vec<_> = peers
             .iter()
-            .map(|c| (*stakes.get(&c.id).unwrap_or(&0), c.clone()))
+            .map(|c| (bank.get_balance(&c.id), c.clone()))
             .collect();
-        peers_with_stakes.sort_unstable_by(|(l_stake, l_info), (r_stake, r_info)| {
-            if r_stake == l_stake {
-                r_info.id.cmp(&l_info.id)
-            } else {
-                r_stake.cmp(&l_stake)
-            }
-        });
-        peers_with_stakes.dedup();
+        peers_with_stakes.sort_unstable();
+        peers_with_stakes.reverse();
         peers_with_stakes
     }
 
-    pub fn sorted_retransmit_peers<S: std::hash::BuildHasher>(
-        &self,
-        stakes: &HashMap<Pubkey, u64, S>,
-    ) -> Vec<NodeInfo> {
+    pub fn sorted_retransmit_peers(&self, bank: &Arc<Bank>) -> Vec<NodeInfo> {
         let peers = self.retransmit_peers();
-        let peers_with_stakes: Vec<_> = ClusterInfo::sort_by_stake(&peers, stakes);
+        let peers_with_stakes: Vec<_> = ClusterInfo::sort_by_stake(&peers, bank);
         peers_with_stakes
             .iter()
             .map(|(_, peer)| (*peer).clone())
             .collect()
     }
 
-    pub fn sorted_tvu_peers(&self, stakes: &HashMap<Pubkey, u64>) -> Vec<NodeInfo> {
+    pub fn sorted_tvu_peers(&self, bank: &Arc<Bank>) -> Vec<NodeInfo> {
         let peers = self.tvu_peers();
-        let peers_with_stakes: Vec<_> = ClusterInfo::sort_by_stake(&peers, stakes);
+        let peers_with_stakes: Vec<_> = ClusterInfo::sort_by_stake(&peers, bank);
         peers_with_stakes
             .iter()
             .map(|(_, peer)| (*peer).clone())
@@ -768,14 +755,9 @@ impl ClusterInfo {
         Ok((addr, out))
     }
 
-    fn new_pull_requests(&mut self, stakes: &HashMap<Pubkey, u64>) -> Vec<(SocketAddr, Protocol)> {
+    fn new_pull_requests(&mut self) -> Vec<(SocketAddr, Protocol)> {
         let now = timestamp();
-        let pulls: Vec<_> = self
-            .gossip
-            .new_pull_request(now, stakes)
-            .ok()
-            .into_iter()
-            .collect();
+        let pulls: Vec<_> = self.gossip.new_pull_request(now).ok().into_iter().collect();
 
         let pr: Vec<_> = pulls
             .into_iter()
@@ -812,19 +794,15 @@ impl ClusterInfo {
             .collect()
     }
 
-    fn gossip_request(&mut self, stakes: &HashMap<Pubkey, u64>) -> Vec<(SocketAddr, Protocol)> {
-        let pulls: Vec<_> = self.new_pull_requests(stakes);
+    fn gossip_request(&mut self) -> Vec<(SocketAddr, Protocol)> {
+        let pulls: Vec<_> = self.new_pull_requests();
         let pushes: Vec<_> = self.new_push_requests();
         vec![pulls, pushes].into_iter().flat_map(|x| x).collect()
     }
 
     /// At random pick a node and try to get updated changes from them
-    fn run_gossip(
-        obj: &Arc<RwLock<Self>>,
-        stakes: &HashMap<Pubkey, u64>,
-        blob_sender: &BlobSender,
-    ) -> Result<()> {
-        let reqs = obj.write().unwrap().gossip_request(&stakes);
+    fn run_gossip(obj: &Arc<RwLock<Self>>, blob_sender: &BlobSender) -> Result<()> {
+        let reqs = obj.write().unwrap().gossip_request();
         let blobs = reqs
             .into_iter()
             .filter_map(|(remote_gossip_addr, req)| to_shared_blob(req, remote_gossip_addr).ok())
@@ -866,7 +844,6 @@ impl ClusterInfo {
     /// randomly pick a node and ask them for updates asynchronously
     pub fn gossip(
         obj: Arc<RwLock<Self>>,
-        bank_forks: Option<Arc<RwLock<BankForks>>>,
         blob_sender: BlobSender,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
@@ -876,13 +853,7 @@ impl ClusterInfo {
                 let mut last_push = timestamp();
                 loop {
                     let start = timestamp();
-                    let stakes: HashMap<_, _> = match bank_forks {
-                        Some(ref bank_forks) => {
-                            bank_forks.read().unwrap().working_bank().staked_nodes()
-                        }
-                        None => HashMap::new(),
-                    };
-                    let _ = Self::run_gossip(&obj, &stakes, &blob_sender);
+                    let _ = Self::run_gossip(&obj, &blob_sender);
                     if exit.load(Ordering::Relaxed) {
                         return;
                     }
@@ -890,7 +861,7 @@ impl ClusterInfo {
                     //TODO: possibly tune this parameter
                     //we saw a deadlock passing an obj.read().unwrap().timeout into sleep
                     if start - last_push > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {
-                        obj.write().unwrap().push_self(&stakes);
+                        obj.write().unwrap().push_self();
                         last_push = timestamp();
                     }
                     let elapsed = timestamp() - start;
@@ -1288,55 +1259,6 @@ impl ClusterInfo {
     }
 }
 
-/// Avalanche logic
-/// 1 - For the current node find out if it is in layer 1
-/// 1.1 - If yes, then broadcast to all layer 1 nodes
-///      1 - using the layer 1 index, broadcast to all layer 2 nodes assuming you know neighborhood size
-/// 1.2 - If no, then figure out what layer the node is in and who the neighbors are and only broadcast to them
-///      1 - also check if there are nodes in lower layers and repeat the layer 1 to layer 2 logic
-
-/// Returns Neighbor Nodes and Children Nodes `(neighbors, children)` for a given node based on its stake (Bank Balance)
-pub fn compute_retransmit_peers<S: std::hash::BuildHasher>(
-    stakes: &HashMap<Pubkey, u64, S>,
-    cluster_info: &Arc<RwLock<ClusterInfo>>,
-    fanout: usize,
-    hood_size: usize,
-    grow: bool,
-) -> (Vec<NodeInfo>, Vec<NodeInfo>) {
-    let peers = cluster_info.read().unwrap().sorted_retransmit_peers(stakes);
-    let my_id = cluster_info.read().unwrap().id();
-    //calc num_layers and num_neighborhoods using the total number of nodes
-    let (num_layers, layer_indices) =
-        ClusterInfo::describe_data_plane(peers.len(), fanout, hood_size, grow);
-
-    if num_layers <= 1 {
-        /* single layer data plane */
-        (peers, vec![])
-    } else {
-        //find my index (my ix is the same as the first node with smaller stake)
-        let my_index = peers
-            .iter()
-            .position(|ci| *stakes.get(&ci.id).unwrap_or(&0) <= *stakes.get(&my_id).unwrap_or(&0));
-        //find my layer
-        let locality = ClusterInfo::localize(
-            &layer_indices,
-            hood_size,
-            my_index.unwrap_or(peers.len() - 1),
-        );
-        let upper_bound = cmp::min(locality.neighbor_bounds.1, peers.len());
-        let neighbors = peers[locality.neighbor_bounds.0..upper_bound].to_vec();
-        let mut children = Vec::new();
-        for ix in locality.child_layer_peers {
-            if let Some(peer) = peers.get(ix) {
-                children.push(peer.clone());
-                continue;
-            }
-            break;
-        }
-        (neighbors, children)
-    }
-}
-
 #[derive(Debug)]
 pub struct Sockets {
     pub gossip: UdpSocket,
@@ -1479,11 +1401,8 @@ mod tests {
             .write()
             .unwrap()
             .gossip
-            .refresh_push_active_set(&HashMap::new());
-        let reqs = cluster_info
-            .write()
-            .unwrap()
-            .gossip_request(&HashMap::new());
+            .refresh_push_active_set();
+        let reqs = cluster_info.write().unwrap().gossip_request();
         //assert none of the addrs are invalid.
         reqs.iter().all(|(addr, _)| {
             let res = ContactInfo::is_valid_address(addr);
@@ -1562,7 +1481,7 @@ mod tests {
     #[test]
     fn run_window_request() {
         bitconch_logger::setup();
-        let ledger_path = get_tmp_ledger_path!();
+        let ledger_path = get_tmp_ledger_path("run_window_request");
         {
             let blocktree = Arc::new(Blocktree::open(&ledger_path).unwrap());
             let me = NodeInfo::new(
@@ -1620,7 +1539,7 @@ mod tests {
     #[test]
     fn run_highest_window_request() {
         bitconch_logger::setup();
-        let ledger_path = get_tmp_ledger_path!();
+        let ledger_path = get_tmp_ledger_path("run_highest_window_request");
         {
             let blocktree = Arc::new(Blocktree::open(&ledger_path).unwrap());
             let rv =
@@ -1761,7 +1680,7 @@ mod tests {
 
         let (_, _, val) = cluster_info
             .gossip
-            .new_pull_request(timestamp(), &HashMap::new())
+            .new_pull_request(timestamp())
             .ok()
             .unwrap();
         assert!(val.verify());

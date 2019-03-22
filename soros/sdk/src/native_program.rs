@@ -25,9 +25,6 @@ pub enum ProgramError {
     /// Program spent the tokens of an account that doesn't belong to it
     ExternalAccountTokenSpend,
 
-    /// Program modified the userdata of an account that doesn't belong to it
-    ExternalAccountUserdataModified,
-
     /// An account's userdata contents was invalid
     InvalidUserdata,
 

@@ -72,7 +72,7 @@ launchTestnet() {
       FROM "testnet-automation"."autogen"."leader-confirmation"
       WHERE time > now() - 300s'
 
-  curl -G "https://127.0.0.1:8086/query?u=${INFLUX_USERNAME}&p=${INFLUX_PASSWORD}" \
+  curl -G "https://metrics.bitconch.com:8086/query?u=${INFLUX_USERNAME}&p=${INFLUX_PASSWORD}" \
     --data-urlencode "db=$INFLUX_DATABASE" \
     --data-urlencode "q=$q_mean_tps;$q_max_tps;$q_mean_confirmation;$q_max_confirmation;$q_99th_confirmation" |
     python ci/testnet-automation-json-parser.py >>TPS"$nodeCount".log

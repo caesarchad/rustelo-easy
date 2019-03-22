@@ -1,4 +1,4 @@
-use crate::rpc_service::RPC_PORT;
+use crate::rpc::RPC_PORT;
 use bincode::serialize;
 use bitconch_sdk::pubkey::Pubkey;
 use bitconch_sdk::signature::{Keypair, KeypairUtil, Signable, Signature};

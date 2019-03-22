@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 source oom-score-adj.sh
 
 # shellcheck source=scripts/configure-metrics.sh
-source 
+source configure-metrics.sh
 
 [[ $(uname) = Linux ]] || exit 0
 

@@ -1,32 +1,33 @@
 //! The `fullnode` module hosts all the fullnode microservices.
 
-use crate::bank_forks::BankForks;
-use crate::blocktree::Blocktree;
-use crate::blocktree_processor::{self, BankForksInfo};
+use crate::bank::Bank;
+use crate::blocktree::{Blocktree, BlocktreeConfig};
+use crate::blocktree_processor;
 use crate::cluster_info::{ClusterInfo, Node, NodeInfo};
+use crate::counter::Counter;
+use crate::genesis_block::GenesisBlock;
 use crate::gossip_service::GossipService;
 use crate::leader_scheduler::{LeaderScheduler, LeaderSchedulerConfig};
-use crate::poh_recorder::PohRecorder;
-use crate::poh_service::{PohService, PohServiceConfig};
-use crate::rpc_pubsub_service::PubSubService;
-use crate::rpc_service::JsonRpcService;
-use crate::rpc_subscriptions::RpcSubscriptions;
+use crate::poh_service::PohServiceConfig;
+use crate::rpc::JsonRpcService;
+use crate::rpc_pubsub::PubSubService;
 use crate::service::Service;
 use crate::storage_stage::StorageState;
-use crate::tpu::Tpu;
-use crate::tvu::{Sockets, Tvu, TvuRotationInfo, TvuRotationReceiver};
-use bitconch_metrics::counter::Counter;
-use bitconch_sdk::genesis_block::GenesisBlock;
+use crate::tpu::{Tpu, TpuRotationReceiver, TpuRotationSender};
+use crate::tvu::{Sockets, Tvu};
+use crate::voting_keypair::VotingKeypair;
+use log::Level;
+use bitconch_sdk::hash::Hash;
 use bitconch_sdk::pubkey::Pubkey;
 use bitconch_sdk::signature::{Keypair, KeypairUtil};
-use bitconch_sdk::timing::timestamp;
+use bitconch_sdk::timing::{duration_as_ms, timestamp};
 use std::net::UdpSocket;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread::{spawn, Result};
-use std::time::Duration;
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender, SyncSender};
+use std::sync::{Arc, RwLock};
+use std::thread::{sleep, spawn, Result};
+use std::time::{Duration, Instant};
 
 struct NodeServices {
     tpu: Tpu,
@@ -61,7 +62,7 @@ pub enum FullnodeReturnType {
 pub struct FullnodeConfig {
     pub sigverify_disabled: bool,
     pub voting_disabled: bool,
-    pub blockstream: Option<String>,
+    pub entry_stream: Option<String>,
     pub storage_rotate_count: u64,
     pub leader_scheduler_config: LeaderSchedulerConfig,
     pub tick_config: PohServiceConfig,
@@ -75,7 +76,7 @@ impl Default for FullnodeConfig {
         Self {
             sigverify_disabled: false,
             voting_disabled: false,
-            blockstream: None,
+            entry_stream: None,
             storage_rotate_count: NUM_HASHES_FOR_STORAGE_ROTATE,
             leader_scheduler_config: LeaderSchedulerConfig::default(),
             tick_config: PohServiceConfig::default(),
@@ -84,8 +85,10 @@ impl Default for FullnodeConfig {
 }
 
 impl FullnodeConfig {
-    pub fn ticks_per_slot(&self) -> u64 {
-        self.leader_scheduler_config.ticks_per_slot
+    pub fn ledger_config(&self) -> BlocktreeConfig {
+        // TODO: Refactor LeaderSchedulerConfig and BlocktreeConfig to avoid the duplicated
+        //       `ticks_per_slot` field that must be identical between the two
+        BlocktreeConfig::new(self.leader_scheduler_config.ticks_per_slot)
     }
 }
 
@@ -95,30 +98,26 @@ pub struct Fullnode {
     rpc_service: Option<JsonRpcService>,
     rpc_pubsub_service: Option<PubSubService>,
     gossip_service: GossipService,
+    bank: Arc<Bank>,
     sigverify_disabled: bool,
     tpu_sockets: Vec<UdpSocket>,
     broadcast_socket: UdpSocket,
     node_services: NodeServices,
-    rotation_receiver: TvuRotationReceiver,
+    rotation_sender: TpuRotationSender,
+    rotation_receiver: TpuRotationReceiver,
     blocktree: Arc<Blocktree>,
-    bank_forks: Arc<RwLock<BankForks>>,
     leader_scheduler: Arc<RwLock<LeaderScheduler>>,
-    poh_service: PohService,
-    poh_recorder: Arc<Mutex<PohRecorder>>,
 }
 
 impl Fullnode {
-    pub fn new<T>(
+    pub fn new(
         mut node: Node,
         keypair: &Arc<Keypair>,
         ledger_path: &str,
-        voting_keypair: T,
+        voting_keypair: VotingKeypair,
         entrypoint_info_option: Option<&NodeInfo>,
         config: &FullnodeConfig,
-    ) -> Self
-    where
-        T: 'static + KeypairUtil + Sync + Send,
-    {
+    ) -> Self {
         info!("creating bank...");
 
         let id = keypair.pubkey();
@@ -127,24 +126,14 @@ impl Fullnode {
         let leader_scheduler = Arc::new(RwLock::new(LeaderScheduler::new(
             &config.leader_scheduler_config,
         )));
-        let (mut bank_forks, bank_forks_info, blocktree, ledger_signal_receiver) =
-            new_banks_from_blocktree(ledger_path, config.ticks_per_slot(), &leader_scheduler);
-
-        let exit = Arc::new(AtomicBool::new(false));
-        let bank_info = &bank_forks_info[0];
-        bank_forks.set_working_bank_id(bank_info.bank_id);
-        let bank = bank_forks.working_bank();
-
-        info!(
-            "starting PoH... {} {}",
-            bank.tick_height(),
-            bank_info.last_entry_id
-        );
-        let poh_recorder = Arc::new(Mutex::new(PohRecorder::new(
-            bank.tick_height(),
-            bank_info.last_entry_id,
-        )));
-        let poh_service = PohService::new(poh_recorder.clone(), &config.tick_config, exit.clone());
+        let (
+            bank,
+            entry_height,
+            last_entry_id,
+            blocktree,
+            ledger_signal_sender,
+            ledger_signal_receiver,
+        ) = new_bank_from_ledger(ledger_path, &config.ledger_config(), &leader_scheduler);
 
         info!("node info: {:?}", node.info);
         info!("node entrypoint_info: {:?}", entrypoint_info_option);
@@ -153,8 +142,9 @@ impl Fullnode {
             node.sockets.gossip.local_addr().unwrap()
         );
 
+        let exit = Arc::new(AtomicBool::new(false));
+        let bank = Arc::new(bank);
         let blocktree = Arc::new(blocktree);
-        let bank_forks = Arc::new(RwLock::new(bank_forks));
 
         node.info.wallclock = timestamp();
         let cluster_info = Arc::new(RwLock::new(ClusterInfo::new_with_keypair(
@@ -178,15 +168,15 @@ impl Fullnode {
         let storage_state = StorageState::new();
 
         let rpc_service = JsonRpcService::new(
+            &bank,
             &cluster_info,
             SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), node.info.rpc.port()),
             drone_addr,
             storage_state.clone(),
         );
 
-        let subscriptions = Arc::new(RpcSubscriptions::default());
         let rpc_pubsub_service = PubSubService::new(
-            &subscriptions,
+            &bank,
             SocketAddr::new(
                 IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                 node.info.rpc_pubsub.port(),
@@ -196,7 +186,6 @@ impl Fullnode {
         let gossip_service = GossipService::new(
             &cluster_info,
             Some(blocktree.clone()),
-            Some(bank_forks.clone()),
             node.sockets.gossip,
             exit.clone(),
         );
@@ -209,6 +198,35 @@ impl Fullnode {
                 .unwrap()
                 .insert_info(entrypoint_info.clone());
         }
+
+        // Figure which node should generate the next tick
+        let (scheduled_leader, max_tick_height, blob_index) = {
+            let next_tick = bank.tick_height() + 1;
+
+            let leader_scheduler = leader_scheduler.read().unwrap();
+            let slot_at_next_tick = leader_scheduler.tick_height_to_slot(next_tick);
+
+            let scheduled_leader = leader_scheduler
+                .get_leader_for_slot(slot_at_next_tick)
+                .expect("Leader not known after processing bank");
+            let max_tick_height = next_tick + leader_scheduler.num_ticks_left_in_slot(next_tick);
+            let blob_index =
+                if let Some(meta) = blocktree.meta(slot_at_next_tick).expect("Database error") {
+                    meta.consumed
+                } else {
+                    0
+                };
+
+            trace!(
+                "node {:?} scheduled as leader for ticks ({},{}), starting blob_index={}",
+                scheduled_leader,
+                next_tick,
+                max_tick_height,
+                blob_index,
+            );
+
+            (scheduled_leader, max_tick_height, blob_index)
+        };
 
         let sockets = Sockets {
             repair: node
@@ -240,24 +258,26 @@ impl Fullnode {
 
         let tvu = Tvu::new(
             voting_keypair_option,
-            &bank_forks,
-            &bank_forks_info,
+            &bank,
+            blob_index,
+            entry_height,
+            last_entry_id,
             &cluster_info,
             sockets,
             blocktree.clone(),
             config.storage_rotate_count,
             &rotation_sender,
             &storage_state,
-            config.blockstream.as_ref(),
+            config.entry_stream.as_ref(),
+            ledger_signal_sender,
             ledger_signal_receiver,
             leader_scheduler.clone(),
-            &subscriptions,
         );
         let tpu = Tpu::new(id, &cluster_info);
 
-        inc_new_counter_info!("fullnode-new", 1);
-        Self {
+        let mut fullnode = Self {
             id,
+            bank,
             sigverify_disabled: config.sigverify_disabled,
             gossip_service,
             rpc_service: Some(rpc_service),
@@ -266,32 +286,71 @@ impl Fullnode {
             exit,
             tpu_sockets: node.sockets.tpu,
             broadcast_socket: node.sockets.broadcast,
+            rotation_sender,
             rotation_receiver,
             blocktree,
-            bank_forks,
             leader_scheduler,
-            poh_service,
-            poh_recorder,
-        }
+        };
+
+        fullnode.rotate(
+            scheduled_leader,
+            max_tick_height,
+            blob_index,
+            &last_entry_id,
+        );
+        inc_new_counter_info!("fullnode-new", 1);
+        fullnode
     }
 
-    fn rotate(&mut self, rotation_info: TvuRotationInfo) -> FullnodeReturnType {
-        trace!(
-            "{:?}: rotate for slot={} to leader={:?} using last_entry_id={:?}",
-            self.id,
-            rotation_info.slot,
-            rotation_info.leader_id,
-            rotation_info.last_entry_id,
-        );
-
-        if let Some(ref mut rpc_service) = self.rpc_service {
-            // TODO: This is not the correct bank.  Instead TVU should pass along the
-            // frozen Bank for each completed block for RPC to use from it's notion of the "best"
-            // available fork (until we want to surface multiple forks to RPC)
-            rpc_service.set_bank(self.bank_forks.read().unwrap().working_bank());
+    fn get_next_leader(&self, tick_height: u64) -> (Pubkey, u64) {
+        loop {
+            let bank_tick_height = self.bank.tick_height();
+            if bank_tick_height >= tick_height {
+                break;
+            }
+            trace!(
+                "{:?}: Waiting for bank tick_height to catch up from {} to {}",
+                self.id,
+                bank_tick_height,
+                tick_height
+            );
+            sleep(Duration::from_millis(10));
         }
 
-        if rotation_info.leader_id == self.id {
+        let (scheduled_leader, max_tick_height) = {
+            let mut leader_scheduler = self.leader_scheduler.write().unwrap();
+
+            // A transition is only permitted on the final tick of a slot
+            assert_eq!(leader_scheduler.num_ticks_left_in_slot(tick_height), 0);
+            let first_tick_of_next_slot = tick_height + 1;
+
+            leader_scheduler.update_tick_height(first_tick_of_next_slot, &self.bank);
+            let slot = leader_scheduler.tick_height_to_slot(first_tick_of_next_slot);
+            (
+                leader_scheduler.get_leader_for_slot(slot).unwrap(),
+                first_tick_of_next_slot
+                    + leader_scheduler.num_ticks_left_in_slot(first_tick_of_next_slot),
+            )
+        };
+
+        debug!(
+            "node {:?} scheduled as leader for ticks [{}, {})",
+            scheduled_leader,
+            tick_height + 1,
+            max_tick_height
+        );
+
+        (scheduled_leader, max_tick_height)
+    }
+
+    fn rotate(
+        &mut self,
+        next_leader: Pubkey,
+        max_tick_height: u64,
+        blob_index: u64,
+        last_entry_id: &Hash,
+    ) -> FullnodeReturnType {
+        if next_leader == self.id {
             let transition = match self.node_services.tpu.is_leader() {
                 Some(was_leader) => {
                     if was_leader {
@@ -302,24 +361,12 @@ impl Fullnode {
                         FullnodeReturnType::ValidatorToLeaderRotation
                     }
                 }
-                None => {
-                    if self
-                        .leader_scheduler
-                        .read()
-                        .unwrap()
-                        .get_leader_for_slot(rotation_info.slot.saturating_sub(1))
-                        .unwrap()
-                        == self.id
-                    {
-                        FullnodeReturnType::LeaderToLeaderRotation
-                    } else {
-                        FullnodeReturnType::ValidatorToLeaderRotation
-                    }
-                }
+                None => FullnodeReturnType::LeaderToLeaderRotation, // value doesn't matter here...
             };
+
             self.node_services.tpu.switch_to_leader(
-                self.bank_forks.read().unwrap().working_bank(),
-                &self.poh_recorder,
+                &Arc::new(self.bank.copy_for_tpu()),
+                PohServiceConfig::default(),
                 self.tpu_sockets
                     .iter()
                     .map(|s| s.try_clone().expect("Failed to clone TPU sockets"))
@@ -328,14 +375,18 @@ impl Fullnode {
                     .try_clone()
                     .expect("Failed to clone broadcast socket"),
                 self.sigverify_disabled,
-                rotation_info.slot,
+                max_tick_height,
+                blob_index,
+                last_entry_id,
+                &self.rotation_sender,
                 &self.blocktree,
+                &self.leader_scheduler,
             );
             transition
         } else {
             debug!("{:?} rotating to validator role", self.id);
             self.node_services.tpu.switch_to_forwarder(
-                rotation_info.leader_id,
+                next_leader,
                 self.tpu_sockets
                     .iter()
                     .map(|s| s.try_clone().expect("Failed to clone TPU sockets"))
@@ -363,19 +414,16 @@ impl Fullnode {
             }
 
             match self.rotation_receiver.recv_timeout(timeout) {
-                Ok(rotation_info) => {
-                    trace!("{:?}: rotate at slot={}", self.id, rotation_info.slot);
-                    //TODO: this will be called by the TVU every time it votes
-                    //instead of here
-                    self.poh_recorder.lock().unwrap().reset(
-                        rotation_info.bank.tick_height(),
-                        rotation_info.last_entry_id,
-                    );
-                    let slot = rotation_info.slot;
-                    let transition = self.rotate(rotation_info);
+                Ok(tick_height) => {
+                    trace!("{:?}: rotate at tick_height={}", self.id, tick_height);
+                    let (next_leader, max_tick_height) = self.get_next_leader(tick_height);
+                    let transition =
+                        self.rotate(next_leader, max_tick_height, 0, &self.bank.last_id());
                     debug!("role transition complete: {:?}", transition);
                     if let Some(ref rotation_notifier) = rotation_notifier {
-                        rotation_notifier.send((transition, slot)).unwrap();
+                        rotation_notifier
+                            .send((transition, tick_height + 1))
+                            .unwrap();
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => continue,
@@ -392,49 +440,51 @@ impl Fullnode {
     // Used for notifying many nodes in parallel to exit
     fn exit(&self) {
         self.exit.store(true, Ordering::Relaxed);
-        // Need to force the poh_recorder to drop the WorkingBank,
-        // which contains the channel to BroadcastStage. This should be
-        // sufficient as long as no other rotations are happening that
-        // can cause the Tpu to restart a BankingStage and reset a
-        // WorkingBank in poh_recorder. It follows no other rotations can be
-        // in motion because exit()/close() are only called by the run() loop
-        // which is the sole initiator of rotations.
-        self.poh_recorder.lock().unwrap().clear_bank();
         if let Some(ref rpc_service) = self.rpc_service {
             rpc_service.exit();
         }
         if let Some(ref rpc_pubsub_service) = self.rpc_pubsub_service {
             rpc_pubsub_service.exit();
         }
-        self.node_services.exit();
-        self.poh_service.exit()
+        self.node_services.exit()
     }
 
-    fn close(self) -> Result<()> {
+    pub fn close(self) -> Result<()> {
         self.exit();
         self.join()
     }
 }
 
-pub fn new_banks_from_blocktree(
-    blocktree_path: &str,
-    ticks_per_slot: u64,
+#[allow(clippy::trivially_copy_pass_by_ref)]
+pub fn new_bank_from_ledger(
+    ledger_path: &str,
+    ledger_config: &BlocktreeConfig,
     leader_scheduler: &Arc<RwLock<LeaderScheduler>>,
-) -> (BankForks, Vec<BankForksInfo>, Blocktree, Receiver<bool>) {
-    let (blocktree, ledger_signal_receiver) =
-        Blocktree::open_with_config_signal(blocktree_path, ticks_per_slot)
+) -> (Bank, u64, Hash, Blocktree, SyncSender<bool>, Receiver<bool>) {
+    let (blocktree, ledger_signal_sender, ledger_signal_receiver) =
+        Blocktree::open_with_config_signal(ledger_path, ledger_config)
             .expect("Expected to successfully open database ledger");
     let genesis_block =
-        GenesisBlock::load(blocktree_path).expect("Expected to successfully open genesis block");
+        GenesisBlock::load(ledger_path).expect("Expected to successfully open genesis block");
+    let bank = Bank::new_with_leader_scheduler(&genesis_block, leader_scheduler.clone());
 
-    let (bank_forks, bank_forks_info) =
-        blocktree_processor::process_blocktree(&genesis_block, &blocktree, leader_scheduler)
-            .expect("process_blocktree failed");
+    let now = Instant::now();
+    info!("processing ledger...");
+    let (entry_height, last_entry_id) =
+        blocktree_processor::process_blocktree(&bank, &blocktree).expect("process_blocktree");
+    info!(
+        "processed {} ledger entries in {}ms, tick_height={}...",
+        entry_height,
+        duration_as_ms(&now.elapsed()),
+        bank.tick_height()
+    );
 
     (
-        bank_forks,
-        bank_forks_info,
+        bank,
+        entry_height,
+        last_entry_id,
         blocktree,
+        ledger_signal_sender,
         ledger_signal_receiver,
     )
 }
@@ -452,9 +502,6 @@ impl Service for Fullnode {
 
         self.gossip_service.join()?;
         self.node_services.join()?;
-        trace!("exit node_services!");
-        self.poh_service.join()?;
-        trace!("exit poh!");
         Ok(())
     }
 }
@@ -462,13 +509,18 @@ impl Service for Fullnode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blocktree::{create_tmp_sample_blocktree, tmp_copy_blocktree};
+    use crate::blob_fetch_stage::BlobFetchStage;
+    use crate::blocktree::{
+        create_tmp_sample_ledger, tmp_copy_ledger, BlocktreeConfig, DEFAULT_SLOT_HEIGHT,
+    };
     use crate::entry::make_consecutive_blobs;
+    use crate::entry::EntrySlice;
+    use crate::gossip_service::{converge, make_listening_node};
     use crate::leader_scheduler::make_active_set_entries;
     use crate::streamer::responder;
-    use bitconch_sdk::hash::Hash;
-    use bitconch_sdk::timing::DEFAULT_TICKS_PER_SLOT;
     use std::fs::remove_dir_all;
+    use std::sync::atomic::Ordering;
+    use std::thread::sleep;
 
     #[test]
     fn validator_exit() {
@@ -477,16 +529,27 @@ mod tests {
 
         let validator_keypair = Keypair::new();
         let validator_node = Node::new_localhost_with_pubkey(validator_keypair.pubkey());
-        let (genesis_block, _mint_keypair) =
-            GenesisBlock::new_with_leader(10_000, leader_keypair.pubkey(), 1000);
-        let (validator_ledger_path, _tick_height, _last_entry_height, _last_id, _last_entry_id) =
-            create_tmp_sample_blocktree("validator_exit", &genesis_block, 0);
+        let (
+            _mint_keypair,
+            validator_ledger_path,
+            _tick_height,
+            _last_entry_height,
+            _last_id,
+            _last_entry_id,
+        ) = create_tmp_sample_ledger(
+            "validator_exit",
+            10_000,
+            0,
+            leader_keypair.pubkey(),
+            1000,
+            &BlocktreeConfig::default(),
+        );
 
         let validator = Fullnode::new(
             validator_node,
             &Arc::new(validator_keypair),
             &validator_ledger_path,
-            Keypair::new(),
+            VotingKeypair::new(),
             Some(&leader_node.info),
             &FullnodeConfig::default(),
         );
@@ -504,25 +567,27 @@ mod tests {
             .map(|i| {
                 let validator_keypair = Keypair::new();
                 let validator_node = Node::new_localhost_with_pubkey(validator_keypair.pubkey());
-                let (genesis_block, _mint_keypair) =
-                    GenesisBlock::new_with_leader(10_000, leader_keypair.pubkey(), 1000);
                 let (
+                    _mint_keypair,
                     validator_ledger_path,
                     _tick_height,
                     _last_entry_height,
                     _last_id,
                     _last_entry_id,
-                ) = create_tmp_sample_blocktree(
+                ) = create_tmp_sample_ledger(
                     &format!("validator_parallel_exit_{}", i),
-                    &genesis_block,
+                    10_000,
                     0,
+                    leader_keypair.pubkey(),
+                    1000,
+                    &BlocktreeConfig::default(),
                 );
                 ledger_paths.push(validator_ledger_path.clone());
                 Fullnode::new(
                     validator_node,
                     &Arc::new(validator_keypair),
                     &validator_ledger_path,
-                    Keypair::new(),
+                    VotingKeypair::new(),
                     Some(&leader_node.info),
                     &FullnodeConfig::default(),
                 )
@@ -555,30 +620,36 @@ mod tests {
         // epoch, check that the same leader knows to shut down and restart as a leader again.
         let ticks_per_slot = 5;
         let slots_per_epoch = 2;
-        let active_window_num_slots = 10;
+        let ticks_per_epoch = slots_per_epoch * ticks_per_slot;
+        let active_window_length = 10 * ticks_per_epoch;
         let leader_scheduler_config =
-            LeaderSchedulerConfig::new(ticks_per_slot, slots_per_epoch, active_window_num_slots);
+            LeaderSchedulerConfig::new(ticks_per_slot, slots_per_epoch, active_window_length);
 
-        let voting_keypair = Keypair::new();
+        let bootstrap_leader_keypair = Arc::new(bootstrap_leader_keypair);
+        let voting_keypair = VotingKeypair::new_local(&bootstrap_leader_keypair);
         let mut fullnode_config = FullnodeConfig::default();
         fullnode_config.leader_scheduler_config = leader_scheduler_config;
 
-        let (mut genesis_block, _mint_keypair) =
-            GenesisBlock::new_with_leader(10_000, bootstrap_leader_keypair.pubkey(), 500);
-        genesis_block.ticks_per_slot = fullnode_config.ticks_per_slot();
-
         let (
+            _mint_keypair,
             bootstrap_leader_ledger_path,
             _tick_height,
             _genesis_entry_height,
             _last_id,
             _last_entry_id,
-        ) = create_tmp_sample_blocktree("test_leader_to_leader_transition", &genesis_block, 1);
+        ) = create_tmp_sample_ledger(
+            "test_leader_to_leader_transition",
+            10_000,
+            1,
+            bootstrap_leader_keypair.pubkey(),
+            500,
+            &fullnode_config.ledger_config(),
+        );
 
         // Start the bootstrap leader
         let bootstrap_leader = Fullnode::new(
             bootstrap_leader_node,
-            &Arc::new(bootstrap_leader_keypair),
+            &bootstrap_leader_keypair,
             &bootstrap_leader_ledger_path,
             voting_keypair,
             None,
@@ -592,11 +663,7 @@ mod tests {
         // cluster it will continue to be the leader
         assert_eq!(
             rotation_receiver.recv().unwrap(),
-            (FullnodeReturnType::LeaderToLeaderRotation, 0)
-        );
-        assert_eq!(
-            rotation_receiver.recv().unwrap(),
-            (FullnodeReturnType::LeaderToLeaderRotation, 1)
+            (FullnodeReturnType::LeaderToLeaderRotation, ticks_per_slot)
         );
         bootstrap_leader_exit();
     }
@@ -608,8 +675,12 @@ mod tests {
         let mut fullnode_config = FullnodeConfig::default();
         let ticks_per_slot = 16;
         let slots_per_epoch = 2;
-        fullnode_config.leader_scheduler_config =
-            LeaderSchedulerConfig::new(ticks_per_slot, slots_per_epoch, slots_per_epoch);
+        fullnode_config.leader_scheduler_config = LeaderSchedulerConfig::new(
+            ticks_per_slot,
+            slots_per_epoch,
+            ticks_per_slot * slots_per_epoch,
+        );
+        let blocktree_config = &fullnode_config.ledger_config();
 
         // Create the leader and validator nodes
         let bootstrap_leader_keypair = Arc::new(Keypair::new());
@@ -619,15 +690,19 @@ mod tests {
                 &bootstrap_leader_keypair,
                 &validator_keypair,
                 0,
-                // Generate enough ticks for an epochs to flush the bootstrap_leader's vote at
+                // Generate enough ticks for two epochs to flush the bootstrap_leader's vote at
                 // tick_height = 0 from the leader scheduler's active window
-                ticks_per_slot * slots_per_epoch,
+                ticks_per_slot * slots_per_epoch * 2,
                 "test_wrong_role_transition",
-                ticks_per_slot,
+                &blocktree_config,
             );
         let bootstrap_leader_info = bootstrap_leader_node.info.clone();
 
-        let validator_ledger_path = tmp_copy_blocktree!(&bootstrap_leader_ledger_path);
+        let validator_ledger_path = tmp_copy_ledger(
+            &bootstrap_leader_ledger_path,
+            "test_wrong_role_transition",
+            &blocktree_config,
+        );
 
         let ledger_paths = vec![
             bootstrap_leader_ledger_path.clone(),
@@ -640,36 +715,28 @@ mod tests {
                 bootstrap_leader_node,
                 &bootstrap_leader_keypair,
                 &bootstrap_leader_ledger_path,
-                Keypair::new(),
+                VotingKeypair::new(),
                 Some(&bootstrap_leader_info),
                 &fullnode_config,
             );
-            let (rotation_sender, rotation_receiver) = channel();
-            let bootstrap_leader_exit = bootstrap_leader.run(Some(rotation_sender));
-            assert_eq!(
-                rotation_receiver.recv().unwrap(),
-                (FullnodeReturnType::LeaderToValidatorRotation, 2)
-            );
+
+            assert!(!bootstrap_leader.node_services.tpu.is_leader().unwrap());
 
             // Test that a node knows to transition to a leader based on parsing the ledger
             let validator = Fullnode::new(
                 validator_node,
                 &validator_keypair,
                 &validator_ledger_path,
-                Keypair::new(),
+                VotingKeypair::new(),
                 Some(&bootstrap_leader_info),
                 &fullnode_config,
             );
 
-            let (rotation_sender, rotation_receiver) = channel();
-            let validator_exit = validator.run(Some(rotation_sender));
-            assert_eq!(
-                rotation_receiver.recv().unwrap(),
-                (FullnodeReturnType::ValidatorToLeaderRotation, 2)
-            );
-
-            validator_exit();
-            bootstrap_leader_exit();
+            assert!(validator.node_services.tpu.is_leader().unwrap());
+            validator.close().expect("Expected leader node to close");
+            bootstrap_leader
+                .close()
+                .expect("Expected validator node to close");
         }
         for path in ledger_paths {
             Blocktree::destroy(&path).expect("Expected successful database destruction");
@@ -689,8 +756,11 @@ mod tests {
         let leader_keypair = Arc::new(Keypair::new());
         let validator_keypair = Arc::new(Keypair::new());
         let mut fullnode_config = FullnodeConfig::default();
-        fullnode_config.leader_scheduler_config =
-            LeaderSchedulerConfig::new(ticks_per_slot, slots_per_epoch, slots_per_epoch);
+        fullnode_config.leader_scheduler_config = LeaderSchedulerConfig::new(
+            ticks_per_slot,
+            slots_per_epoch,
+            ticks_per_slot * slots_per_epoch,
+        );
         let (leader_node, validator_node, validator_ledger_path, ledger_initial_len, last_id) =
             setup_leader_validator(
                 &leader_keypair,
@@ -698,7 +768,7 @@ mod tests {
                 0,
                 0,
                 "test_validator_to_leader_transition",
-                fullnode_config.ticks_per_slot(),
+                &fullnode_config.ledger_config(),
             );
 
         let leader_id = leader_keypair.pubkey();
@@ -707,7 +777,7 @@ mod tests {
         info!("leader: {:?}", leader_id);
         info!("validator: {:?}", validator_info.id);
 
-        let voting_keypair = Keypair::new();
+        let voting_keypair = VotingKeypair::new_local(&validator_keypair);
 
         // Start the validator
         let validator = Fullnode::new(
@@ -755,15 +825,13 @@ mod tests {
         // Close the validator so that rocksdb has locks available
         validator_exit();
         let leader_scheduler = Arc::new(RwLock::new(LeaderScheduler::default()));
-        let (bank_forks, bank_forks_info, _, _) = new_banks_from_blocktree(
+        let (bank, entry_height, _, _, _, _) = new_bank_from_ledger(
             &validator_ledger_path,
-            DEFAULT_TICKS_PER_SLOT,
+            &BlocktreeConfig::default(),
             &leader_scheduler,
         );
-        let bank = bank_forks.working_bank();
-        let entry_height = bank_forks_info[0].entry_height;
 
-        assert!(bank.tick_height() >= bank.ticks_per_slot() * bank.slots_per_epoch());
+        assert!(bank.tick_height() >= leader_scheduler.read().unwrap().ticks_per_epoch);
 
         assert!(entry_height >= ledger_initial_len);
 
@@ -774,28 +842,165 @@ mod tests {
         let _ignored = remove_dir_all(&validator_ledger_path).unwrap();
     }
 
+    #[test]
+    fn test_tvu_behind() {
+        bitconch_logger::setup();
+
+        // Make leader node
+        let ticks_per_slot = 5;
+        let slots_per_epoch = 1;
+        let leader_keypair = Arc::new(Keypair::new());
+        let validator_keypair = Arc::new(Keypair::new());
+
+        info!("leader: {:?}", leader_keypair.pubkey());
+        info!("validator: {:?}", validator_keypair.pubkey());
+
+        let mut fullnode_config = FullnodeConfig::default();
+        fullnode_config.leader_scheduler_config = LeaderSchedulerConfig::new(
+            ticks_per_slot,
+            slots_per_epoch,
+            ticks_per_slot * slots_per_epoch,
+        );
+        let config = PohServiceConfig::Sleep(Duration::from_millis(200));
+        fullnode_config.tick_config = config;
+
+        let (leader_node, _, leader_ledger_path, _, _) = setup_leader_validator(
+            &leader_keypair,
+            &validator_keypair,
+            1,
+            0,
+            "test_tvu_behind",
+            &fullnode_config.ledger_config(),
+        );
+
+        let leader_node_info = leader_node.info.clone();
+
+        info!("Start up a listener");
+        let blob_receiver_exit = Arc::new(AtomicBool::new(false));
+        let (_, _, mut listening_node, _) = make_listening_node(&leader_node.info);
+        let (blob_fetch_sender, blob_fetch_receiver) = channel();
+        let blob_fetch_stage = BlobFetchStage::new(
+            Arc::new(listening_node.sockets.tvu.pop().unwrap()),
+            &blob_fetch_sender,
+            blob_receiver_exit.clone(),
+        );
+
+        let voting_keypair = VotingKeypair::new_local(&leader_keypair);
+        info!("Start the bootstrap leader");
+        let leader = Fullnode::new(
+            leader_node,
+            &leader_keypair,
+            &leader_ledger_path,
+            voting_keypair,
+            Some(&leader_node_info),
+            &fullnode_config,
+        );
+
+        let (rotation_sender, rotation_receiver) = channel();
+
+        info!("Pause the Tvu");
+        let pause_tvu = leader.node_services.tvu.get_pause();
+        pause_tvu.store(true, Ordering::Relaxed);
+
+        // Wait for convergence
+        converge(&leader_node_info, 2);
+
+        info!("Wait for leader -> validator transition");
+        let rotation_signal = leader
+            .rotation_receiver
+            .recv()
+            .expect("signal for leader -> validator transition");
+        debug!("received rotation signal: {:?}", rotation_signal);
+        // Re-send the rotation signal, it'll be received again once the tvu is unpaused
+        leader.rotation_sender.send(rotation_signal).expect("send");
+
+        info!("Make sure the tvu bank has not reached the last tick for the slot (the last tick is ticks_per_slot - 1)");
+        {
+            let w_last_ids = leader.bank.last_ids().write().unwrap();
+            assert!(w_last_ids.tick_height < ticks_per_slot - 1);
+        }
+
+        // Clear the blobs we've received so far. After this rotation, we should
+        // no longer receive blobs from slot 0
+        while let Ok(_) = blob_fetch_receiver.try_recv() {}
+
+        let leader_exit = leader.run(Some(rotation_sender));
+
+        // Wait for Tpu bank to progress while the Tvu bank is stuck
+        sleep(Duration::from_millis(1000));
+
+        // Tvu bank lock is released here, so tvu should start making progress again and should signal a
+        // rotation. After rotation it will still be the slot leader as a new leader schedule has
+        // not been computed yet (still in epoch 0). In the next epoch (epoch 1), the node will
+        // transition to a validator.
+        info!("Unpause the Tvu");
+        pause_tvu.store(false, Ordering::Relaxed);
+        let expected_rotations = vec![(
+            FullnodeReturnType::LeaderToValidatorRotation,
+            ticks_per_slot,
+        )];
+
+        for expected_rotation in expected_rotations {
+            loop {
+                let transition = rotation_receiver.recv().unwrap();
+                info!("leader transition: {:?}", transition);
+                assert_eq!(expected_rotation, transition);
+                break;
+            }
+        }
+
+        info!("Shut down");
+        leader_exit();
+
+        // Make sure that after rotation we don't receive any blobs from slot 0 (make sure
+        // broadcast started again at the correct place)
+        while let Ok(new_blobs) = blob_fetch_receiver.try_recv() {
+            for blob in new_blobs {
+                assert_ne!(blob.read().unwrap().slot(), 0);
+            }
+        }
+
+        // Check the ledger to make sure the PoH chains
+        {
+            let blocktree =
+                Blocktree::open_config(&leader_ledger_path, &fullnode_config.ledger_config())
+                    .unwrap();
+            let entries: Vec<_> = (0..3)
+                .flat_map(|slot_height| blocktree.get_slot_entries(slot_height, 0, None).unwrap())
+                .collect();
+
+            assert!(entries[1..].verify(&entries[0].id))
+        }
+
+        blob_receiver_exit.store(true, Ordering::Relaxed);
+        blob_fetch_stage.join().unwrap();
+
+        Blocktree::destroy(&leader_ledger_path).expect("Expected successful database destruction");
+        let _ignored = remove_dir_all(&leader_ledger_path).unwrap();
+    }
+
     fn setup_leader_validator(
         leader_keypair: &Arc<Keypair>,
         validator_keypair: &Arc<Keypair>,
         num_genesis_ticks: u64,
         num_ending_ticks: u64,
         test_name: &str,
-        ticks_per_slot: u64,
+        blocktree_config: &BlocktreeConfig,
     ) -> (Node, Node, String, u64, Hash) {
-        info!("validator: {}", validator_keypair.pubkey());
-        info!("leader: {}", leader_keypair.pubkey());
         // Make a leader identity
         let leader_node = Node::new_localhost_with_pubkey(leader_keypair.pubkey());
 
         // Create validator identity
-        assert!(num_genesis_ticks <= ticks_per_slot);
-
-        let (mut genesis_block, mint_keypair) =
-            GenesisBlock::new_with_leader(10_000, leader_node.info.id, 500);
-        genesis_block.ticks_per_slot = ticks_per_slot;
-
-        let (ledger_path, tick_height, mut entry_height, last_id, last_entry_id) =
-            create_tmp_sample_blocktree(test_name, &genesis_block, num_genesis_ticks);
+        assert!(num_genesis_ticks <= blocktree_config.ticks_per_slot);
+        let (mint_keypair, ledger_path, tick_height, mut entry_height, last_id, last_entry_id) =
+            create_tmp_sample_ledger(
+                test_name,
+                10_000,
+                num_genesis_ticks,
+                leader_node.info.id,
+                500,
+                blocktree_config,
+            );
 
         let validator_node = Node::new_localhost_with_pubkey(validator_keypair.pubkey());
 
@@ -804,18 +1009,23 @@ mod tests {
             validator_keypair,
             &mint_keypair,
             10,
-            0,
+            1,
             &last_entry_id,
             &last_id,
             num_ending_ticks,
         );
 
-        let blocktree = Blocktree::open_config(&ledger_path, ticks_per_slot).unwrap();
+        let blocktree = Blocktree::open_config(&ledger_path, blocktree_config).unwrap();
         let active_set_entries_len = active_set_entries.len() as u64;
         let last_id = active_set_entries.last().unwrap().id;
 
         blocktree
-            .write_entries(0, tick_height, entry_height, active_set_entries)
+            .write_entries(
+                DEFAULT_SLOT_HEIGHT,
+                tick_height,
+                entry_height,
+                active_set_entries,
+            )
             .unwrap();
 
         entry_height += active_set_entries_len;
