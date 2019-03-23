@@ -8,7 +8,7 @@ here=$(dirname "$0")
 source "$here"/common.sh
 
 # shellcheck source=scripts/oom-score-adj.sh
-source "$here"/../scripts/oom-score-adj.sh
+source "$here"/oom-score-adj.sh
 
 if [[ -d "$SNAP" ]]; then
   # Exit if mode is not yet configured
@@ -68,6 +68,7 @@ $program \
   $maybe_no_leader_rotation \
   --identity "$BITCONCH_CONFIG_DIR"/bootstrap-leader.json \
   --ledger "$BITCONCH_CONFIG_DIR"/bootstrap-leader-ledger \
+  --entry-stream "$BITCONCH_CONFIG_DIR"/tmp/bitconch-blockstream.sock \
   --rpc-port 8899 \
   > >($bootstrap_leader_logger) 2>&1 &
 pid=$!
