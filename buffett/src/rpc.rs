@@ -20,7 +20,7 @@ use std::time::Instant;
 use transaction::Transaction;
 use wallet::request_airdrop;
 
-pub const RPC_PORT: u16 = ;
+pub const RPC_PORT: u16 = 8899;
 
 pub struct JsonRpcService {
     thread_hdl: JoinHandle<()>,
