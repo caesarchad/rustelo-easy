@@ -124,7 +124,7 @@ impl WriteStage {
         }
         inc_new_counter_info!("write_stage-entries_received", num_new_entries);
 
-        info!("write_stage entries: {}", num_new_entries);
+        info!("{} entries written to ", num_new_entries);
 
         let mut entries_send_total = 0;
         let mut crdt_votes_total = 0;
@@ -321,7 +321,7 @@ mod tests {
         let entries = entries
             .map(|e| e.unwrap_or_else(|err| panic!("failed to parse entry. error: {}", err)));
 
-        info!("processing ledger...");
+        info!("Process ");
         bank.process_ledger(entries).expect("process_ledger")
     }
 

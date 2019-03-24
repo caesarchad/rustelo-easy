@@ -103,20 +103,20 @@ fn main() -> () {
 
     loop {
         let balance = client.poll_get_balance(&pubkey).unwrap_or(0);
-        info!("balance is {}", balance);
+        info!("Balance value {}", balance);
 
         if balance >= 50 {
-            info!("good to go!");
+            info!("Enough balance for client");
             break;
         }
 
-        info!("requesting airdrop from {}", drone_addr);
+        info!("Calling Token-bot for air-drop {}", drone_addr);
         loop {
             if request_airdrop(&drone_addr, &pubkey, 50).is_ok() {
                 break;
             }
             info!(
-                "airdrop request, is the drone address correct {:?}, drone running?",
+                "Token-bot on {:?} status unkown",
                 drone_addr
             );
             sleep(Duration::from_secs(2));

@@ -264,7 +264,7 @@ mod test {
                 .fetch_add(points.len(), Ordering::SeqCst);
 
             info!(
-                "Writing {} points ({} total)",
+                "Writing {} Measurements ({} total)",
                 points.len(),
                 self.points_written.load(Ordering::SeqCst)
             );

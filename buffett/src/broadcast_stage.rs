@@ -147,7 +147,7 @@ fn broadcast(
         duration_as_ms(&now.elapsed()) as usize
     );
     info!(
-        "broadcast: {} entries, blob time {} chunking time {} broadcast time {}",
+        "Number of entries: {}, Duration of bundling a blob{}, Duration to create a block section {}  in  {}",
         num_entries, to_blobs_elapsed, chunking_elapsed, broadcast_elapsed
     );
 

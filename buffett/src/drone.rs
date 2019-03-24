@@ -174,7 +174,7 @@ pub fn run_local_drone(mint_keypair: Keypair, network: SocketAddr, sender: Sende
         )));
         let socket = TcpListener::bind(&drone_addr).unwrap();
         sender.send(socket.local_addr().unwrap()).unwrap();
-        info!("Drone started. Listening on: {}", drone_addr);
+        info!("Token-bot is running on {}", drone_addr);
         let done = socket
             .incoming()
             .map_err(|e| debug!("failed to accept socket; error = {:?}", e))
@@ -191,14 +191,14 @@ pub fn run_local_drone(mint_keypair: Keypair, network: SocketAddr, sender: Sende
                         ))
                     })?;
 
-                    info!("Airdrop requested...");
+                    info!("Token-bot received request");
                     let res1 = drone2.lock().unwrap().send_airdrop(req);
                     match res1 {
                         Ok(_) => info!("Airdrop sent!"),
                         Err(_) => info!("Request limit reached for this time slice"),
                     }
                     let response = res1?;
-                    info!("Airdrop tx signature: {:?}", response);
+                    info!("Tx_Signature: {:?}", response);
                     let response_vec = serialize(&response).or_else(|err| {
                         Err(io::Error::new(
                             io::ErrorKind::Other,

@@ -244,7 +244,7 @@ impl BudgetState {
             Self::apply_debits_to_budget_state(tx, accounts, &instruction)
                 .and_then(|_| Self::apply_credits_to_budget_state(tx, accounts, &instruction))
         } else {
-            info!("Invalid transaction userdata: {:?}", tx.userdata);
+            info!("transaction instructions invalid on : {:?}", tx.userdata);
             Err(BudgetError::UserdataDeserializeFailure)
         }
     }

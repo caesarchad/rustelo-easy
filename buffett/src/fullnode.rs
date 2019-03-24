@@ -124,14 +124,14 @@ impl Fullnode {
         sigverify_disabled: bool,
         leader_rotation_interval: Option<u64>,
     ) -> Self {
-        info!("creating bank...");
+        info!("Tx_Valut created");
         let (bank, entry_height, ledger_tail) = Self::new_bank_from_ledger(ledger_path);
 
-        info!("creating networking stack...");
+        info!("Local_Gossip network set up.");
         let local_gossip_addr = node.sockets.gossip.local_addr().unwrap();
 
         info!(
-            "starting... local gossip address: {} (advertising {})",
+            "Local_Gossip Ip: {} (Listening On {})",
             local_gossip_addr, node.info.contact_info.ncp
         );
 
@@ -154,13 +154,13 @@ impl Fullnode {
         match leader_addr {
             Some(leader_addr) => {
                 info!(
-                    "validator ready... local request address: {} (advertising {}) connected to: {}",
+                    "Voter Node is running on {} / {} for Leader Node on {}",
                     local_requests_addr, requests_addr, leader_addr
                 );
             }
             None => {
                 info!(
-                    "leader ready... local request address: {} (advertising {})",
+                    "Leader Node is running on {} / {}",
                     local_requests_addr, requests_addr
                 );
             }

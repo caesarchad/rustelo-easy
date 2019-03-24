@@ -281,7 +281,7 @@ impl Bank {
     pub fn process_transaction(&self, tx: &Transaction) -> Result<()> {
         match self.process_transactions(&[tx.clone()])[0] {
             Err(ref e) => {
-                info!("process_transaction error: {:?}", e);
+                info!("a transaction error happened in tx_vault: {:?}", e);
                 Err((*e).clone())
             }
             Ok(_) => Ok(()),

@@ -241,7 +241,7 @@ impl BankingStage {
         let total_time_s = timing::duration_as_s(&proc_start.elapsed());
         let total_time_ms = timing::duration_as_ms(&proc_start.elapsed());
         info!(
-            "@{:?} done processing transaction batches: {} time: {:?}ms reqs: {} reqs/s: {}",
+            "Current Timing @{:?} done processing transaction bundle: {} time: {:?}milli-seconds requested: {} requsts per second: {}",
             timing::timestamp(),
             mms_len,
             total_time_ms,

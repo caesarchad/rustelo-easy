@@ -42,7 +42,7 @@ impl Replicator {
         if let Some(leader_info) = leader_info.as_ref() {
             crdt.write().unwrap().insert(leader_info);
         } else {
-            panic!("No leader info!");
+            panic!("No Leader Node Information!");
         }
 
         let repair_socket = Arc::new(node.sockets.repair);
