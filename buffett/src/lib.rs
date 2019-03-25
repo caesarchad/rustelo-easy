@@ -10,7 +10,7 @@
 #[macro_use]
 pub mod counter;
 pub mod tx_vault;
-pub mod banking_stage;
+pub mod tx_process;
 pub mod blob_fetch_stage;
 pub mod broadcast_stage;
 pub mod budget;

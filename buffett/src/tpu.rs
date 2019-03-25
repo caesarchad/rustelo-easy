@@ -26,7 +26,7 @@
 //! ```
 
 use tx_vault::Bank;
-use banking_stage::{BankingStage, Config};
+use tx_process::{BankingStage, Config};
 use crdt::Crdt;
 use entry::Entry;
 use fetch_stage::FetchStage;
