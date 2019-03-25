@@ -354,8 +354,8 @@ impl ThinClient {
             }
         }
         metrics::submit(
-            influxdb::Point::new("thinclient")
-                .add_tag("op", influxdb::Value::String("check_signature".to_string()))
+            influxdb::Point::new("Client")
+                .add_tag("Operation", influxdb::Value::String("Signature Validation".to_string()))
                 .add_field(
                     "duration_ms",
                     influxdb::Value::Integer(timing::duration_as_ms(&now.elapsed()) as i64),
