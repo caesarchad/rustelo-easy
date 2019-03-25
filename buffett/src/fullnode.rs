@@ -3,7 +3,7 @@
 use bank::Bank;
 use broadcast_stage::BroadcastStage;
 use crdt::{Crdt, Node, NodeInfo};
-use drone::DRONE_PORT;
+use token_service::DRONE_PORT;
 use entry::Entry;
 use ledger::read_ledger;
 use ncp::Ncp;

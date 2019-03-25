@@ -11,7 +11,7 @@ extern crate tokio_codec;
 use bincode::{deserialize, serialize};
 use bytes::Bytes;
 use clap::{App, Arg};
-use buffett::drone::{Drone, DroneRequest, DRONE_PORT};
+use buffett::token_service::{Drone, DroneRequest, DRONE_PORT};
 use buffett::logger;
 use buffett::metrics::set_panic_hook;
 use buffett::signature::read_keypair;

@@ -5,7 +5,7 @@ use budget_transaction::BudgetTransaction;
 use chrono::prelude::*;
 use clap::ArgMatches;
 use crdt::NodeInfo;
-use drone::DroneRequest;
+use token_service::DroneRequest;
 use fullnode::Config;
 use hash::Hash;
 use reqwest;
@@ -668,7 +668,7 @@ mod tests {
     use bank::Bank;
     use clap::{App, Arg, SubCommand};
     use crdt::Node;
-    use drone::run_local_drone;
+    use token_service::run_local_drone;
     use fullnode::Fullnode;
     use ledger::LedgerWriter;
     use mint::Mint;

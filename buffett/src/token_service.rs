@@ -1,8 +1,13 @@
-//! The `drone` module provides an object for launching a Solana Drone,
-//! which is the custodian of any remaining tokens in a mint.
-//! The Solana Drone builds and send airdrop transactions,
-//! checking requests against a request cap for a given time time_slice
-//! and (to come) an IP rate limit.
+//! The `token_service` module provides token air-droping service,
+//! token_service will be used by tokenbot to allocate tokens to 
+//! users connected to the Leader Node.
+//! 
+//! Limitation:
+//!     Request cap during a given time period for a particular IP
+//! Default Value:
+//!     Time : 60 seconds
+//!     Cap  : 1_000_000_000
+//!     Port : 9900
 
 use bincode::{deserialize, serialize};
 use bytes::Bytes;
@@ -26,7 +31,7 @@ use tokio_codec::{BytesCodec, Decoder};
 use transaction::Transaction;
 
 pub const TIME_SLICE: u64 = 60;
-pub const REQUEST_CAP: u64 = 500_000_000;
+pub const REQUEST_CAP: u64 = 1_000_000_000;
 pub const DRONE_PORT: u16 = 9900;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -225,7 +230,7 @@ pub fn run_local_drone(mint_keypair: Keypair, network: SocketAddr, sender: Sende
 mod tests {
     use bank::Bank;
     use crdt::Node;
-    use drone::{Drone, DroneRequest, REQUEST_CAP, TIME_SLICE};
+    use token_service::{Drone, DroneRequest, REQUEST_CAP, TIME_SLICE};
     use fullnode::Fullnode;
     use logger;
     use mint::Mint;
