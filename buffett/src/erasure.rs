@@ -1,10 +1,10 @@
 // Support erasure coding
-use packet::{SharedBlob, BLOB_DATA_SIZE, BLOB_HEADER_SIZE};
+use crate::packet::{SharedBlob, BLOB_DATA_SIZE, BLOB_HEADER_SIZE};
 use buffett_program_interface::pubkey::Pubkey;
 use std::cmp;
 use std::mem;
 use std::result;
-use window::WindowSlot;
+use crate::window::WindowSlot;
 
 //TODO(sakridge) pick these values
 pub const NUM_DATA: usize = 16; // number of data blobs
@@ -592,14 +592,14 @@ pub fn recover(id: &Pubkey, window: &mut [WindowSlot], start_idx: u64, start: us
 #[cfg(test)]
 mod test {
     use crdt;
-    use erasure;
-    use logger;
-    use packet::{SharedBlob, BLOB_DATA_SIZE, BLOB_HEADER_SIZE, BLOB_SIZE};
+    use crate::erasure;
+    use crate::logger;
+    use crate::packet::{SharedBlob, BLOB_DATA_SIZE, BLOB_HEADER_SIZE, BLOB_SIZE};
     use rand::{thread_rng, Rng};
-    use signature::{Keypair, KeypairUtil};
+    use crate::signature::{Keypair, KeypairUtil};
     use buffett_program_interface::pubkey::Pubkey;
     //    use std::sync::{Arc, RwLock};
-    use window::{index_blobs, WindowSlot};
+    use crate::window::{index_blobs, WindowSlot};
 
     #[test]
     pub fn test_coding() {

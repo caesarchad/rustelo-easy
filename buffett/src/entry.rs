@@ -3,16 +3,16 @@
 //! transactions within it. Entries cannot be reordered, and its field `num_hashes`
 //! represents an approximate amount of time since the last Entry was created.
 use bincode::{serialize_into, serialized_size};
-use budget_transaction::BudgetTransaction;
-use hash::Hash;
-use packet::{SharedBlob, BLOB_DATA_SIZE};
+use crate::budget_transaction::BudgetTransaction;
+use crate::hash::Hash;
+use crate::packet::{SharedBlob, BLOB_DATA_SIZE};
 use poh::Poh;
 use rayon::prelude::*;
 use buffett_program_interface::pubkey::Pubkey;
 use std::io::Cursor;
 use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, Sender};
-use transaction::Transaction;
+use crate::transaction::Transaction;
 
 pub type EntrySender = Sender<Vec<Entry>>;
 pub type EntryReceiver = Receiver<Vec<Entry>>;
@@ -226,13 +226,13 @@ pub fn next_entry(start_hash: &Hash, num_hashes: u64, transactions: Vec<Transact
 #[cfg(test)]
 mod tests {
     use super::*;
-    use budget_transaction::BudgetTransaction;
+    use crate::budget_transaction::BudgetTransaction;
     use chrono::prelude::*;
-    use entry::Entry;
-    use hash::hash;
-    use signature::{Keypair, KeypairUtil};
-    use system_transaction::SystemTransaction;
-    use transaction::Transaction;
+    use crate::entry::Entry;
+    use crate::hash::hash;
+    use crate::signature::{Keypair, KeypairUtil};
+    use crate::system_transaction::SystemTransaction;
+    use crate::transaction::Transaction;
 
     #[test]
     fn test_entry_verify() {

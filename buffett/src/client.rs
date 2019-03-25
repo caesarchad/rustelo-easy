@@ -1,7 +1,7 @@
-use crdt::{NodeInfo, FULLNODE_PORT_RANGE};
+use crate::crdt::{NodeInfo, FULLNODE_PORT_RANGE};
 use netutil::bind_in_range;
 use std::time::Duration;
-use thin_client::ThinClient;
+use crate::thin_client::ThinClient;
 
 pub fn mk_client(r: &NodeInfo) -> ThinClient {
     let (_, requests_socket) = bind_in_range(FULLNODE_PORT_RANGE).unwrap();

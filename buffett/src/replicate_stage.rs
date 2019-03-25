@@ -1,14 +1,14 @@
 //! The `replicate_stage` replicates transactions broadcast by the leader.
 
-use tx_vault::Bank;
-use counter::Counter;
-use crdt::Crdt;
-use entry::EntryReceiver;
-use ledger::{Block, LedgerWriter};
+use crate::tx_vault::Bank;
+use crate::counter::Counter;
+use crate::crdt::Crdt;
+use crate::entry::EntryReceiver;
+use crate::ledger::{Block, LedgerWriter};
 use log::Level;
-use result::{Error, Result};
-use service::Service;
-use signature::Keypair;
+use crate::result::{Error, Result};
+use crate::service::Service;
+use crate::signature::Keypair;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
@@ -17,8 +17,8 @@ use std::sync::{Arc, RwLock};
 use std::thread::{self, Builder, JoinHandle};
 use std::time::Duration;
 use std::time::Instant;
-use streamer::{responder, BlobSender};
-use vote_stage::send_validator_vote;
+use crate::streamer::{responder, BlobSender};
+use crate::vote_stage::send_validator_vote;
 
 // Implement a destructor for the ReplicateStage thread to signal it exited
 // even on panics

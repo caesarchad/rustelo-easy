@@ -2,18 +2,18 @@
 //! to contruct a software pipeline. The stage uses all available CPU cores and
 //! can do its processing in parallel with signature verification on the GPU.
 
-use tx_vault::Bank;
+use crate::tx_vault::Bank;
 use bincode::deserialize;
-use budget_transaction::BudgetTransaction;
-use counter::Counter;
-use entry::Entry;
+use crate::budget_transaction::BudgetTransaction;
+use crate::counter::Counter;
+use crate::entry::Entry;
 use log::Level;
-use packet::Packets;
+use crate::packet::Packets;
 use poh_recorder::PohRecorder;
 use rayon::prelude::*;
-use result::{Error, Result};
-use service::Service;
-use sigverify_stage::VerifiedPackets;
+use crate::result::{Error, Result};
+use crate::service::Service;
+use crate::sigverify_stage::VerifiedPackets;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
@@ -22,8 +22,8 @@ use std::thread::sleep;
 use std::thread::{self, Builder, JoinHandle};
 use std::time::Duration;
 use std::time::Instant;
-use timing;
-use transaction::Transaction;
+use crate::timing;
+use crate::transaction::Transaction;
 
 // number of threads is 1 until mt bank is ready
 pub const NUM_THREADS: usize = 1;
@@ -271,14 +271,14 @@ impl Service for BankingStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tx_vault::Bank;
-    use ledger::Block;
-    use coinery::Mint;
-    use packet::to_packets;
-    use signature::{Keypair, KeypairUtil};
+    use crate::tx_vault::Bank;
+    use crate::ledger::Block;
+    use crate::coinery::Mint;
+    use crate::packet::to_packets;
+    use crate::signature::{Keypair, KeypairUtil};
     use std::thread::sleep;
-    use system_transaction::SystemTransaction;
-    use transaction::Transaction;
+    use crate::system_transaction::SystemTransaction;
+    use crate::transaction::Transaction;
 
     #[test]
     fn test_banking_stage_shutdown1() {

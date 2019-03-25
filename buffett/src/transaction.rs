@@ -1,8 +1,8 @@
 //! The `transaction` module provides functionality for creating log transactions.
 
 use bincode::serialize;
-use hash::{Hash, Hasher};
-use signature::{Keypair, KeypairUtil, Signature};
+use crate::hash::{Hash, Hasher};
+use crate::signature::{Keypair, KeypairUtil, Signature};
 use buffett_program_interface::pubkey::Pubkey;
 use std::mem::size_of;
 
@@ -116,7 +116,7 @@ impl Transaction {
 mod tests {
     use super::*;
     use bincode::serialize;
-    use signature::GenKeys;
+    use crate::signature::GenKeys;
 
     /// Detect binary changes in the serialized contract userdata, which could have a downstream
     /// affect on SDKs and DApps

@@ -1,7 +1,7 @@
-use crdt::{CrdtError, NodeInfo};
+use crate::crdt::{CrdtError, NodeInfo};
 use rand::distributions::{Distribution, Weighted, WeightedChoice};
 use rand::thread_rng;
-use result::Result;
+use crate::result::Result;
 use buffett_program_interface::pubkey::Pubkey;
 use std;
 use std::collections::HashMap;
@@ -191,8 +191,8 @@ impl<'a> ChooseGossipPeerStrategy for ChooseWeightedPeerStrategy<'a> {
 #[cfg(test)]
 mod tests {
     use choose_gossip_peer_strategy::{ChooseWeightedPeerStrategy, DEFAULT_WEIGHT};
-    use logger;
-    use signature::{Keypair, KeypairUtil};
+    use crate::logger;
+    use crate::signature::{Keypair, KeypairUtil};
     use buffett_program_interface::pubkey::Pubkey;
     use std;
     use std::collections::HashMap;

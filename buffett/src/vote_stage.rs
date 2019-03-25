@@ -1,24 +1,24 @@
 //! The `vote_stage` votes on the `last_id` of the bank at a regular cadence
 
-use tx_vault::Bank;
+use crate::tx_vault::Bank;
 use bincode::serialize;
-use budget_transaction::BudgetTransaction;
-use counter::Counter;
-use crdt::Crdt;
-use hash::Hash;
+use crate::budget_transaction::BudgetTransaction;
+use crate::counter::Counter;
+use crate::crdt::Crdt;
+use crate::hash::Hash;
 use influx_db_client as influxdb;
 use log::Level;
-use metrics;
-use packet::SharedBlob;
-use result::Result;
-use signature::Keypair;
+use crate::metrics;
+use crate::packet::SharedBlob;
+use crate::result::Result;
+use crate::signature::Keypair;
 use buffett_program_interface::pubkey::Pubkey;
 use std::result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
-use streamer::BlobSender;
-use timing;
-use transaction::Transaction;
+use crate::streamer::BlobSender;
+use crate::timing;
+use crate::transaction::Transaction;
 
 pub const VOTE_TIMEOUT_MS: u64 = 1000;
 
@@ -162,20 +162,20 @@ pub fn send_validator_vote(
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use tx_vault::Bank;
+    use crate::tx_vault::Bank;
     use bincode::deserialize;
-    use budget_instruction::Vote;
-    use crdt::{Crdt, NodeInfo};
-    use entry::next_entry;
-    use hash::{hash, Hash};
-    use logger;
-    use coinery::Mint;
+    use crate::budget_instruction::Vote;
+    use crate::crdt::{Crdt, NodeInfo};
+    use crate::entry::next_entry;
+    use crate::hash::{hash, Hash};
+    use crate::logger;
+    use crate::coinery::Mint;
     use std::sync::mpsc::channel;
     use std::sync::{Arc, RwLock};
     use std::thread::sleep;
     use std::time::Duration;
-    use system_transaction::SystemTransaction;
-    use transaction::Transaction;
+    use crate::system_transaction::SystemTransaction;
+    use crate::transaction::Transaction;
 
     #[test]
     fn test_send_leader_vote() {

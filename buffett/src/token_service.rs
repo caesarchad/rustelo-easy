@@ -12,8 +12,8 @@
 use bincode::{deserialize, serialize};
 use bytes::Bytes;
 use influx_db_client as influxdb;
-use metrics;
-use signature::{Keypair, Signature};
+use crate::metrics;
+use crate::signature::{Keypair, Signature};
 use buffett_program_interface::pubkey::Pubkey;
 use std::io;
 use std::io::{Error, ErrorKind};
@@ -22,13 +22,13 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use system_transaction::SystemTransaction;
-use thin_client::{poll_gossip_for_leader, ThinClient};
+use crate::system_transaction::SystemTransaction;
+use crate::thin_client::{poll_gossip_for_leader, ThinClient};
 use tokio;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
 use tokio_codec::{BytesCodec, Decoder};
-use transaction::Transaction;
+use crate::transaction::Transaction;
 
 pub const TIME_SLICE: u64 = 60;
 pub const REQUEST_CAP: u64 = 1_000_000_000;
@@ -228,18 +228,18 @@ pub fn run_local_drone(mint_keypair: Keypair, network: SocketAddr, sender: Sende
 
 #[cfg(test)]
 mod tests {
-    use tx_vault::Bank;
-    use crdt::Node;
-    use token_service::{Drone, DroneRequest, REQUEST_CAP, TIME_SLICE};
-    use fullnode::Fullnode;
-    use logger;
-    use coinery::Mint;
+    use crate::tx_vault::Bank;
+    use crate::crdt::Node;
+    use crate::token_service::{Drone, DroneRequest, REQUEST_CAP, TIME_SLICE};
+    use crate::fullnode::Fullnode;
+    use crate::logger;
+    use crate::coinery::Mint;
     use netutil::get_ip_addr;
-    use signature::{Keypair, KeypairUtil};
+    use crate::signature::{Keypair, KeypairUtil};
     use std::fs::remove_dir_all;
     use std::net::{SocketAddr, UdpSocket};
     use std::time::Duration;
-    use thin_client::ThinClient;
+    use crate::thin_client::ThinClient;
 
     #[test]
     fn test_check_request_limit() {

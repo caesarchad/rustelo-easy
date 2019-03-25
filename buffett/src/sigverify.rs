@@ -4,12 +4,12 @@
 //! offloaded to the GPU.
 //!
 
-use counter::Counter;
+use crate::counter::Counter;
 use log::Level;
-use packet::{Packet, SharedPackets};
+use crate::packet::{Packet, SharedPackets};
 use std::mem::size_of;
 use std::sync::atomic::AtomicUsize;
-use transaction::{PUB_KEY_OFFSET, SIGNED_DATA_OFFSET, SIG_OFFSET};
+use crate::transaction::{PUB_KEY_OFFSET, SIGNED_DATA_OFFSET, SIG_OFFSET};
 
 pub const TX_OFFSET: usize = 0;
 
@@ -44,7 +44,7 @@ pub fn init() {
 
 fn verify_packet(packet: &Packet) -> u8 {
     use ring::signature;
-    use signature::Signature;
+    use crate::signature::Signature;
     use buffett_program_interface::pubkey::Pubkey;
     use untrusted;
 
@@ -133,7 +133,7 @@ pub fn init() {
 
 #[cfg(feature = "cuda")]
 pub fn ed25519_verify(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
-    use packet::PACKET_DATA_SIZE;
+    use crate::packet::PACKET_DATA_SIZE;
     let count = batch_size(batches);
 
     // micro-benchmarks show GPU time for smallest batch around 15-20ms
@@ -206,10 +206,10 @@ pub fn ed25519_verify(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use bincode::serialize;
-    use packet::{Packet, SharedPackets};
-    use sigverify;
-    use system_transaction::{memfind, test_tx};
-    use transaction::Transaction;
+    use crate::packet::{Packet, SharedPackets};
+    use crate::sigverify;
+    use crate::system_transaction::{memfind, test_tx};
+    use crate::transaction::Transaction;
 
     #[test]
     fn test_layout() {

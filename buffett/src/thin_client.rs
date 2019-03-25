@@ -3,15 +3,15 @@
 //! messages to the network directly. The binary encoding of its messages are
 //! unstable and may change in future releases.
 
-use tx_vault::Bank;
+use crate::tx_vault::Bank;
 use bincode::{deserialize, serialize};
-use crdt::{Crdt, CrdtError, NodeInfo};
-use hash::Hash;
+use crate::crdt::{Crdt, CrdtError, NodeInfo};
+use crate::hash::Hash;
 use log::Level;
-use ncp::Ncp;
-use request::{Request, Response};
-use result::{Error, Result};
-use signature::{Keypair, Signature};
+use crate::ncp::Ncp;
+use crate::request::{Request, Response};
+use crate::result::{Error, Result};
+use crate::signature::{Keypair, Signature};
 use buffett_program_interface::account::Account;
 use buffett_program_interface::pubkey::Pubkey;
 use std;
@@ -23,12 +23,12 @@ use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::Duration;
 use std::time::Instant;
-use system_transaction::SystemTransaction;
-use timing;
-use transaction::Transaction;
+use crate::system_transaction::SystemTransaction;
+use crate::timing;
+use crate::transaction::Transaction;
 
 use influx_db_client as influxdb;
-use metrics;
+use crate::metrics;
 
 /// An object for querying and sending transactions to the network.
 pub struct ThinClient {
@@ -423,13 +423,13 @@ pub fn poll_gossip_for_leader(leader_ncp: SocketAddr, timeout: Option<u64>) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tx_vault::Bank;
-    use crdt::Node;
-    use fullnode::Fullnode;
-    use ledger::LedgerWriter;
-    use logger;
-    use coinery::Mint;
-    use signature::{Keypair, KeypairUtil};
+    use crate::tx_vault::Bank;
+    use crate::crdt::Node;
+    use crate::fullnode::Fullnode;
+    use crate::ledger::LedgerWriter;
+    use crate::logger;
+    use crate::coinery::Mint;
+    use crate::signature::{Keypair, KeypairUtil};
     use std::fs::remove_dir_all;
     use system_program::SystemProgram;
 

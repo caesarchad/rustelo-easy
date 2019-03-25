@@ -4,7 +4,7 @@ use serde_cbor;
 use buffett_program_interface::account::Account;
 use buffett_program_interface::pubkey::Pubkey;
 use std;
-use transaction::Transaction;
+use crate::transaction::Transaction;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

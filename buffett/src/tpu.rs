@@ -25,20 +25,20 @@
 //!                                            `------`    `--------`
 //! ```
 
-use tx_vault::Bank;
-use tx_process::{BankingStage, Config};
-use crdt::Crdt;
-use entry::Entry;
-use fetch_stage::FetchStage;
-use service::Service;
-use signature::Keypair;
-use sigverify_stage::SigVerifyStage;
+use crate::tx_vault::Bank;
+use crate::tx_process::{BankingStage, Config};
+use crate::crdt::Crdt;
+use crate::entry::Entry;
+use crate::fetch_stage::FetchStage;
+use crate::service::Service;
+use crate::signature::Keypair;
+use crate::sigverify_stage::SigVerifyStage;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, RwLock};
 use std::thread;
-use write_stage::{WriteStage, WriteStageReturnType};
+use crate::write_stage::{WriteStage, WriteStageReturnType};
 
 pub enum TpuReturnType {
     LeaderRotation,

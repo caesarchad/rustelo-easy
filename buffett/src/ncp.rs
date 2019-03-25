@@ -1,14 +1,14 @@
 //! The `ncp` module implements the network control plane.
 
-use crdt::Crdt;
-use service::Service;
+use crate::crdt::Crdt;
+use crate::service::Service;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
-use streamer;
-use window::SharedWindow;
+use crate::streamer;
+use crate::window::SharedWindow;
 
 pub struct Ncp {
     exit: Arc<AtomicBool>,
@@ -66,8 +66,8 @@ impl Service for Ncp {
 
 #[cfg(test)]
 mod tests {
-    use crdt::{Crdt, Node};
-    use ncp::Ncp;
+    use crate::crdt::{Crdt, Node};
+    use crate::ncp::Ncp;
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, RwLock};
 

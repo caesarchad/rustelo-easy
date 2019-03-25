@@ -1,8 +1,8 @@
 use influx_db_client as influxdb;
-use metrics;
+use crate::metrics;
 use std::env;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use timing;
+use crate::timing;
 
 const DEFAULT_METRICS_RATE: usize = 100;
 
@@ -95,7 +95,7 @@ impl Counter {
 }
 #[cfg(test)]
 mod tests {
-    use counter::{Counter, DEFAULT_METRICS_RATE};
+    use crate::counter::{Counter, DEFAULT_METRICS_RATE};
     use log::Level;
     use std::env;
     use std::sync::atomic::{AtomicUsize, Ordering};

@@ -23,16 +23,16 @@
 //!              `--------------------------------------`
 //! ```
 
-use tx_vault::Bank;
+use crate::tx_vault::Bank;
 use request_processor::RequestProcessor;
 use request_stage::RequestStage;
-use service::Service;
+use crate::service::Service;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use streamer;
+use crate::streamer;
 
 pub struct Rpu {
     request_stage: RequestStage,

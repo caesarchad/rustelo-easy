@@ -36,18 +36,18 @@
 //! - Transactions in blobs are processed and applied to the bank.
 //! - TODO We need to verify the signatures in the blobs.
 
-use tx_vault::Bank;
+use crate::tx_vault::Bank;
 use blob_fetch_stage::BlobFetchStage;
-use crdt::Crdt;
+use crate::crdt::Crdt;
 use replicate_stage::ReplicateStage;
 use retransmit_stage::{RetransmitStage, RetransmitStageReturnType};
-use service::Service;
-use signature::Keypair;
+use crate::service::Service;
+use crate::signature::Keypair;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
-use window::SharedWindow;
+use crate::window::SharedWindow;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TvuReturnType {
@@ -149,27 +149,27 @@ impl Service for Tvu {
 
 #[cfg(test)]
 pub mod tests {
-    use tx_vault::Bank;
+    use crate::tx_vault::Bank;
     use bincode::serialize;
-    use crdt::{Crdt, Node};
-    use entry::Entry;
-    use hash::{hash, Hash};
-    use logger;
-    use coinery::Mint;
-    use ncp::Ncp;
-    use packet::SharedBlob;
-    use service::Service;
-    use signature::{Keypair, KeypairUtil};
+    use crate::crdt::{Crdt, Node};
+    use crate::entry::Entry;
+    use crate::hash::{hash, Hash};
+    use crate::logger;
+    use crate::coinery::Mint;
+    use crate::ncp::Ncp;
+    use crate::packet::SharedBlob;
+    use crate::service::Service;
+    use crate::signature::{Keypair, KeypairUtil};
     use std::net::UdpSocket;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::channel;
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
-    use streamer;
-    use system_transaction::SystemTransaction;
-    use transaction::Transaction;
-    use tvu::Tvu;
-    use window::{self, SharedWindow};
+    use crate::streamer;
+    use crate::system_transaction::SystemTransaction;
+    use crate::transaction::Transaction;
+    use crate::tvu::Tvu;
+    use crate::window::{self, SharedWindow};
 
     fn new_ncp(
         crdt: Arc<RwLock<Crdt>>,

@@ -1,15 +1,15 @@
 //! The `budget_transaction` module provides functionality for creating Budget transactions.
 
 use bincode::{deserialize, serialize};
-use budget::{Budget, Condition};
-use budget_instruction::{Contract, Instruction, Vote};
-use budget_program::BudgetState;
+use crate::budget::{Budget, Condition};
+use crate::budget_instruction::{Contract, Instruction, Vote};
+use crate::budget_program::BudgetState;
 use chrono::prelude::*;
-use hash::Hash;
+use crate::hash::Hash;
 use payment_plan::Payment;
-use signature::Keypair;
+use crate::signature::Keypair;
 use buffett_program_interface::pubkey::Pubkey;
-use transaction::Transaction;
+use crate::transaction::Transaction;
 
 pub trait BudgetTransaction {
     fn budget_new_taxed(
@@ -231,7 +231,7 @@ impl BudgetTransaction for Transaction {
 mod tests {
     use super::*;
     use bincode::{deserialize, serialize};
-    use signature::KeypairUtil;
+    use crate::signature::KeypairUtil;
 
     #[test]
     fn test_claim() {

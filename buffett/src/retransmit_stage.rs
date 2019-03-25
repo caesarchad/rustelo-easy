@@ -1,11 +1,11 @@
 //! The `retransmit_stage` retransmits blobs between validators
 
-use counter::Counter;
-use crdt::Crdt;
-use entry::Entry;
+use crate::counter::Counter;
+use crate::crdt::Crdt;
+use crate::entry::Entry;
 use log::Level;
-use result::{Error, Result};
-use service::Service;
+use crate::result::{Error, Result};
+use crate::service::Service;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::mpsc::RecvTimeoutError;
@@ -13,8 +13,8 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, RwLock};
 use std::thread::{self, Builder, JoinHandle};
 use std::time::Duration;
-use streamer::BlobReceiver;
-use window::SharedWindow;
+use crate::streamer::BlobReceiver;
+use crate::window::SharedWindow;
 use window_service::{window_service, WindowServiceReturnType};
 
 #[derive(Debug, PartialEq, Eq, Clone)]

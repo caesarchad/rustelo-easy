@@ -1,7 +1,7 @@
 //! The `request` module defines the messages for the thin client.
 
-use hash::Hash;
-use signature::Signature;
+use crate::hash::Hash;
+use crate::signature::Signature;
 use buffett_program_interface::account::Account;
 use buffett_program_interface::pubkey::Pubkey;
 

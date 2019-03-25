@@ -162,7 +162,7 @@ pub fn bind_to(port: u16, reuseaddr: bool) -> io::Result<UdpSocket> {
 #[cfg(test)]
 mod tests {
     use ipnetwork::IpNetwork;
-    use logger;
+    use crate::logger;
     use netutil::*;
     use pnet_datalink as datalink;
 

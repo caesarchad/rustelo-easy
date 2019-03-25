@@ -4,7 +4,7 @@ use bank;
 use bincode;
 use crdt;
 #[cfg(feature = "erasure")]
-use erasure;
+use crate::erasure;
 use packet;
 use serde_json;
 use std;
@@ -97,8 +97,8 @@ impl std::convert::From<std::boxed::Box<bincode::ErrorKind>> for Error {
 
 #[cfg(test)]
 mod tests {
-    use result::Error;
-    use result::Result;
+    use crate::result::Error;
+    use crate::result::Result;
     use serde_json;
     use std::io;
     use std::io::Write;

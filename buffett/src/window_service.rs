@@ -1,12 +1,12 @@
 //! The `window_service` provides a thread for maintaining a window (tail of the ledger).
 //!
-use counter::Counter;
-use crdt::{Crdt, NodeInfo};
-use entry::EntrySender;
+use crate::counter::Counter;
+use crate::crdt::{Crdt, NodeInfo};
+use crate::entry::EntrySender;
 use log::Level;
-use packet::SharedBlob;
+use crate::packet::SharedBlob;
 use rand::{thread_rng, Rng};
-use result::{Error, Result};
+use crate::result::{Error, Result};
 use buffett_program_interface::pubkey::Pubkey;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -14,9 +14,9 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, RwLock};
 use std::thread::{Builder, JoinHandle};
 use std::time::{Duration, Instant};
-use streamer::{BlobReceiver, BlobSender};
-use timing::duration_as_ms;
-use window::{blob_idx_in_window, SharedWindow, WindowUtil};
+use crate::streamer::{BlobReceiver, BlobSender};
+use crate::timing::duration_as_ms;
+use crate::window::{blob_idx_in_window, SharedWindow, WindowUtil};
 
 pub const MAX_REPAIR_BACKOFF: usize = 128;
 
@@ -336,19 +336,19 @@ pub fn window_service(
 
 #[cfg(test)]
 mod test {
-    use crdt::{Crdt, Node};
-    use entry::Entry;
-    use hash::Hash;
-    use logger;
-    use packet::{make_consecutive_blobs, SharedBlob, PACKET_DATA_SIZE};
-    use signature::{Keypair, KeypairUtil};
+    use crate::crdt::{Crdt, Node};
+    use crate::entry::Entry;
+    use crate::hash::Hash;
+    use crate::logger;
+    use crate::packet::{make_consecutive_blobs, SharedBlob, PACKET_DATA_SIZE};
+    use crate::signature::{Keypair, KeypairUtil};
     use std::net::UdpSocket;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::{channel, Receiver};
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
-    use streamer::{blob_receiver, responder};
-    use window::default_window;
+    use crate::streamer::{blob_receiver, responder};
+    use crate::window::default_window;
     use window_service::{repair_backoff, window_service, WindowServiceReturnType};
 
     fn get_entries(r: Receiver<Vec<Entry>>, num: &mut usize) {

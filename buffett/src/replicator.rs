@@ -1,7 +1,7 @@
 use blob_fetch_stage::BlobFetchStage;
-use crdt::{Crdt, Node, NodeInfo};
-use ncp::Ncp;
-use service::Service;
+use crate::crdt::{Crdt, Node, NodeInfo};
+use crate::ncp::Ncp;
+use crate::service::Service;
 use std::net::SocketAddr;
 use std::net::UdpSocket;
 use std::sync::atomic::AtomicBool;
@@ -10,8 +10,8 @@ use std::sync::{Arc, RwLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use store_ledger_stage::StoreLedgerStage;
-use streamer::BlobReceiver;
-use window;
+use crate::streamer::BlobReceiver;
+use crate::window;
 use window_service::{window_service, WindowServiceReturnType};
 
 pub struct Replicator {
@@ -105,12 +105,12 @@ impl Replicator {
 #[cfg(test)]
 mod tests {
     use client::mk_client;
-    use crdt::Node;
-    use fullnode::Fullnode;
-    use ledger::{genesis, read_ledger};
-    use logger;
+    use crate::crdt::Node;
+    use crate::fullnode::Fullnode;
+    use crate::ledger::{genesis, read_ledger};
+    use crate::logger;
     use replicator::Replicator;
-    use signature::{Keypair, KeypairUtil};
+    use crate::signature::{Keypair, KeypairUtil};
     use std::fs::remove_dir_all;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;

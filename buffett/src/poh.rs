@@ -1,6 +1,6 @@
 //! The `Poh` module provides an object for generating a Proof of History.
 //! It records Hashes items on behalf of its users.
-use hash::{hash, hashv, Hash};
+use crate::hash::{hash, hashv, Hash};
 
 pub struct Poh {
     last_hash: Hash,
@@ -80,7 +80,7 @@ pub fn verify(initial: Hash, entries: &[PohEntry]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use hash::Hash;
+    use crate::hash::Hash;
     use poh::{self, PohEntry};
 
     #[test]

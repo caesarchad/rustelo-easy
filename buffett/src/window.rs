@@ -1,14 +1,14 @@
 //! The `window` module defines data structure for storing the tail of the ledger.
 //!
-use counter::Counter;
-use crdt::{Crdt, NodeInfo};
-use entry::Entry;
+use crate::counter::Counter;
+use crate::crdt::{Crdt, NodeInfo};
+use crate::entry::Entry;
 #[cfg(feature = "erasure")]
-use erasure;
-use ledger::{reconstruct_entries_from_blobs, Block};
+use crate::erasure;
+use crate::ledger::{reconstruct_entries_from_blobs, Block};
 use log::Level;
-use packet::SharedBlob;
-use result::Result;
+use crate::packet::SharedBlob;
+use crate::result::Result;
 use buffett_program_interface::pubkey::Pubkey;
 use std::cmp;
 use std::mem;
@@ -435,7 +435,7 @@ pub fn new_window_from_entries(
 
 #[cfg(test)]
 mod test {
-    use packet::{Blob, Packet, Packets, SharedBlob, PACKET_DATA_SIZE};
+    use crate::packet::{Blob, Packet, Packets, SharedBlob, PACKET_DATA_SIZE};
     use buffett_program_interface::pubkey::Pubkey;
     use std::io;
     use std::io::Write;
@@ -444,8 +444,8 @@ mod test {
     use std::sync::mpsc::channel;
     use std::sync::Arc;
     use std::time::Duration;
-    use streamer::{receiver, responder, PacketReceiver};
-    use window::{blob_idx_in_window, calculate_max_repair, WINDOW_SIZE};
+    use crate::streamer::{receiver, responder, PacketReceiver};
+    use crate::window::{blob_idx_in_window, calculate_max_repair, WINDOW_SIZE};
 
     fn get_msgs(r: PacketReceiver, num: &mut usize) {
         for _t in 0..5 {

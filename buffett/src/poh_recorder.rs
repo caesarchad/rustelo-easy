@@ -1,14 +1,14 @@
 //! The `poh_recorder` module provides an object for synchronizing with Proof of History.
 //! It synchronizes PoH, bank's register_entry_id and the ledger
 //!
-use tx_vault::Bank;
-use entry::Entry;
-use hash::Hash;
+use crate::tx_vault::Bank;
+use crate::entry::Entry;
+use crate::hash::Hash;
 use poh::Poh;
-use result::Result;
+use crate::result::Result;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
-use transaction::Transaction;
+use crate::transaction::Transaction;
 
 #[derive(Clone)]
 pub struct PohRecorder {
@@ -67,8 +67,8 @@ impl PohRecorder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hash::hash;
-    use coinery::Mint;
+    use crate::hash::hash;
+    use crate::coinery::Mint;
     use std::sync::mpsc::channel;
     use std::sync::Arc;
 

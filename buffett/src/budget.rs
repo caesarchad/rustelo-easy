@@ -139,7 +139,7 @@ impl Budget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use signature::{Keypair, KeypairUtil};
+    use crate::signature::{Keypair, KeypairUtil};
 
     #[test]
     fn test_signature_satisfied() {

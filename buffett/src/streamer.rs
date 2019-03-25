@@ -1,16 +1,16 @@
 //! The `streamer` module defines a set of services for efficiently pulling data from UDP sockets.
 //!
 use influx_db_client as influxdb;
-use metrics;
-use packet::{Blob, SharedBlobs, SharedPackets};
-use result::{Error, Result};
+use crate::metrics;
+use crate::packet::{Blob, SharedBlobs, SharedPackets};
+use crate::result::{Error, Result};
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::thread::{Builder, JoinHandle};
 use std::time::{Duration, Instant};
-use timing::duration_as_ms;
+use crate::timing::duration_as_ms;
 
 pub type PacketReceiver = Receiver<SharedPackets>;
 pub type PacketSender = Sender<SharedPackets>;
@@ -133,7 +133,7 @@ pub fn blob_receiver(sock: Arc<UdpSocket>, exit: Arc<AtomicBool>, s: BlobSender)
 
 #[cfg(test)]
 mod test {
-    use packet::{Blob, Packet, Packets, SharedBlob, PACKET_DATA_SIZE};
+    use crate::packet::{Blob, Packet, Packets, SharedBlob, PACKET_DATA_SIZE};
     use std::io;
     use std::io::Write;
     use std::net::UdpSocket;
@@ -141,8 +141,8 @@ mod test {
     use std::sync::mpsc::channel;
     use std::sync::Arc;
     use std::time::Duration;
-    use streamer::PacketReceiver;
-    use streamer::{receiver, responder};
+    use crate::streamer::PacketReceiver;
+    use crate::streamer::{receiver, responder};
 
     fn get_msgs(r: PacketReceiver, num: &mut usize) {
         for _t in 0..5 {

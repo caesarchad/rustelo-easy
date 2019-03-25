@@ -13,18 +13,18 @@
 //!
 //! Bank needs to provide an interface for us to query the stake weight
 use bincode::{deserialize, serialize};
-use budget_instruction::Vote;
+use crate::budget_instruction::Vote;
 use choose_gossip_peer_strategy::{ChooseGossipPeerStrategy, ChooseWeightedPeerStrategy};
-use counter::Counter;
-use hash::Hash;
-use ledger::LedgerWindow;
+use crate::counter::Counter;
+use crate::hash::Hash;
+use crate::ledger::LedgerWindow;
 use log::Level;
 use netutil::{bind_in_range, bind_to, multi_bind_in_range};
-use packet::{to_blob, Blob, SharedBlob, BLOB_SIZE};
+use crate::packet::{to_blob, Blob, SharedBlob, BLOB_SIZE};
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
-use result::{Error, Result};
-use signature::{Keypair, KeypairUtil};
+use crate::result::{Error, Result};
+use crate::signature::{Keypair, KeypairUtil};
 use buffett_program_interface::pubkey::Pubkey;
 use std;
 use std::collections::HashMap;
@@ -33,9 +33,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread::{sleep, Builder, JoinHandle};
 use std::time::{Duration, Instant};
-use streamer::{BlobReceiver, BlobSender};
-use timing::{duration_as_ms, timestamp};
-use window::{SharedWindow, WindowIndex};
+use crate::streamer::{BlobReceiver, BlobSender};
+use crate::timing::{duration_as_ms, timestamp};
+use crate::window::{SharedWindow, WindowIndex};
 
 pub const FULLNODE_PORT_RANGE: (u16, u16) = (8000, 10_000);
 
@@ -1375,18 +1375,18 @@ fn report_time_spent(label: &str, time: &Duration, extra: &str) {
 
 #[cfg(test)]
 mod tests {
-    use budget_instruction::Vote;
-    use crdt::{
+    use crate::budget_instruction::Vote;
+    use crate::crdt::{
         Crdt, CrdtError, Node, NodeInfo, Protocol, FULLNODE_PORT_RANGE, GOSSIP_PURGE_MILLIS,
         GOSSIP_SLEEP_MILLIS, MIN_TABLE_SIZE,
     };
-    use entry::Entry;
-    use hash::{hash, Hash};
-    use ledger::{LedgerWindow, LedgerWriter};
-    use logger;
-    use packet::SharedBlob;
-    use result::Error;
-    use signature::{Keypair, KeypairUtil};
+    use crate::entry::Entry;
+    use crate::hash::{hash, Hash};
+    use crate::ledger::{LedgerWindow, LedgerWriter};
+    use crate::logger;
+    use crate::packet::SharedBlob;
+    use crate::result::Error;
+    use crate::signature::{Keypair, KeypairUtil};
     use buffett_program_interface::pubkey::Pubkey;
     use std::fs::remove_dir_all;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -1395,7 +1395,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
     use std::thread::sleep;
     use std::time::Duration;
-    use window::default_window;
+    use crate::window::default_window;
 
     #[test]
     fn insert_test() {

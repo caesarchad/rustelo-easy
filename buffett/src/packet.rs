@@ -1,14 +1,14 @@
 //! The `packet` module defines data structures and methods to pull data from the network.
 use bincode::{deserialize, serialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use counter::Counter;
+use crate::counter::Counter;
 #[cfg(test)]
-use hash::Hash;
+use crate::hash::Hash;
 #[cfg(test)]
-use ledger::{next_entries_mut, Block};
+use crate::ledger::{next_entries_mut, Block};
 use log::Level;
 use recvmmsg::{recv_mmsg, NUM_RCVMMSGS};
-use result::{Error, Result};
+use crate::result::{Error, Result};
 use serde::Serialize;
 use buffett_program_interface::pubkey::Pubkey;
 use std::fmt;
@@ -422,11 +422,11 @@ pub fn make_consecutive_blobs(
 
 #[cfg(test)]
 mod tests {
-    use packet::{
+    use crate::packet::{
         to_packets, Blob, Meta, Packet, Packets, SharedBlob, SharedPackets, NUM_PACKETS,
         PACKET_DATA_SIZE,
     };
-    use request::Request;
+    use crate::request::Request;
     use std::io;
     use std::io::Write;
     use std::net::UdpSocket;

@@ -1,22 +1,22 @@
 //! The `request_stage` processes thin client Request messages.
 
 use bincode::deserialize;
-use counter::Counter;
+use crate::counter::Counter;
 use log::Level;
-use packet::{to_blobs, Packets, SharedPackets};
+use crate::packet::{to_blobs, Packets, SharedPackets};
 use rayon::prelude::*;
-use request::Request;
+use crate::request::Request;
 use request_processor::RequestProcessor;
-use result::{Error, Result};
-use service::Service;
+use crate::result::{Error, Result};
+use crate::service::Service;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread::{self, Builder, JoinHandle};
 use std::time::Instant;
-use streamer::{self, BlobReceiver, BlobSender};
-use timing;
+use crate::streamer::{self, BlobReceiver, BlobSender};
+use crate::timing;
 
 pub struct RequestStage {
     thread_hdl: JoinHandle<()>,

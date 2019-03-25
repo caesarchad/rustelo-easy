@@ -3,18 +3,18 @@
 //! access read to a persistent file-based ledger.
 
 use bincode::{self, deserialize, deserialize_from, serialize_into, serialized_size};
-use budget_instruction::Vote;
-use budget_transaction::BudgetTransaction;
-use entry::Entry;
-use hash::Hash;
+use crate::budget_instruction::Vote;
+use crate::budget_transaction::BudgetTransaction;
+use crate::entry::Entry;
+use crate::hash::Hash;
 use log::Level::Trace;
 #[cfg(test)]
-use coinery::Mint;
-use packet::{SharedBlob, BLOB_DATA_SIZE};
+use crate::coinery::Mint;
+use crate::packet::{SharedBlob, BLOB_DATA_SIZE};
 use rayon::prelude::*;
-use result::{Error, Result};
+use crate::result::{Error, Result};
 #[cfg(test)]
-use signature::{Keypair, KeypairUtil};
+use crate::signature::{Keypair, KeypairUtil};
 use buffett_program_interface::pubkey::Pubkey;
 use std::fs::{create_dir_all, remove_dir_all, File, OpenOptions};
 use std::io::prelude::*;
@@ -22,8 +22,8 @@ use std::io::{self, BufReader, BufWriter, Seek, SeekFrom};
 use std::mem::size_of;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
-use transaction::Transaction;
-use window::WINDOW_SIZE;
+use crate::transaction::Transaction;
+use crate::window::WINDOW_SIZE;
 
 //
 // A persistent ledger is 2 files:
@@ -563,20 +563,20 @@ pub fn genesis(name: &str, num: i64) -> (Mint, String) {
 mod tests {
     use super::*;
     use bincode::serialized_size;
-    use budget_instruction::Vote;
-    use budget_transaction::BudgetTransaction;
+    use crate::budget_instruction::Vote;
+    use crate::budget_transaction::BudgetTransaction;
     use chrono::prelude::*;
-    use entry::{next_entry, Entry};
-    use hash::hash;
-    use packet::{to_blobs, BLOB_DATA_SIZE, PACKET_DATA_SIZE};
-    use signature::{Keypair, KeypairUtil};
+    use crate::entry::{next_entry, Entry};
+    use crate::hash::hash;
+    use crate::packet::{to_blobs, BLOB_DATA_SIZE, PACKET_DATA_SIZE};
+    use crate::signature::{Keypair, KeypairUtil};
     use std;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    use transaction::Transaction;
+    use crate::transaction::Transaction;
 
     #[test]
     fn test_verify_slice() {
-        use logger;
+        use crate::logger;
         logger::setup();
         let zero = Hash::default();
         let one = hash(&zero.as_ref());
@@ -650,7 +650,7 @@ mod tests {
 
     #[test]
     fn test_entries_to_blobs() {
-        use logger;
+        use crate::logger;
         logger::setup();
         let entries = make_test_entries();
 
@@ -661,7 +661,7 @@ mod tests {
 
     #[test]
     fn test_bad_blobs_attack() {
-        use logger;
+        use crate::logger;
         logger::setup();
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 8000);
         let blobs_q = to_blobs(vec![(0, addr)]).unwrap(); // <-- attack!
@@ -670,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_next_entries() {
-        use logger;
+        use crate::logger;
         logger::setup();
         let id = Hash::default();
         let next_id = hash(&id.as_ref());
@@ -724,7 +724,7 @@ mod tests {
 
     #[test]
     fn test_ledger_reader_writer() {
-        use logger;
+        use crate::logger;
         logger::setup();
         let ledger_path = tmp_ledger_path("test_ledger_reader_writer");
         let entries = make_tiny_test_entries(10);
@@ -802,7 +802,7 @@ mod tests {
 
     #[test]
     fn test_recover_ledger() {
-        use logger;
+        use crate::logger;
         logger::setup();
 
         let entries = make_tiny_test_entries(10);
@@ -853,7 +853,7 @@ mod tests {
 
     #[test]
     fn test_verify_ledger() {
-        use logger;
+        use crate::logger;
         logger::setup();
 
         let entries = make_tiny_test_entries(10);

@@ -1,6 +1,6 @@
 //! The `recvmmsg` module provides recvmmsg() API implementation
 
-use packet::Packet;
+use crate::packet::Packet;
 use std::cmp;
 use std::io;
 use std::net::UdpSocket;
@@ -85,7 +85,7 @@ pub fn recv_mmsg(sock: &UdpSocket, packets: &mut [Packet]) -> io::Result<usize> 
 
 #[cfg(test)]
 mod tests {
-    use packet::PACKET_DATA_SIZE;
+    use crate::packet::PACKET_DATA_SIZE;
     use recvmmsg::*;
 
     #[test]

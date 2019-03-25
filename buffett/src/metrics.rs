@@ -7,7 +7,7 @@ use std::sync::{Arc, Barrier, Mutex, Once, ONCE_INIT};
 use std::thread;
 use std::time::{Duration, Instant};
 use sys_info::hostname;
-use timing;
+use crate::timing;
 
 #[derive(Debug)]
 enum MetricsCommand {

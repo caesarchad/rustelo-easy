@@ -1,11 +1,11 @@
 //! The `system_transaction` module provides functionality for creating system transactions.
 
 use bincode::serialize;
-use hash::Hash;
-use signature::{Keypair, KeypairUtil};
+use crate::hash::Hash;
+use crate::signature::{Keypair, KeypairUtil};
 use buffett_program_interface::pubkey::Pubkey;
 use system_program::SystemProgram;
-use transaction::Transaction;
+use crate::transaction::Transaction;
 
 pub trait SystemTransaction {
     fn system_create(
@@ -141,8 +141,8 @@ pub fn memfind<A: Eq>(a: &[A], b: &[A]) -> Option<usize> {
 mod tests {
     use super::*;
     use bincode::{deserialize, serialize};
-    use packet::PACKET_DATA_SIZE;
-    use transaction::{PUB_KEY_OFFSET, SIGNED_DATA_OFFSET, SIG_OFFSET};
+    use crate::packet::PACKET_DATA_SIZE;
+    use crate::transaction::{PUB_KEY_OFFSET, SIGNED_DATA_OFFSET, SIG_OFFSET};
 
     #[test]
     fn test_layout() {

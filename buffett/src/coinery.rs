@@ -1,12 +1,12 @@
-//! The `mint` module is a library for generating the chain's genesis block.
+//! Coinery is for minting the genesis block.
 
-use entry::Entry;
-use hash::{hash, Hash};
+use crate::entry::Entry;
+use crate::hash::{hash, Hash};
 use ring::rand::SystemRandom;
-use signature::{Keypair, KeypairUtil};
+use crate::signature::{Keypair, KeypairUtil};
 use buffett_program_interface::pubkey::Pubkey;
-use system_transaction::SystemTransaction;
-use transaction::Transaction;
+use crate::system_transaction::SystemTransaction;
+use crate::transaction::Transaction;
 use untrusted::Input;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -69,7 +69,7 @@ impl Mint {
 mod tests {
     use super::*;
     use bincode::deserialize;
-    use ledger::Block;
+    use crate::ledger::Block;
     use system_program::SystemProgram;
 
     #[test]

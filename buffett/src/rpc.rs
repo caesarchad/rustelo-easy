@@ -1,12 +1,12 @@
 //! The `rpc` module implements the Solana RPC interface.
 
-use tx_vault::{Bank, BankError};
+use crate::tx_vault::{Bank, BankError};
 use bincode::deserialize;
 use bs58;
 use jsonrpc_core::*;
 use jsonrpc_http_server::*;
-use service::Service;
-use signature::Signature;
+use crate::service::Service;
+use crate::signature::Signature;
 use buffett_program_interface::account::Account;
 use buffett_program_interface::pubkey::Pubkey;
 use std::mem;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::thread::{self, sleep, Builder, JoinHandle};
 use std::time::Duration;
 use std::time::Instant;
-use transaction::Transaction;
+use crate::transaction::Transaction;
 use wallet::request_airdrop;
 
 pub const RPC_PORT: u16 = 8899;
@@ -261,14 +261,14 @@ impl JsonRpcRequestProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tx_vault::Bank;
+    use crate::tx_vault::Bank;
     use jsonrpc_core::Response;
-    use coinery::Mint;
-    use signature::{Keypair, KeypairUtil};
+    use crate::coinery::Mint;
+    use crate::signature::{Keypair, KeypairUtil};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::Arc;
-    use system_transaction::SystemTransaction;
-    use transaction::Transaction;
+    use crate::system_transaction::SystemTransaction;
+    use crate::transaction::Transaction;
 
     #[test]
     fn test_rpc_request() {

@@ -2,15 +2,15 @@
 //! writes entries to the given writer, which is typically a file or
 //! stdout, and then sends the Entry to its output channel.
 
-use tx_vault::Bank;
-use counter::Counter;
-use crdt::Crdt;
-use entry::Entry;
-use ledger::{Block, LedgerWriter};
+use crate::tx_vault::Bank;
+use crate::counter::Counter;
+use crate::crdt::Crdt;
+use crate::entry::Entry;
+use crate::ledger::{Block, LedgerWriter};
 use log::Level;
-use result::{Error, Result};
-use service::Service;
-use signature::Keypair;
+use crate::result::{Error, Result};
+use crate::service::Service;
+use crate::signature::Keypair;
 use std::cmp;
 use std::net::UdpSocket;
 use std::sync::atomic::AtomicUsize;
@@ -18,9 +18,9 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, RwLock};
 use std::thread::{self, Builder, JoinHandle};
 use std::time::{Duration, Instant};
-use streamer::responder;
-use timing::{duration_as_ms, duration_as_s};
-use vote_stage::send_leader_vote;
+use crate::streamer::responder;
+use crate::timing::{duration_as_ms, duration_as_s};
+use crate::vote_stage::send_leader_vote;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum WriteStageReturnType {
@@ -291,18 +291,18 @@ impl Service for WriteStage {
 
 #[cfg(test)]
 mod tests {
-    use tx_vault::Bank;
-    use crdt::{Crdt, Node};
-    use entry::Entry;
-    use hash::Hash;
-    use ledger::{genesis, next_entries_mut, read_ledger};
-    use service::Service;
-    use signature::{Keypair, KeypairUtil};
+    use crate::tx_vault::Bank;
+    use crate::crdt::{Crdt, Node};
+    use crate::entry::Entry;
+    use crate::hash::Hash;
+    use crate::ledger::{genesis, next_entries_mut, read_ledger};
+    use crate::service::Service;
+    use crate::signature::{Keypair, KeypairUtil};
     use buffett_program_interface::pubkey::Pubkey;
     use std::fs::remove_dir_all;
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::{Arc, RwLock};
-    use write_stage::{WriteStage, WriteStageReturnType};
+    use crate::write_stage::{WriteStage, WriteStageReturnType};
 
     struct DummyWriteStage {
         my_id: Pubkey,

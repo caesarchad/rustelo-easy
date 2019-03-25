@@ -5,7 +5,7 @@
 use bincode::deserialize;
 use buffett_program_interface::account::Account;
 use buffett_program_interface::pubkey::Pubkey;
-use transaction::Transaction;
+use crate::transaction::Transaction;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum StorageProgram {
