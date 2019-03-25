@@ -5,7 +5,7 @@ extern crate dirs;
 extern crate buffett;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use buffett::drone::DRONE_PORT;
+ use buffett::token_service::DRONE_PORT;
 use buffett::logger;
 use buffett::rpc::RPC_PORT;
 use buffett::signature::{read_keypair, KeypairUtil};
