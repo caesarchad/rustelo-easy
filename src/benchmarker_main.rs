@@ -4,7 +4,7 @@ use influx_db_client as influxdb;
 use rayon::prelude::*;
 use buffett::client::mk_client;
 use buffett::crdt::{Crdt, NodeInfo};
-use buffett::drone::DRONE_PORT;
+ use buffett::token_service::DRONE_PORT;
 use buffett::hash::Hash;
 use buffett::logger;
 use buffett::metrics;
