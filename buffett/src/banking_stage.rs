@@ -2,7 +2,7 @@
 //! to contruct a software pipeline. The stage uses all available CPU cores and
 //! can do its processing in parallel with signature verification on the GPU.
 
-use bank::Bank;
+use tx_vault::Bank;
 use bincode::deserialize;
 use budget_transaction::BudgetTransaction;
 use counter::Counter;
@@ -271,9 +271,9 @@ impl Service for BankingStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bank::Bank;
+    use tx_vault::Bank;
     use ledger::Block;
-    use mint::Mint;
+    use coinery::Mint;
     use packet::to_packets;
     use signature::{Keypair, KeypairUtil};
     use std::thread::sleep;

@@ -1,7 +1,7 @@
 //! The `poh_recorder` module provides an object for synchronizing with Proof of History.
 //! It synchronizes PoH, bank's register_entry_id and the ledger
 //!
-use bank::Bank;
+use tx_vault::Bank;
 use entry::Entry;
 use hash::Hash;
 use poh::Poh;
@@ -68,7 +68,7 @@ impl PohRecorder {
 mod tests {
     use super::*;
     use hash::hash;
-    use mint::Mint;
+    use coinery::Mint;
     use std::sync::mpsc::channel;
     use std::sync::Arc;
 

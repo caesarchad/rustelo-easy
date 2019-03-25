@@ -23,7 +23,7 @@
 //!              `--------------------------------------`
 //! ```
 
-use bank::Bank;
+use tx_vault::Bank;
 use request_processor::RequestProcessor;
 use request_stage::RequestStage;
 use service::Service;

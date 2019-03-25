@@ -1,6 +1,6 @@
 //! The `fullnode` module hosts all the fullnode microservices.
 
-use bank::Bank;
+use tx_vault::Bank;
 use broadcast_stage::BroadcastStage;
 use crdt::{Crdt, Node, NodeInfo};
 use token_service::DRONE_PORT;
@@ -548,7 +548,7 @@ impl Service for Fullnode {
 
 #[cfg(test)]
 mod tests {
-    use bank::Bank;
+    use tx_vault::Bank;
     use crdt::Node;
     use fullnode::{Fullnode, FullnodeReturnType};
     use ledger::genesis;

@@ -1,6 +1,6 @@
 //! The `rpc` module implements the Solana RPC interface.
 
-use bank::{Bank, BankError};
+use tx_vault::{Bank, BankError};
 use bincode::deserialize;
 use bs58;
 use jsonrpc_core::*;
@@ -261,9 +261,9 @@ impl JsonRpcRequestProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bank::Bank;
+    use tx_vault::Bank;
     use jsonrpc_core::Response;
-    use mint::Mint;
+    use coinery::Mint;
     use signature::{Keypair, KeypairUtil};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::Arc;

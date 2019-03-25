@@ -286,7 +286,7 @@ mod tests {
     use crdt::{Crdt, Node};
     use entry::Entry;
     use ledger::next_entries_mut;
-    use mint::Mint;
+    use coinery::Mint;
     use service::Service;
     use signature::{Keypair, KeypairUtil};
     use buffett_program_interface::pubkey::Pubkey;

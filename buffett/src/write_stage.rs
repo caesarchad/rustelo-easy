@@ -2,7 +2,7 @@
 //! writes entries to the given writer, which is typically a file or
 //! stdout, and then sends the Entry to its output channel.
 
-use bank::Bank;
+use tx_vault::Bank;
 use counter::Counter;
 use crdt::Crdt;
 use entry::Entry;
@@ -291,7 +291,7 @@ impl Service for WriteStage {
 
 #[cfg(test)]
 mod tests {
-    use bank::Bank;
+    use tx_vault::Bank;
     use crdt::{Crdt, Node};
     use entry::Entry;
     use hash::Hash;

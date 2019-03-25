@@ -9,7 +9,7 @@ use entry::Entry;
 use hash::Hash;
 use log::Level::Trace;
 #[cfg(test)]
-use mint::Mint;
+use coinery::Mint;
 use packet::{SharedBlob, BLOB_DATA_SIZE};
 use rayon::prelude::*;
 use result::{Error, Result};

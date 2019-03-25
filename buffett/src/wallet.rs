@@ -665,13 +665,13 @@ fn serialize_and_send_tx(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bank::Bank;
+    use tx_vault::Bank;
     use clap::{App, Arg, SubCommand};
     use crdt::Node;
     use token_service::run_local_drone;
     use fullnode::Fullnode;
     use ledger::LedgerWriter;
-    use mint::Mint;
+    use coinery::Mint;
     use signature::{read_keypair, read_pkcs8, Keypair, KeypairUtil};
     use std::fs::remove_dir_all;
     use std::sync::mpsc::channel;

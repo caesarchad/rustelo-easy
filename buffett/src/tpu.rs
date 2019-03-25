@@ -25,7 +25,7 @@
 //!                                            `------`    `--------`
 //! ```
 
-use bank::Bank;
+use tx_vault::Bank;
 use banking_stage::{BankingStage, Config};
 use crdt::Crdt;
 use entry::Entry;

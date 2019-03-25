@@ -1,6 +1,6 @@
 //! The `replicate_stage` replicates transactions broadcast by the leader.
 
-use bank::Bank;
+use tx_vault::Bank;
 use counter::Counter;
 use crdt::Crdt;
 use entry::EntryReceiver;

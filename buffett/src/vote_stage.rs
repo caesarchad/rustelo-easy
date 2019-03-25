@@ -1,6 +1,6 @@
 //! The `vote_stage` votes on the `last_id` of the bank at a regular cadence
 
-use bank::Bank;
+use tx_vault::Bank;
 use bincode::serialize;
 use budget_transaction::BudgetTransaction;
 use counter::Counter;
@@ -162,14 +162,14 @@ pub fn send_validator_vote(
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use bank::Bank;
+    use tx_vault::Bank;
     use bincode::deserialize;
     use budget_instruction::Vote;
     use crdt::{Crdt, NodeInfo};
     use entry::next_entry;
     use hash::{hash, Hash};
     use logger;
-    use mint::Mint;
+    use coinery::Mint;
     use std::sync::mpsc::channel;
     use std::sync::{Arc, RwLock};
     use std::thread::sleep;

@@ -9,7 +9,7 @@ extern crate buffett;
 use atty::{is, Stream};
 use clap::{App, Arg};
 use buffett::ledger::LedgerWriter;
-use buffett::mint::Mint;
+use buffett::coinery::Mint;
 use std::error;
 use std::io::{stdin, Read};
 use std::process::exit;

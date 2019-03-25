@@ -1,7 +1,4 @@
-//! The `bank` module tracks client accounts and the progress of smart
-//! contracts. It offers a high-level API that signs transactions
-//! on behalf of the caller, and a low-level API for when they have
-//! already been signed and verified.
+//! Transaction Valut provide booking and accounting service for transactions.
 
 use bincode::deserialize;
 use bincode::serialize;
@@ -14,7 +11,7 @@ use hash::{hash, Hash};
 use itertools::Itertools;
 use ledger::Block;
 use log::Level;
-use mint::Mint;
+use coinery::Mint;
 use payment_plan::Payment;
 use signature::{Keypair, Signature};
 use buffett_program_interface::account::{Account, KeyedAccount};

@@ -228,12 +228,12 @@ pub fn run_local_drone(mint_keypair: Keypair, network: SocketAddr, sender: Sende
 
 #[cfg(test)]
 mod tests {
-    use bank::Bank;
+    use tx_vault::Bank;
     use crdt::Node;
     use token_service::{Drone, DroneRequest, REQUEST_CAP, TIME_SLICE};
     use fullnode::Fullnode;
     use logger;
-    use mint::Mint;
+    use coinery::Mint;
     use netutil::get_ip_addr;
     use signature::{Keypair, KeypairUtil};
     use std::fs::remove_dir_all;

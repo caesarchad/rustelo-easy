@@ -3,7 +3,7 @@
 //! messages to the network directly. The binary encoding of its messages are
 //! unstable and may change in future releases.
 
-use bank::Bank;
+use tx_vault::Bank;
 use bincode::{deserialize, serialize};
 use crdt::{Crdt, CrdtError, NodeInfo};
 use hash::Hash;
@@ -423,12 +423,12 @@ pub fn poll_gossip_for_leader(leader_ncp: SocketAddr, timeout: Option<u64>) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bank::Bank;
+    use tx_vault::Bank;
     use crdt::Node;
     use fullnode::Fullnode;
     use ledger::LedgerWriter;
     use logger;
-    use mint::Mint;
+    use coinery::Mint;
     use signature::{Keypair, KeypairUtil};
     use std::fs::remove_dir_all;
     use system_program::SystemProgram;

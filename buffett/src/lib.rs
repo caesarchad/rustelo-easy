@@ -9,7 +9,7 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 #[macro_use]
 pub mod counter;
-pub mod bank;
+pub mod tx_vault;
 pub mod banking_stage;
 pub mod blob_fetch_stage;
 pub mod broadcast_stage;
@@ -33,7 +33,7 @@ pub mod hash;
 pub mod ledger;
 pub mod logger;
 pub mod metrics;
-pub mod mint;
+pub mod coinery;
 pub mod ncp;
 pub mod netutil;
 pub mod packet;

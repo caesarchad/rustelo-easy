@@ -2,7 +2,7 @@
 //! writes entries to the given writer, which is typically a file or
 //! stdout, and then sends the Entry to its output channel.
 
-use bank::Bank;
+use tx_vault::Bank;
 use bincode;
 use entry::Entry;
 use std::io::{self, BufRead, Error, ErrorKind, Write};
@@ -100,7 +100,7 @@ pub fn read_entries<R: BufRead>(reader: R) -> impl Iterator<Item = io::Result<En
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mint::Mint;
+    use coinery::Mint;
     use std::io::Cursor;
 
     /// Same as read_entries() but parsing a buffer and returning a vector.

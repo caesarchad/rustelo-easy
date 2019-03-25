@@ -1,6 +1,6 @@
 //! The `request_processor` processes thin client Request messages.
 
-use bank::Bank;
+use tx_vault::Bank;
 use request::{Request, Response};
 use std::net::SocketAddr;
 use std::sync::Arc;

@@ -4,7 +4,7 @@ extern crate serde_json;
 extern crate buffett;
 
 use clap::{App, Arg, SubCommand};
-use buffett::bank::Bank;
+use buffett::tx_vault::Bank;
 use buffett::ledger::{read_ledger, verify_ledger};
 use buffett::logger;
 use std::io::{stdout, Write};

@@ -36,7 +36,7 @@
 //! - Transactions in blobs are processed and applied to the bank.
 //! - TODO We need to verify the signatures in the blobs.
 
-use bank::Bank;
+use tx_vault::Bank;
 use blob_fetch_stage::BlobFetchStage;
 use crdt::Crdt;
 use replicate_stage::ReplicateStage;
@@ -149,13 +149,13 @@ impl Service for Tvu {
 
 #[cfg(test)]
 pub mod tests {
-    use bank::Bank;
+    use tx_vault::Bank;
     use bincode::serialize;
     use crdt::{Crdt, Node};
     use entry::Entry;
     use hash::{hash, Hash};
     use logger;
-    use mint::Mint;
+    use coinery::Mint;
     use ncp::Ncp;
     use packet::SharedBlob;
     use service::Service;
