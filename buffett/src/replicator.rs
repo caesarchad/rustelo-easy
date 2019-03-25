@@ -1,4 +1,4 @@
-use blob_fetch_stage::BlobFetchStage;
+use crate::socket_streamer::BlobFetchStage;
 use crate::crdt::{Crdt, Node, NodeInfo};
 use crate::ncp::Ncp;
 use crate::service::Service;

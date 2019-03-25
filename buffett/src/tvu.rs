@@ -37,7 +37,7 @@
 //! - TODO We need to verify the signatures in the blobs.
 
 use crate::tx_vault::Bank;
-use blob_fetch_stage::BlobFetchStage;
+use crate::socket_streamer::BlobFetchStage;
 use crate::crdt::Crdt;
 use replicate_stage::ReplicateStage;
 use retransmit_stage::{RetransmitStage, RetransmitStageReturnType};

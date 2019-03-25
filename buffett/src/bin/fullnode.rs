@@ -10,7 +10,7 @@ extern crate buffett;
 use clap::{App, Arg};
 use buffett::client::mk_client;
 use buffett::crdt::Node;
- use buffett::token_service::DRONE_PORT;
+use buffett::token_service::DRONE_PORT;
 use buffett::fullnode::{Config, Fullnode, FullnodeReturnType};
 use buffett::logger;
 use buffett::metrics::set_panic_hook;

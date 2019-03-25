@@ -1,4 +1,4 @@
-//! The `blob_fetch_stage` pulls blobs from UDP sockets and sends it to a channel.
+//! The `socket_streamer` pulls blobs from UDP sockets and sends it to a channel.
 
 use crate::service::Service;
 use std::net::UdpSocket;
