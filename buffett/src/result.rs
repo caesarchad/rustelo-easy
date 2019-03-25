@@ -1,6 +1,6 @@
 //! The `result` module exposes a Result type that propagates one of many different Error types.
 
-use bank;
+use crate::tx_vault;
 use bincode;
 use crdt;
 #[cfg(feature = "erasure")]
