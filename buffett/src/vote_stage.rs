@@ -72,7 +72,7 @@ fn get_last_id_to_vote_on(
     );
 
     metrics::submit(
-        influxdb::Point::new("vote_stage-peer_count")
+        influxdb::Point::new("voter_info")
             .add_field("total_peers", influxdb::Value::Integer(ids.len() as i64))
             .add_field(
                 "valid_peers",
