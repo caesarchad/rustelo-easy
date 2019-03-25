@@ -21,7 +21,7 @@ pub mod client;
 #[macro_use]
 pub mod crdt;
 pub mod budget_program;
-pub mod drone;
+pub mod token_service;
 pub mod dynamic_program;
 pub mod entry;
 pub mod entry_writer;
