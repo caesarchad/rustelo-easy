@@ -5,7 +5,7 @@
 pub mod counter;
 pub mod tx_vault;
 pub mod tx_process;
-pub mod blob_fetch_stage;
+pub mod socket_streamer;
 pub mod broadcast_stage;
 pub mod budget;
 pub mod budget_instruction;

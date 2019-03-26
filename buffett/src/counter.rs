@@ -54,7 +54,7 @@ macro_rules! inc_new_counter {
 
 impl Counter {
     fn default_log_rate() -> usize {
-        let v = env::var("SOLANA_DEFAULT_METRICS_RATE")
+        let v = env::var("BITCONCH_DASHBOARD_RATE")
             .map(|x| x.parse().unwrap_or(DEFAULT_METRICS_RATE))
             .unwrap_or(DEFAULT_METRICS_RATE);
         if v == 0 {
@@ -151,7 +151,7 @@ mod tests {
         assert_eq!(
             Counter::default_log_rate(),
             DEFAULT_METRICS_RATE,
-            "default_log_rate() is {}, expected {}, SOLANA_DEFAULT_METRICS_RATE environment variable set?",
+            "default_log_rate() is {}, expected {}, BITCONCH_DASHBOARD_RATE environment variable set?",
             Counter::default_log_rate(),
             DEFAULT_METRICS_RATE,
         );
@@ -170,14 +170,14 @@ mod tests {
         assert_ne!(DEFAULT_METRICS_RATE, 0);
         let _writelock = get_env_lock().write();
         static mut COUNTER: Counter = create_counter!("test_lograte_env", 0);
-        env::set_var("SOLANA_DEFAULT_METRICS_RATE", "50");
+        env::set_var("BITCONCH_DASHBOARD_RATE", "50");
         inc_counter!(COUNTER, 2);
         unsafe {
             assert_eq!(COUNTER.lograte.load(Ordering::Relaxed), 50);
         }
 
         static mut COUNTER2: Counter = create_counter!("test_lograte_env", 0);
-        env::set_var("SOLANA_DEFAULT_METRICS_RATE", "0");
+        env::set_var("BITCONCH_DASHBOARD_RATE", "0");
         inc_counter!(COUNTER2, 2);
         unsafe {
             assert_eq!(
