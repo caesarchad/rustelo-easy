@@ -209,7 +209,7 @@ impl BankingStage {
             timing::duration_as_ms(&recv_start.elapsed()),
             mms.len(),
         );
-        inc_new_counter_info!("tx_process-incoming", mms_len);
+        inc_new_counter_info!("banking_stage-entries_received", mms_len);
         let bank_starting_tx_count = bank.transaction_count();
         let count = mms.iter().map(|x| x.1.len()).sum();
         let proc_start = Instant::now();
@@ -235,7 +235,7 @@ impl BankingStage {
         }
 
         inc_new_counter_info!(
-            "tx_process-duration",
+            "banking_stage-time_ms",
             timing::duration_as_ms(&proc_start.elapsed()) as usize
         );
         let total_time_s = timing::duration_as_s(&proc_start.elapsed());
@@ -248,9 +248,9 @@ impl BankingStage {
             reqs_len,
             (reqs_len as f32) / (total_time_s)
         );
-        inc_new_counter_info!(" tx_process-packets", count);
+        inc_new_counter_info!("banking_stage-process_packets", count);
         inc_new_counter_info!(
-            "tx_process-counts",
+            "banking_stage-process_transactions",
             bank.transaction_count() - bank_starting_tx_count
         );
         Ok(())
