@@ -15,7 +15,7 @@ use std::io::{stdin, Read};
 use std::process::exit;
 
 fn main() -> Result<(), Box<error::Error>> {
-    let matches = App::new("solana-genesis")
+    let matches = App::new("bitconch-genesis")
         .version(crate_version!())
         .arg(
             Arg::with_name("tokens")

@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<error::Error>> {
     let outfile = if matches.is_present("outfile") {
         matches.value_of("outfile").unwrap()
     } else {
-        path.extend(&[".config", "solana", "id.json"]);
+        path.extend(&[".config", "bitconch", "id.json"]);
         path.to_str().unwrap()
     };
 

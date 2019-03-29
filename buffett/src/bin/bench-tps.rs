@@ -602,7 +602,7 @@ fn main() {
     logger::setup();
     metrics::set_panic_hook("bench-tps");
 
-    let matches = App::new("solana-bench-tps")
+    let matches = App::new("bitconch-bench-tps")
         .version(crate_version!())
         .arg(
             Arg::with_name("network")
@@ -839,7 +839,7 @@ fn main() {
             let exit_signal = exit_signal.clone();
             let maxes = maxes.clone();
             Builder::new()
-                .name("solana-client-sample".to_string())
+                .name("bitconch-client-sample".to_string())
                 .spawn(move || {
                     sample_tx_count(&exit_signal, &maxes, first_tx_count, &v, sample_period);
                 }).unwrap()
@@ -859,7 +859,7 @@ fn main() {
             let shared_tx_active_thread_count = shared_tx_active_thread_count.clone();
             let total_tx_sent_count = total_tx_sent_count.clone();
             Builder::new()
-                .name("solana-client-sender".to_string())
+                .name("bitconch-client-sender".to_string())
                 .spawn(move || {
                     do_tx_transfers(
                         &exit_signal,

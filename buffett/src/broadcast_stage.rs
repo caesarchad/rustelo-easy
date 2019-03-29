@@ -262,7 +262,7 @@ impl BroadcastStage {
         exit_sender: Arc<AtomicBool>,
     ) -> Self {
         let thread_hdl = Builder::new()
-            .name("solana-broadcaster".to_string())
+            .name("bitconch-broadcaster".to_string())
             .spawn(move || {
                 let _exit = Finalizer::new(exit_sender);
                 Self::run(&sock, &crdt, &window, entry_height, &receiver)

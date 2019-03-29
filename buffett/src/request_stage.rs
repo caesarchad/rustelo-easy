@@ -86,7 +86,7 @@ impl RequestStage {
         let request_processor_ = request_processor.clone();
         let (blob_sender, blob_receiver) = channel();
         let thread_hdl = Builder::new()
-            .name("solana-request-stage".to_string())
+            .name("bitconch-request-stage".to_string())
             .spawn(move || loop {
                 if let Err(e) = Self::process_request_packets(
                     &request_processor_,

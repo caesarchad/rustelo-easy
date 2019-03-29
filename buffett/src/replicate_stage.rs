@@ -100,7 +100,7 @@ impl ReplicateStage {
         let keypair = Arc::new(keypair);
 
         let t_replicate = Builder::new()
-            .name("solana-replicate-stage".to_string())
+            .name("bitconch-replicate-stage".to_string())
             .spawn(move || {
                 let _exit = Finalizer::new(exit);;
                 let now = Instant::now();

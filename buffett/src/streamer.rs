@@ -56,7 +56,7 @@ pub fn receiver(
         panic!("streamer::receiver set_read_timeout error");
     }
     Builder::new()
-        .name("solana-receiver".to_string())
+        .name("bitconch-receiver".to_string())
         .spawn(move || {
             let _ = recv_loop(&sock, &exit, &packet_sender, sender_tag);
             ()
@@ -92,7 +92,7 @@ pub fn recv_batch(recvr: &PacketReceiver) -> Result<(Vec<SharedPackets>, usize, 
 
 pub fn responder(name: &'static str, sock: Arc<UdpSocket>, r: BlobReceiver) -> JoinHandle<()> {
     Builder::new()
-        .name(format!("solana-responder-{}", name))
+        .name(format!("bitconch-responder-{}", name))
         .spawn(move || loop {
             if let Err(e) = recv_send(&sock, &r) {
                 match e {
@@ -122,7 +122,7 @@ pub fn blob_receiver(sock: Arc<UdpSocket>, exit: Arc<AtomicBool>, s: BlobSender)
     sock.set_read_timeout(Some(timer))
         .expect("set socket timeout");
     Builder::new()
-        .name("solana-blob_receiver".to_string())
+        .name("bitconch-blob_receiver".to_string())
         .spawn(move || loop {
             if exit.load(Ordering::Relaxed) {
                 break;

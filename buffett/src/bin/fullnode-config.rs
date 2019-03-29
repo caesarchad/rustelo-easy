@@ -62,7 +62,7 @@ fn main() {
     let id_path = if matches.is_present("keypair") {
         matches.value_of("keypair").unwrap()
     } else {
-        path.extend(&[".config", "solana", "id.json"]);
+        path.extend(&[".config", "bitconch", "id.json"]);
         path.to_str().unwrap()
     };
     let pkcs8 = read_pkcs8(id_path).expect("client keypair");

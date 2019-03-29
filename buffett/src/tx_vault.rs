@@ -771,8 +771,7 @@ mod tests {
         assert_eq!(bank.transaction_count(), 0);
     }
 
-    // TODO: This test demonstrates that fees are not paid when a program fails.
-    // See github issue 1157 (https://github.com/solana-labs/solana/issues/1157)
+    
     #[test]
     fn test_detect_failed_duplicate_transactions_issue_1157() {
         let mint = Mint::new(1);

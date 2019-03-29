@@ -250,7 +250,7 @@ pub fn window_service(
     done: Arc<AtomicBool>,
 ) -> JoinHandle<Option<WindowServiceReturnType>> {
     Builder::new()
-        .name("solana-window".to_string())
+        .name("bitconch-window".to_string())
         .spawn(move || {
             let mut consumed = entry_height;
             let mut received = entry_height;

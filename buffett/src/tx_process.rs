@@ -68,13 +68,13 @@ impl BankingStage {
         // This thread talks to poh_service and broadcasts the entries once they have been recorded.
         // Once an entry has been recorded, its last_id is registered with the bank.
         let tick_producer = Builder::new()
-            .name("solana-banking-stage-tick_producer".to_string())
+            .name("bitconch-banking-stage-tick_producer".to_string())
             .spawn(move || {
                 if let Err(e) = Self::tick_producer(&tick_poh, &config, &poh_exit) {
                     match e {
                         Error::SendError => (),
                         _ => error!(
-                            "solana-banking-stage-tick_producer unexpected error {:?}",
+                            "bitconch-banking-stage-tick_producer unexpected error {:?}",
                             e
                         ),
                     }
@@ -92,7 +92,7 @@ impl BankingStage {
                 let thread_poh = poh.clone();
                 let thread_banking_exit = banking_exit.clone();
                 Builder::new()
-                    .name("solana-banking-stage-tx".to_string())
+                    .name("bitconch-banking-stage-tx".to_string())
                     .spawn(move || {
                         loop {
                             if let Err(e) = Self::process_packets(
@@ -108,7 +108,7 @@ impl BankingStage {
                                     }
                                     Error::RecvError(_) => break,
                                     Error::SendError => break,
-                                    _ => error!("solana-banking-stage-tx {:?}", e),
+                                    _ => error!("bitconch-banking-stage-tx {:?}", e),
                                 }
                             }
                             if thread_banking_exit.load(Ordering::Relaxed) {

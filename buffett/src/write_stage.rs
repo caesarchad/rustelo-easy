@@ -194,7 +194,7 @@ impl WriteStage {
         let mut ledger_writer = LedgerWriter::recover(ledger_path).unwrap();
 
         let write_thread = Builder::new()
-            .name("solana-writer".to_string())
+            .name("bitconch-writer".to_string())
             .spawn(move || {
                 let mut last_vote = 0;
                 let mut last_valid_validator_timestamp = 0;

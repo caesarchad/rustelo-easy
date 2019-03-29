@@ -1,4 +1,4 @@
-//! The `rpc` module implements the Solana RPC interface.
+//! The `rpc` module implements the RPC interface.
 
 use crate::tx_vault::{Bank, BankError};
 use bincode::deserialize;
@@ -36,7 +36,7 @@ impl JsonRpcService {
     ) -> Self {
         let request_processor = JsonRpcRequestProcessor::new(bank.clone());
         let thread_hdl = Builder::new()
-            .name("solana-jsonrpc".to_string())
+            .name("bitconch-jsonrpc".to_string())
             .spawn(move || {
                 let mut io = MetaIoHandler::default();
                 let rpc = RpcSolImpl;

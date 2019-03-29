@@ -55,7 +55,7 @@ fn sink(exit: Arc<AtomicBool>, rvs: Arc<AtomicUsize>, r: PacketReceiver) -> Join
 fn main() -> Result<()> {
     let mut num_sockets = 1usize;
 
-    let matches = App::new("solana-bench-streamer")
+    let matches = App::new("bitconch-bench-streamer")
         .arg(
             Arg::with_name("num-recv-sockets")
                 .long("num-recv-sockets")

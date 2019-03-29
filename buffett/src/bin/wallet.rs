@@ -34,7 +34,7 @@ pub fn parse_args(matches: &ArgMatches) -> Result<WalletConfig, Box<error::Error
     let id_path = if matches.is_present("keypair") {
         matches.value_of("keypair").unwrap()
     } else {
-        path.extend(&[".config", "solana", "id.json"]);
+        path.extend(&[".config", "bitconch", "id.json"]);
         if !path.exists() {
             gen_keypair_file(path.to_str().unwrap().to_string())?;
             println!("New keypair generated at: {:?}", path.to_str().unwrap());
@@ -80,7 +80,7 @@ pub fn parse_args(matches: &ArgMatches) -> Result<WalletConfig, Box<error::Error
 
 fn main() -> Result<(), Box<error::Error>> {
     logger::setup();
-    let matches = App::new("solana-wallet")
+    let matches = App::new("bitconch-wallet")
         .version(crate_version!())
         .arg(
             Arg::with_name("network")

@@ -916,7 +916,7 @@ impl Crdt {
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         Builder::new()
-            .name("solana-gossip".to_string())
+            .name("bitconch-gossip".to_string())
             .spawn(move || loop {
                 let start = timestamp();
                 let _ = Self::run_gossip(&obj, &blob_sender);
@@ -1210,7 +1210,7 @@ impl Crdt {
         let mut ledger_window = ledger_path.map(|p| LedgerWindow::open(p).unwrap());
 
         Builder::new()
-            .name("solana-listen".to_string())
+            .name("bitconch-listen".to_string())
             .spawn(move || loop {
                 let e = Self::run_listen(
                     &me,

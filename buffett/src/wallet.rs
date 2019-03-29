@@ -282,7 +282,7 @@ pub fn process_command(config: &WalletConfig) -> Result<String, Box<error::Error
     match config.command {
         // Get address of this client
         WalletCommand::Address => Ok(format!("{}", config.id.pubkey())),
-        // Request an airdrop from Solana Drone;
+        // Request an airdrop from tokenbots;
         WalletCommand::AirDrop(tokens) => {
             println!(
                 "Requesting airdrop of {:?} tokens from {}",

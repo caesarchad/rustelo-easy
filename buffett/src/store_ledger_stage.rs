@@ -43,7 +43,7 @@ impl StoreLedgerStage {
         let mut ledger_writer = ledger_path.map(|p| LedgerWriter::open(p, true).unwrap());
 
         let t_store_requests = Builder::new()
-            .name("solana-store-ledger-stage".to_string())
+            .name("bitconch-store-ledger-stage".to_string())
             .spawn(move || loop {
                 if let Err(e) = Self::store_requests(&window_receiver, ledger_writer.as_mut()) {
                     match e {

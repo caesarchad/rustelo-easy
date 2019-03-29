@@ -44,7 +44,7 @@ fn retransmit(crdt: &Arc<RwLock<Crdt>>, r: &BlobReceiver, sock: &UdpSocket) -> R
 /// * `r` - Receive channel for blobs to be retransmitted to all the layer 1 nodes.
 fn retransmitter(sock: Arc<UdpSocket>, crdt: Arc<RwLock<Crdt>>, r: BlobReceiver) -> JoinHandle<()> {
     Builder::new()
-        .name("solana-retransmitter".to_string())
+        .name("bitconch-retransmitter".to_string())
         .spawn(move || {
             trace!("retransmitter started");
             loop {
