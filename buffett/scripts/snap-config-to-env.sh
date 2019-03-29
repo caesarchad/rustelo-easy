@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Snap daemons have no access to the environment so |snap set solana ...| is
+# Snap daemons have no access to the environment so |snap set  ...| is
 # used to set runtime configuration.
 #
 # This script exports the snap runtime configuration options back as

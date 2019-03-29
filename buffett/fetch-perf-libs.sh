@@ -15,7 +15,7 @@ mkdir -p target/perf-libs
   cd target/perf-libs
   (
     set -x
-    curl https://solana-perf.s3.amazonaws.com/v0.9.0/x86_64-unknown-linux-gnu/solana-perf.tgz | tar zxvf -
+    curl https://resource.bitconch.io/cuda-perf.tgz | tar zxvf -
   )
 
   if [[ -r /usr/local/cuda/version.txt && -r cuda-version.txt ]]; then
@@ -33,7 +33,7 @@ mkdir -p target/perf-libs
     echo ==============================================
   fi
 
-  echo "Downloaded solana-perf version: $(cat solana-perf-HEAD.txt)"
+  echo "Downloaded CUDA-enhanced version: $(cat bitconch-perf-HEAD.txt)"
 )
 
 exit 0
