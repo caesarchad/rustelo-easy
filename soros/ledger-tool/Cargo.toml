@@ -1,22 +1,23 @@
 [package]
-authors = ["Bitconch Dev <info@bitconch.io>"]
+authors = ["Bitconch Dev Team"]
 edition = "2018"
-name = "bitconch-ledger-tool"
+name = "soros-ledger-tool"
 description = "Blockchain, Rebuilt for Scale"
-version = "0.12.0"
+version = "0.12.3"
 repository = "https://github.com/bitconch/bus"
 license = "Apache-2.0"
-homepage = "https://bitconch.io/"
+homepage = "https://bitconch.io"
 
 [dependencies]
 clap = "2.32.0"
-serde_json = "1.0.38"
-bitconch = { path = "..", version = "0.12.0" }
-bitconch-sdk = { path = "../sdk", version = "0.12.0" }
-bitconch-logger = { path = "../logger", version = "0.12.0" }
+serde_json = "1.0.39"
+soros = { path = "../core", version = "0.12.3" }
+soros-sdk = { path = "../sdk", version = "0.12.3" }
+soros-logger = { path = "../logger", version = "0.12.3" }
+soros-runtime = { path = "../runtime", version = "0.12.3" }
 
 [dev-dependencies]
 assert_cmd = "0.11"
 
 [features]
-cuda = ["bitconch/cuda"]
+cuda = ["soros/cuda"]

@@ -1,0 +1,31 @@
+[package]
+name = "soros-bpf-programs"
+description = "Blockchain, Rebuilt for Scale"
+version = "0.12.3"
+documentation = "https://docs.rs/bitconch"
+homepage = "https://bitconch.io"
+readme = "README.md"
+repository = "https://github.com/bitconch/bus"
+authors = ["Bitconch Dev Team"]
+license = "Apache-2.0"
+edition = "2018"
+
+[features]
+bpf_c = []
+bpf_rust = []
+
+[build-dependencies]
+walkdir = "2"
+
+[dependencies]
+bincode = "1.1.2"
+byteorder = "1.3.1"
+elf = "0.0.10"
+soros_rbpf = "=0.1.10"
+soros-bpfloader = { path = "../bpf_loader", version = "0.12.3" }
+soros-logger = { path = "../../logger", version = "0.12.3" }
+soros-runtime = { path = "../../runtime", version = "0.12.3" }
+soros-sdk = { path = "../../sdk", version = "0.12.3" }
+
+[[bench]]
+name = "bpf_loader"

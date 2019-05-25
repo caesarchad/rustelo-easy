@@ -1,15 +1,12 @@
 [package]
-name = "bitconch-netutil"
-version = "0.12.0"
+name = "soros-netutil"
+version = "0.12.3"
 description = "Bitconch Network Utilities"
-authors = ["Bitconch Dev <info@bitconch.io>"]
+authors = ["Bitconch Dev Team"]
 repository = "https://github.com/bitconch/bus"
 license = "Apache-2.0"
-homepage = "https://bitconch.io/"
+homepage = "https://bitconch.io"
 edition = "2018"
-
-[features]
-ipv6 = []
 
 [dependencies]
 log = "0.4.2"
@@ -21,7 +18,7 @@ reqwest = "0.9.0"
 socket2 = "0.3.8"
 
 [dev-dependencies]
-bitconch-logger = { path = "../logger", version = "0.12.0" }
+soros-logger = { path = "../logger", version = "0.12.3" }
 
 [lib]
-name = "bitconch_netutil"
+name = "soros_netutil"

@@ -8,7 +8,7 @@ echo "$(date) | $0 $*" > client.log
 deployMethod="$1"
 entrypointIp="$2"
 RUST_LOG="$3"
-export RUST_LOG=${RUST_LOG:-bitconch=info} # if RUST_LOG is unset, default to info
+export RUST_LOG=${RUST_LOG:-soros=info} # if RUST_LOG is unset, default to info
 
 missing() {
   echo "Error: $1 not specified"
@@ -27,12 +27,6 @@ if [[ $threadCount -gt 4 ]]; then
 fi
 
 case $deployMethod in
-snap)
-  net/scripts/rsync-retry.sh -vPrc "$entrypointIp:~/bitconch/bitconch.snap" .
-  sudo snap install bitconch.snap --devmode --dangerous
-
-  bitconch_bench_tps=/snap/bin/bitconch.bench-tps
-  ;;
 local|tar)
   PATH="$HOME"/.cargo/bin:"$PATH"
   export USE_INSTALL=1
@@ -41,8 +35,8 @@ local|tar)
   # shellcheck source=/dev/null
   source ./target/perf-libs/env.sh
 
-  net/scripts/rsync-retry.sh -vPrc "$entrypointIp:~/.cargo/bin/bitconch*" ~/.cargo/bin/
-  bitconch_bench_tps=bitconch-bench-tps
+  net/scripts/rsync-retry.sh -vPrc "$entrypointIp:~/.cargo/bin/soros*" ~/.cargo/bin/
+  soros_bench_tps=soros-bench-tps
   ;;
 *)
   echo "Unknown deployment method: $deployMethod"
@@ -57,15 +51,16 @@ scripts/net-stats.sh  > net-stats.log 2>&1 &
 ! tmux list-sessions || tmux kill-session
 
 clientCommand="\
-  $bitconch_bench_tps \
+  $soros_bench_tps \
     --network $entrypointIp:8001 \
     --drone $entrypointIp:9900 \
     --duration 7500 \
     --sustained \
     --threads $threadCount \
+    --tx_count 10000 \
 "
 
-tmux new -s bitconch-bench-tps -d "
+tmux new -s soros-bench-tps -d "
   while true; do
     echo === Client start: \$(date) | tee -a client.log
     $metricsWriteDatapoint 'testnet-deploy client-begin=1'
@@ -75,4 +70,4 @@ tmux new -s bitconch-bench-tps -d "
   done
 "
 sleep 1
-tmux capture-pane -t bitconch-bench-tps -p -S -100
+tmux capture-pane -t soros-bench-tps -p -S -100

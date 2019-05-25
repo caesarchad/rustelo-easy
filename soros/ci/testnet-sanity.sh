@@ -19,7 +19,7 @@ Sanity check a CD testnet
   cloud - cloud provider to use (gce, ec2)
   zone  - cloud provider zone of the network
 
-  Note: the BITCONCH_METRICS_CONFIG environment variable is used to configure
+  Note: the SOROS_METRICS_CONFIG environment variable is used to configure
         metrics
 EOF
   exit $exitcode

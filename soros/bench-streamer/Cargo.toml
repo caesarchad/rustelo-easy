@@ -1,17 +1,17 @@
 [package]
-authors = ["Bitconch Dev <info@bitconch.io>"]
+authors = ["Bitconch Dev Team"]
 edition = "2018"
-name = "bitconch-bench-streamer"
-version = "0.12.0"
+name = "soros-bench-streamer"
+version = "0.12.3"
 repository = "https://github.com/bitconch/bus"
 license = "Apache-2.0"
-homepage = "https://bitconch.io/"
+homepage = "https://bitconch.io"
 
 [dependencies]
 clap = "2.32.0"
-bitconch = { path = "..", version = "0.12.0" }
-bitconch-logger = { path = "../logger", version = "0.12.0" }
-bitconch-netutil = { path = "../netutil", version = "0.12.0" }
+soros = { path = "../core", version = "0.12.3" }
+soros-logger = { path = "../logger", version = "0.12.3" }
+soros-netutil = { path = "../netutil", version = "0.12.3" }
 
 [features]
-cuda = ["bitconch/cuda"]
+cuda = ["soros/cuda"]

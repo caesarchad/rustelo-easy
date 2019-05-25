@@ -55,7 +55,7 @@ while getopts "ch?i:k:brxR" opt; do
     restartInterval=$OPTARG
     ;;
   b)
-    maybeNoLeaderRotation="--no-leader-rotation"
+    maybeNoLeaderRotation="--only-bootstrap-stake"
     ;;
   x)
     extraNodes=$((extraNodes + 1))
@@ -79,9 +79,11 @@ nodes=(
   "multinode-demo/drone.sh"
   "multinode-demo/bootstrap-leader.sh \
     $maybeNoLeaderRotation \
+    --enable-rpc-exit \
     --init-complete-file init-complete-node1.log"
   "multinode-demo/fullnode.sh \
     $maybeNoLeaderRotation \
+    --enable-rpc-exit \
     --init-complete-file init-complete-node2.log \
     --rpc-port 18899"
 )
@@ -177,6 +179,24 @@ killNode() {
 }
 
 killNodes() {
+  [[ ${#pids[@]} -gt 0 ]] || return
+
+  # Try to use the RPC exit API to cleanly exit the first two nodes
+  # (dynamic nodes, -x, are just killed since their RPC port is not known)
+  echo "--- RPC exit"
+  for port in 8899 18899; do
+    (
+      set -x
+      curl --retry 5 --retry-delay 2 --retry-connrefused \
+        -X POST -H 'Content-Type: application/json' \
+        -d '{"jsonrpc":"2.0","id":1, "method":"fullnodeExit"}' \
+        http://localhost:$port
+    )
+  done
+
+  # Give the nodes a splash of time to cleanly exit before killing them
+  sleep 2
+
   echo "--- Killing nodes"
   for pid in "${pids[@]}"; do
     killNode "$pid"
@@ -240,7 +260,7 @@ verifyLedger() {
     (
       source multinode-demo/common.sh
       set -x
-      $bitconch_ledger_tool --ledger "$BITCONCH_CONFIG_DIR"/$ledger-ledger verify
+      $soros_ledger_tool --ledger "$SOROS_CONFIG_DIR"/$ledger-ledger verify
     ) || flag_error
   done
 }
@@ -286,8 +306,8 @@ while [[ $iteration -le $iterations ]]; do
     source multinode-demo/common.sh
     set -x
     client_id=/tmp/client-id.json-$$
-    $bitconch_keygen -o $client_id || exit $?
-    $bitconch_bench_tps \
+    $soros_keygen -o $client_id || exit $?
+    $soros_bench_tps \
       --identity $client_id \
       --num-nodes $numNodes \
       --reject-extra-nodes \
@@ -350,15 +370,6 @@ while [[ $iteration -le $iterations ]]; do
     # shellcheck disable=SC2086 # Don't want to double quote $walletRpcEndpoint
     timeout 60s scripts/wallet-sanity.sh $walletRpcEndpoint
   ) || flag_error_if_no_leader_rotation
-
-  echo "--- RPC API: bootstrap-leader getConfirmationTime ($iteration)"
-  (
-    set -x
-    curl --retry 5 --retry-delay 2 --retry-connrefused \
-      -X POST -H 'Content-Type: application/json' \
-      -d '{"jsonrpc":"2.0","id":1, "method":"getConfirmationTime"}' \
-      http://localhost:8899
-  ) || flag_error
 
   iteration=$((iteration + 1))
 

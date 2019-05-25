@@ -7,7 +7,7 @@ export CI_BUILD_START
 #
 (
   containers=$(docker ps -q)
-  if [[ $(hostname) != metrics-bitconch-com && -n $containers ]]; then
+  if [[ $(hostname) != metrics-soros-com && -n $containers ]]; then
     echo "+++ Killing stale docker containers"
     docker ps
 

@@ -1,5 +1,5 @@
 use clap::{crate_version, App, Arg};
-use bitconch_vote_signer::rpc::VoteSignerRpcService;
+use soros_vote_signer::rpc::VoteSignerRpcService;
 use std::error;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::AtomicBool;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 pub const RPC_PORT: u16 = 8989;
 
 fn main() -> Result<(), Box<error::Error>> {
-    bitconch_metrics::set_panic_hook("vote-signer");
+    soros_metrics::set_panic_hook("vote-signer");
 
     let matches = App::new("vote-signer")
         .version(crate_version!())
@@ -31,10 +31,9 @@ fn main() -> Result<(), Box<error::Error>> {
     let exit = Arc::new(AtomicBool::new(false));
     let service = VoteSignerRpcService::new(
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port),
-        exit,
+        &exit,
     );
 
     service.join().unwrap();
-
     Ok(())
 }

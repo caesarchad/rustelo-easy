@@ -10,7 +10,7 @@ echo --- create book repo
   set -x
   cd book/html/
   git init .
-  git config user.email "maintainers@bitconch.com"
+  git config user.email "dev@bitconch.io"
   git config user.name "$(basename "$0")"
   git add ./* ./.nojekyll
   git commit -m "${BUILDKITE_COMMIT:-local}"
@@ -20,10 +20,10 @@ eval "$(ci/channel-info.sh)"
 # Only publish the book from the edge and beta channels for now.
 case $CHANNEL in
 edge)
-  repo=git@github.com:bitconch-labs/book-edge.git
+  repo=git@github.com:bitconch/book-edge.git
   ;;
 beta)
-  repo=git@github.com:bitconch-labs/book.git
+  repo=git@github.com:bitconch/book.git
   ;;
 *)
  echo "--- publish skipped"

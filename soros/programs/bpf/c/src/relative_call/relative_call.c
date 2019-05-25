@@ -2,7 +2,7 @@
  * @brief test program that generates BPF PC relative call instructions
  */
 
-#include <bitconch_sdk.h>
+#include <soros_sdk.h>
 
 void __attribute__ ((noinline)) helper() {
   sol_log(__func__);

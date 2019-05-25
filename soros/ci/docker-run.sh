@@ -36,8 +36,8 @@ $NOPULL || docker pull "$IMAGE"
 shift
 
 ARGS=(
-  --workdir /bitconch
-  --volume "$PWD:/bitconch"
+  --workdir /soros
+  --volume "$PWD:/soros"
   --rm
 )
 
@@ -56,7 +56,7 @@ ARGS+=(--env "CARGO_HOME=/home/.cargo")
 ARGS+=(--security-opt "seccomp=unconfined")
 
 # Ensure files are created with the current host uid/gid
-if [[ -z "$BITCONCH_DOCKER_RUN_NOSETUID" ]]; then
+if [[ -z "$SOROS_DOCKER_RUN_NOSETUID" ]]; then
   ARGS+=(--user "$(id -u):$(id -g)")
 fi
 
@@ -71,7 +71,6 @@ ARGS+=(
   --env CI
   --env CODECOV_TOKEN
   --env CRATES_IO_TOKEN
-  --env SNAPCRAFT_CREDENTIALS_KEY
 )
 
 if $INTERACTIVE; then

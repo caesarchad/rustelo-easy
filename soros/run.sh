@@ -11,7 +11,7 @@ set -e
 PATH=$PWD/target/debug:$PATH
 
 ok=true
-for program in bitconch-{genesis,keygen,fullnode{,-config}}; do
+for program in soros-{genesis,keygen,fullnode}; do
   $program -V || ok=false
 done
 $ok || {
@@ -23,10 +23,10 @@ $ok || {
   exit 1
 }
 
-entryStreamSocket=/tmp/bitconch-blockstream.sock
+blockstreamSocket=/tmp/soros-blockstream.sock # Default to location used by the block explorer
 while [[ -n $1 ]]; do
-  if [[ $1 = --entry-stream ]]; then
-    entryStreamSocket=$2
+  if [[ $1 = --blockstream ]]; then
+    blockstreamSocket=$2
     shift 2
   else
     echo "Unknown argument: $1"
@@ -34,40 +34,64 @@ while [[ -n $1 ]]; do
   fi
 done
 
-export RUST_LOG=${RUST_LOG:-bitconch=info} # if RUST_LOG is unset, default to info
+export RUST_LOG=${RUST_LOG:-soros=info} # if RUST_LOG is unset, default to info
 export RUST_BACKTRACE=1
 dataDir=$PWD/target/"$(basename "$0" .sh)"
 
 set -x
-bitconch-keygen -o "$dataDir"/config/leader-keypair.json
-bitconch-keygen -o "$dataDir"/config/drone-keypair.json
+soros-keygen -o "$dataDir"/config/leader-keypair.json
+soros-keygen -o "$dataDir"/config/leader-staking-account-keypair.json
+soros-keygen -o "$dataDir"/config/drone-keypair.json
 
-bitconch-fullnode-config \
-  --keypair="$dataDir"/config/leader-keypair.json -l > "$dataDir"/config/leader-config.json
-bitconch-genesis \
-  --num_tokens 1000000000 \
+leaderPubkey=$(\
+  soros-wallet \
+    --keypair "$dataDir"/config/leader-keypair.json  \
+    address \
+)
+leaderStakingAccountPubkey=$(\
+  soros-wallet \
+    --keypair "$dataDir"/config/leader-staking-account-keypair.json  \
+    address \
+)
+
+soros-genesis \
+  --lamports 1000000000 \
   --mint "$dataDir"/config/drone-keypair.json \
   --bootstrap-leader-keypair "$dataDir"/config/leader-keypair.json \
   --ledger "$dataDir"/ledger
 
-bitconch-drone --keypair "$dataDir"/config/drone-keypair.json &
+soros-drone --keypair "$dataDir"/config/drone-keypair.json &
 drone=$!
 
 args=(
-  --identity "$dataDir"/config/leader-config.json
+  --identity "$dataDir"/config/leader-keypair.json
+  --voting-keypair "$dataDir"/config/leader-staking-account-keypair.json
+  --staking-account "$leaderStakingAccountPubkey"
   --ledger "$dataDir"/ledger/
   --rpc-port 8899
+  --rpc-drone-address 127.0.0.1:9900
 )
-if [[ -n $entryStreamSocket ]]; then
-  args+=(--entry-stream "$entryStreamSocket")
+if [[ -n $blockstreamSocket ]]; then
+  args+=(--blockstream "$blockstreamSocket")
 fi
-bitconch-fullnode "${args[@]}" &
+soros-fullnode "${args[@]}" &
 fullnode=$!
 
 abort() {
+  set +e
   kill "$drone" "$fullnode"
 }
+trap abort INT TERM EXIT
 
-trap abort SIGINT SIGTERM
+soros-wallet --keypair "$dataDir"/config/leader-keypair.json airdrop 42
+soros-wallet \
+  --keypair "$dataDir"/config/leader-keypair.json  \
+  create-staking-account "$leaderStakingAccountPubkey" 42
+soros-wallet \
+  --keypair "$dataDir"/config/leader-staking-account-keypair.json  \
+  configure-staking-account \
+  --delegate-account "$leaderPubkey" \
+  --authorize-voter "$leaderStakingAccountPubkey"
+soros-wallet --keypair "$dataDir"/config/leader-keypair.json balance
+
 wait "$fullnode"
-kill "$drone" "$fullnode"

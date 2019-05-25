@@ -1,7 +1,7 @@
 use serde_json;
 use serde_json::Value;
-use bitconch_metrics;
-use bitconch_metrics::influxdb;
+use soros_metrics;
+use soros_metrics::influxdb;
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
@@ -14,7 +14,7 @@ fn get_last_metrics(metric: &str, db: &str, name: &str, branch: &str) -> Result<
         metric, db, name, branch
     );
 
-    let response = bitconch_metrics::query(&query)?;
+    let response = soros_metrics::query(&query)?;
 
     match serde_json::from_str(&response) {
         Result::Ok(v) => {
@@ -66,7 +66,7 @@ fn main() {
                 let median = v["median"].to_string().parse().unwrap();
                 let deviation = v["deviation"].to_string().parse().unwrap();
                 if upload_metrics {
-                    bitconch_metrics::submit(
+                    soros_metrics::submit(
                         influxdb::Point::new(&v["name"].as_str().unwrap().trim_matches('\"'))
                             .add_tag("test", influxdb::Value::String("bench".to_string()))
                             .add_tag("branch", influxdb::Value::String(branch.to_string()))
@@ -101,9 +101,9 @@ fn main() {
                 "{}, {:#10?}, {:#10?}, {:#10?}, {:#10?}",
                 entry,
                 values.0,
-                values.2.parse::<i32>().unwrap(),
+                values.2.parse::<i32>().unwrap_or_default(),
                 values.1,
-                values.3.parse::<i32>().unwrap(),
+                values.3.parse::<i32>().unwrap_or_default(),
             );
         }
     } else {
@@ -114,5 +114,5 @@ fn main() {
             println!("{}, {:10?}, {:10?}", entry, values.0, values.1);
         }
     }
-    bitconch_metrics::flush();
+    soros_metrics::flush();
 }

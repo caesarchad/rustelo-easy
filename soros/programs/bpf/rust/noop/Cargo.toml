@@ -1,17 +1,25 @@
 
-# Note: This crate must be built using the makefile, try `make help` instead of `cargo build`
+# Note: This crate must be built using build.sh
 
 [package]
-name = "bitconch-bpf-rust-noop"
-version = "0.12.0"
+name = "soros-bpf-rust-noop"
+version = "0.12.3"
 description = "Bitconch BPF noop program written in Rust"
-authors = ["Bitconch Dev <info@bitconch.io>"]
+authors = ["Bitconch Dev Team"]
 repository = "https://github.com/bitconch/bus"
 license = "Apache-2.0"
-homepage = "https://bitconch.io/"
+homepage = "https://bitconch.io"
 
 [dependencies]
-heapless = { version = "0.4.0", default-features = false }
+# byteorder = { version = "1.3.1", default-features = false }
+# heapless = { version = "0.4.0", default-features = false }
+# byte = { version = "0.2", default-features = false }
 
 [workspace]
 members = []
+
+[lib]
+name = "soros_bpf_rust_noop"
+crate-type = ["cdylib"]
+
+

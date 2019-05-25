@@ -52,12 +52,12 @@ or
 $ ./ec2.sh create -P ...
 ```
 
-### Deploying a Snap-based network
-To deploy the latest pre-built `edge` channel Snap (ie, latest from the `master`
+### Deploying a tarball-based network
+To deploy the latest pre-built `edge` channel tarball (ie, latest from the `master`
 branch), once the testnet has been created run:
 
 ```bash
-$ ./net.sh start -s edge
+$ ./net.sh start -t edge
 ```
 
 ### Enabling CUDA
@@ -70,7 +70,7 @@ or
 $ ./ec2.sh create -g ...
 ```
 
-If deploying a Snap-based network nothing further is required, as GPU presence
+If deploying a tarball-based network nothing further is required, as GPU presence
 is detected at runtime and the CUDA build is auto selected.
 
 If deploying a locally-built network, first run `./fetch-perf-libs.sh` then
@@ -81,17 +81,17 @@ $ ./net.sh start -f "cuda,erasure"
 
 ### How to interact with a CD testnet deployed by ci/testnet-deploy.sh
 
-**AWS-Specific Extra Setup**: Follow the steps in `scripts/add-bitconch-user-authorized_keys.sh`,
+**AWS-Specific Extra Setup**: Follow the steps in `scripts/add-soros-user-authorized_keys.sh`,
 then redeploy the testnet before continuing in this section.
 
-Taking **master-testnet-bitconch-com** as an example, configure your workspace for
+Taking **master-testnet-soros-com** as an example, configure your workspace for
 the testnet using:
 ```bash
-$ ./gce.sh config -p master-testnet-bitconch-com
+$ ./gce.sh config -p master-testnet-soros-com
 ```
 or
 ```bash
-$ ./ec2.sh config -p master-testnet-bitconch-com
+$ ./ec2.sh config -p master-testnet-soros-com
 ```
 
 Then run the following for details on how to ssh into any testnet node to access logs or otherwise inspect the node

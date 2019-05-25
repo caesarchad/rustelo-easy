@@ -21,7 +21,6 @@ ci/affects-files.sh \
 }
 
 source ci/upload-ci-artifact.sh
-ci/version-check-with-upgrade.sh nightly
 source scripts/ulimit-n.sh
 
 scripts/coverage.sh
@@ -40,5 +39,5 @@ else
   bash <(curl -s https://codecov.io/bash) -X gcov -f target/cov/lcov.info
 
   annotate --style success --context codecov.io \
-    "CodeCov report: https://codecov.io/github/bitconch-labs/bitconch/commit/${BUILDKITE_COMMIT:0:9}"
+    "CodeCov report: https://codecov.io/github/bitconch/soros/commit/${BUILDKITE_COMMIT:0:9}"
 fi

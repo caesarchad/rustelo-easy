@@ -1,15 +1,15 @@
 [package]
-name = "bitconch-logger"
-version = "0.12.0"
+name = "soros-logger"
+version = "0.12.3"
 description = "Bitconch Logger"
-authors = ["Bitconch Dev <info@bitconch.io>"]
+authors = ["Bitconch Dev Team"]
 repository = "https://github.com/bitconch/bus"
 license = "Apache-2.0"
-homepage = "https://bitconch.io/"
+homepage = "https://bitconch.io"
 edition = "2018"
 
 [dependencies]
-env_logger = "0.6.0"
+env_logger = "0.6.1"
 
 [lib]
-name = "bitconch_logger"
+name = "soros_logger"

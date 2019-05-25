@@ -1,22 +1,22 @@
 [package]
-name = "bitconch-keygen"
-version = "0.12.0"
+name = "soros-keygen"
+version = "0.12.3"
 description = "Bitconch key generation utility"
-authors = ["Bitconch Dev <info@bitconch.io>"]
+authors = ["Bitconch Dev Team"]
 repository = "https://github.com/bitconch/bus"
 license = "Apache-2.0"
-homepage = "https://bitconch.io/"
+homepage = "https://bitconch.io"
 edition = "2018"
 
 [features]
 cuda = []
 
 [dependencies]
-dirs = "1.0.2"
+dirs = "1.0.5"
 clap = "2.31"
-bitconch-sdk = { path = "../sdk", version = "0.12.0" }
+soros-sdk = { path = "../sdk", version = "0.12.3" }
 
 [[bin]]
-name = "bitconch-keygen"
+name = "soros-keygen"
 path = "src/keygen.rs"
 

@@ -51,25 +51,12 @@ while [[ $1 = -o ]]; do
 done
 
 RUST_LOG="$1"
-export RUST_LOG=${RUST_LOG:-bitconch=info} # if RUST_LOG is unset, default to info
+export RUST_LOG=${RUST_LOG:-soros=info} # if RUST_LOG is unset, default to info
 
 source net/common.sh
 loadConfigFile
 
 case $deployMethod in
-snap)
-  PATH="/snap/bin:$PATH"
-  export USE_SNAP=1
-  entrypointRsyncUrl="$entrypointIp"
-
-  bitconch_bench_tps=bitconch.bench-tps
-  bitconch_ledger_tool=bitconch.ledger-tool
-  bitconch_keygen=bitconch.keygen
-
-  ledger=/var/snap/bitconch/current/config-local/bootstrap-leader-ledger
-  client_id=~/snap/bitconch/current/config/client-id.json
-
-  ;;
 local|tar)
   PATH="$HOME"/.cargo/bin:"$PATH"
   export USE_INSTALL=1
@@ -78,14 +65,14 @@ local|tar)
     source target/perf-libs/env.sh
   fi
 
-  entrypointRsyncUrl="$entrypointIp:~/bitconch"
+  entrypointRsyncUrl="$entrypointIp:~/soros"
 
-  bitconch_bench_tps=bitconch-bench-tps
-  bitconch_ledger_tool=bitconch-ledger-tool
-  bitconch_keygen=bitconch-keygen
+  soros_bench_tps=soros-bench-tps
+  soros_ledger_tool=soros-ledger-tool
+  soros_keygen=soros-keygen
 
   ledger=config-local/bootstrap-leader-ledger
-  client_id=config/client-id.json
+  client_id=config-local/client-id.json
   ;;
 *)
   echo "Unknown deployment method: $deployMethod"
@@ -95,14 +82,14 @@ esac
 echo "+++ $entrypointIp: node count ($numNodes expected)"
 (
   set -x
-  $bitconch_keygen -o "$client_id"
+  $soros_keygen -o "$client_id"
 
   maybeRejectExtraNodes=
   if $rejectExtraNodes; then
     maybeRejectExtraNodes="--reject-extra-nodes"
   fi
 
-  timeout 2m $bitconch_bench_tps \
+  timeout 2m $soros_bench_tps \
     --network "$entrypointIp:8001" \
     --drone "$entrypointIp:9900" \
     --identity "$client_id" \
@@ -134,7 +121,7 @@ if $ledgerVerify; then
       rm -rf /var/tmp/ledger-verify
       du -hs "$ledger"
       time cp -r "$ledger" /var/tmp/ledger-verify
-      time $bitconch_ledger_tool --ledger /var/tmp/ledger-verify verify
+      time $soros_ledger_tool --ledger /var/tmp/ledger-verify verify
     )
   else
     echo "^^^ +++"

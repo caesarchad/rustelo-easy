@@ -1,0 +1,22 @@
+[package]
+name = "soros-token-program"
+version = "0.12.3"
+description = "Bitconch token program"
+authors = ["Bitconch Dev Team"]
+repository = "https://github.com/bitconch/bus"
+license = "Apache-2.0"
+homepage = "https://bitconch.io"
+edition = "2018"
+
+[dependencies]
+bincode = "1.1.2"
+log = "0.4.2"
+serde = "1.0.89"
+serde_derive = "1.0.89"
+soros-logger = { path = "../../logger", version = "0.12.3" }
+soros-sdk = { path = "../../sdk", version = "0.12.3" }
+
+[lib]
+name = "soros_token_program"
+crate-type = ["cdylib"]
+

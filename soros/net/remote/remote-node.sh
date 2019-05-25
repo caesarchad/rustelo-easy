@@ -13,7 +13,7 @@ RUST_LOG="$6"
 skipSetup="$7"
 leaderRotation="$8"
 set +x
-export RUST_LOG=${RUST_LOG:-bitconch=warn} # if RUST_LOG is unset, default to warn
+export RUST_LOG=${RUST_LOG:-soros=warn} # if RUST_LOG is unset, default to warn
 
 missing() {
   echo "Error: $1 not specified"
@@ -38,99 +38,18 @@ EOF
 source net/common.sh
 loadConfigFile
 
-if [[ $publicNetwork = true ]]; then
-  setupArgs="-p"
-else
-  setupArgs="-l"
-fi
-
 case $deployMethod in
-snap)
-  SECONDS=0
-
-  if [[ $skipSetup = true ]]; then
-    for configDir in /var/snap/bitconch/current/config{,-local}; do
-      if [[ ! -d $configDir ]]; then
-        echo Error: not a directory: $configDir
-        exit 1
-      fi
-    done
-    (
-      set -x
-      sudo rm -rf /saved-node-config
-      sudo mkdir /saved-node-config
-      sudo mv /var/snap/bitconch/current/config{,-local} /saved-node-config
-    )
-  fi
-
-  [[ $nodeType = bootstrap-leader ]] ||
-    net/scripts/rsync-retry.sh -vPrc "$entrypointIp:~/bitconch/bitconch.snap" .
-  if snap list bitconch; then
-    sudo snap remove bitconch
-  fi
-  sudo snap install bitconch.snap --devmode --dangerous
-
-  if [[ $skipSetup = true ]]; then
-    (
-      set -x
-      sudo rm -rf /var/snap/bitconch/current/config{,-local}
-      sudo mv /saved-node-config/* /var/snap/bitconch/current/
-      sudo rm -rf /saved-node-config
-    )
-  fi
-
-  # shellcheck disable=SC2089
-  commonNodeConfig="\
-    entrypoint-ip=\"$entrypointIp\" \
-    metrics-config=\"$BITCONCH_METRICS_CONFIG\" \
-    rust-log=\"$RUST_LOG\" \
-    setup-args=\"$setupArgs\" \
-    skip-setup=$skipSetup \
-    leader-rotation=\"$leaderRotation\" \
-  "
-
-  if [[ -e /dev/nvidia0 ]]; then
-    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    echo
-    echo "WARNING: GPU detected by snap builds to not support CUDA."
-    echo "         Consider using instances with a GPU to reduce cost."
-    echo
-    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  fi
-
-  if [[ $nodeType = bootstrap-leader ]]; then
-    nodeConfig="mode=bootstrap-leader+drone $commonNodeConfig"
-    ln -sf -T /var/snap/bitconch/current/bootstrap-leader/current fullnode.log
-    ln -sf -T /var/snap/bitconch/current/drone/current drone.log
-  else
-    nodeConfig="mode=fullnode $commonNodeConfig"
-    ln -sf -T /var/snap/bitconch/current/fullnode/current fullnode.log
-  fi
-
-  logmarker="bitconch deploy $(date)/$RANDOM"
-  logger "$logmarker"
-
-  # shellcheck disable=SC2086,SC2090 # Don't want to double quote "$nodeConfig"
-  sudo snap set bitconch $nodeConfig
-  snap info bitconch
-  sudo snap get bitconch
-  echo Slight delay to get more syslog output
-  sleep 2
-  sudo grep -Pzo "$logmarker(.|\\n)*" /var/log/syslog
-
-  echo "Succeeded in ${SECONDS} seconds"
-  ;;
 local|tar)
   PATH="$HOME"/.cargo/bin:"$PATH"
   export USE_INSTALL=1
   export RUST_LOG
-  export BITCONCH_METRICS_DISPLAY_HOSTNAME=1
+  export SOROS_METRICS_DISPLAY_HOSTNAME=1
 
-  # Setup `/var/snap/bitconch/current` symlink so rsyncing the genesis
+  # Setup `/var/snap/soros/current` symlink so rsyncing the genesis
   # ledger works (reference: `net/scripts/install-rsync.sh`)
-  sudo rm -rf /var/snap/bitconch/current
-  sudo mkdir -p /var/snap/bitconch
-  sudo ln -sT /home/bitconch/bitconch /var/snap/bitconch/current
+  sudo rm -rf /var/snap/soros/current
+  sudo mkdir -p /var/snap/soros
+  sudo ln -sT /home/soros/soros /var/snap/soros/current
 
   ./fetch-perf-libs.sh
   # shellcheck source=/dev/null
@@ -143,39 +62,85 @@ local|tar)
   scripts/net-stats.sh  > net-stats.log 2>&1 &
   echo $! > net-stats.pid
 
-  maybeNoLeaderRotation=
-  if ! $leaderRotation; then
-    maybeNoLeaderRotation="--no-leader-rotation"
-  fi
-
-
   case $nodeType in
   bootstrap-leader)
-    if [[ -e /dev/nvidia0 && -x ~/.cargo/bin/bitconch-fullnode-cuda ]]; then
-      echo Selecting bitconch-fullnode-cuda
-      export BITCONCH_CUDA=1
+    if [[ -e /dev/nvidia0 && -x ~/.cargo/bin/soros-fullnode-cuda ]]; then
+      echo Selecting soros-fullnode-cuda
+      export SOROS_CUDA=1
     fi
     set -x
     if [[ $skipSetup != true ]]; then
-      ./multinode-demo/setup.sh -t bootstrap-leader $setupArgs
+      ./multinode-demo/setup.sh -t bootstrap-leader
     fi
     ./multinode-demo/drone.sh > drone.log 2>&1 &
-    ./multinode-demo/bootstrap-leader.sh $maybeNoLeaderRotation > bootstrap-leader.log 2>&1 &
+
+    maybeNoLeaderRotation=
+    if ! $leaderRotation; then
+      maybeNoLeaderRotation="--only-bootstrap-stake"
+    fi
+    maybePublicAddress=
+    if $publicNetwork; then
+      maybePublicAddress="--public-address"
+    fi
+
+    ./multinode-demo/bootstrap-leader.sh $maybeNoLeaderRotation $maybePublicAddress > bootstrap-leader.log 2>&1 &
     ln -sTf bootstrap-leader.log fullnode.log
     ;;
-  fullnode)
+  fullnode|blockstreamer)
     net/scripts/rsync-retry.sh -vPrc "$entrypointIp":~/.cargo/bin/ ~/.cargo/bin/
 
-    if [[ -e /dev/nvidia0 && -x ~/.cargo/bin/bitconch-fullnode-cuda ]]; then
-      echo Selecting bitconch-fullnode-cuda
-      export BITCONCH_CUDA=1
+    if [[ -e /dev/nvidia0 && -x ~/.cargo/bin/soros-fullnode-cuda ]]; then
+      echo Selecting soros-fullnode-cuda
+      export SOROS_CUDA=1
     fi
+
+    args=()
+    if ! $leaderRotation; then
+      args+=("--only-bootstrap-stake")
+    fi
+    if $publicNetwork; then
+      args+=("--public-address")
+    fi
+    if [[ $nodeType = blockstreamer ]]; then
+      args+=(
+        --blockstream /tmp/soros-blockstream.sock
+        --no-voting
+      )
+    fi
+
+    args+=(
+      --gossip-port 8001
+      --rpc-port 8899
+    )
 
     set -x
     if [[ $skipSetup != true ]]; then
-      ./multinode-demo/setup.sh -t fullnode $setupArgs
+      ./multinode-demo/setup.sh -t fullnode
     fi
-    ./multinode-demo/fullnode.sh $maybeNoLeaderRotation "$entrypointIp":~/bitconch "$entrypointIp:8001" > fullnode.log 2>&1 &
+
+    if [[ $nodeType = blockstreamer ]]; then
+      # Sneak the mint-id.json from the bootstrap leader and run another drone
+      # with it on the blockstreamer node.  Typically the blockstreamer node has
+      # a static IP/DNS name for hosting the blockexplorer web app, and is
+      # a location that somebody would expect to be able to airdrop from
+      scp "$entrypointIp":~/soros/config-local/mint-id.json config-local/
+      ./multinode-demo/drone.sh > drone.log 2>&1 &
+
+      npm install @bitconch/bus-explorer@1
+      npx bus-explorer > blockexplorer.log 2>&1 &
+
+      # Confirm the blockexplorer is accessible
+      curl --head --retry 3 --retry-connrefused http://localhost:5000/
+
+      # Redirect port 80 to port 5000
+      sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+      sudo iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
+      sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -j REDIRECT --to-port 5000
+
+      # Confirm the blockexplorer is now globally accessible
+      curl --head "$(curl ifconfig.io)"
+    fi
+    ./multinode-demo/fullnode.sh "${args[@]}" "$entrypointIp":~/soros "$entrypointIp:8001" > fullnode.log 2>&1 &
     ;;
   *)
     echo "Error: unknown node type: $nodeType"

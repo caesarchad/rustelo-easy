@@ -20,7 +20,7 @@ apt-get update
 apt-get install -y docker-ce
 docker run hello-world
 
-# Grant the bitconch user access to docker
-if id bitconch; then
-  addgroup bitconch docker
+# Grant the soros user access to docker
+if id soros; then
+  addgroup soros docker
 fi

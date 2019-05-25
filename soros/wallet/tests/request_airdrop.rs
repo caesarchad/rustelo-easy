@@ -1,15 +1,14 @@
-use bitconch::rpc_request::RpcClient;
-use bitconch::thin_client::new_fullnode;
-use bitconch_drone::drone::run_local_drone;
-use bitconch_sdk::signature::KeypairUtil;
-use bitconch_wallet::wallet::{process_command, WalletCommand, WalletConfig};
+use soros::fullnode::new_fullnode_for_tests;
+use soros_client::rpc_request::RpcClient;
+use soros_drone::drone::run_local_drone;
+use soros_sdk::signature::KeypairUtil;
+use soros_wallet::wallet::{process_command, WalletCommand, WalletConfig};
 use std::fs::remove_dir_all;
 use std::sync::mpsc::channel;
 
 #[test]
 fn test_wallet_request_airdrop() {
-    let (server, leader_data, alice, ledger_path) = new_fullnode("test_wallet_request_airdrop");
-    let server_exit = server.run(None);
+    let (server, leader_data, alice, ledger_path) = new_fullnode_for_tests();
     let (sender, receiver) = channel();
     run_local_drone(alice, sender);
     let drone_addr = receiver.recv().unwrap();
@@ -25,11 +24,11 @@ fn test_wallet_request_airdrop() {
     let rpc_client = RpcClient::new_from_socket(leader_data.rpc);
 
     let balance = rpc_client
-        .retry_get_balance(1, bob_config.id.pubkey(), 1)
+        .retry_get_balance(1, &bob_config.id.pubkey(), 1)
         .unwrap()
         .unwrap();
     assert_eq!(balance, 50);
 
-    server_exit();
+    server.close().unwrap();
     remove_dir_all(ledger_path).unwrap();
 }

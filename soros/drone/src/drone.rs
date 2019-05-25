@@ -1,5 +1,5 @@
 //! The `drone` module provides an object for launching a Bitconch Drone,
-//! which is the custodian of any remaining tokens in a mint.
+//! which is the custodian of any remaining lamports in a mint.
 //! The Bitconch Drone builds and send airdrop transactions,
 //! checking requests against a request cap for a given time time_slice
 //! and (to come) an IP rate limit.
@@ -9,15 +9,15 @@ use byteorder::{ByteOrder, LittleEndian};
 use bytes::{Bytes, BytesMut};
 use log::*;
 use serde_derive::{Deserialize, Serialize};
-use bitconch_metrics;
-use bitconch_metrics::influxdb;
-use bitconch_sdk::hash::Hash;
-use bitconch_sdk::packet::PACKET_DATA_SIZE;
-use bitconch_sdk::pubkey::Pubkey;
-use bitconch_sdk::signature::Keypair;
-use bitconch_sdk::system_instruction::SystemInstruction;
-use bitconch_sdk::system_program;
-use bitconch_sdk::transaction::Transaction;
+use soros_metrics;
+use soros_metrics::influxdb;
+use soros_sdk::hash::Hash;
+use soros_sdk::packet::PACKET_DATA_SIZE;
+use soros_sdk::pubkey::Pubkey;
+use soros_sdk::signature::Keypair;
+use soros_sdk::system_instruction::SystemInstruction;
+use soros_sdk::system_program;
+use soros_sdk::transaction::Transaction;
 use std::io;
 use std::io::{Error, ErrorKind};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
@@ -27,7 +27,7 @@ use std::thread;
 use std::time::Duration;
 use tokio;
 use tokio::net::TcpListener;
-use tokio::prelude::*;
+use tokio::prelude::{Future, Read, Sink, Stream, Write};
 use tokio_codec::{BytesCodec, Decoder};
 
 #[macro_export]
@@ -48,9 +48,9 @@ pub const DRONE_PORT: u16 = 9900;
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum DroneRequest {
     GetAirdrop {
-        tokens: u64,
+        lamports: u64,
         to: Pubkey,
-        last_id: Hash,
+        blockhash: Hash,
     },
 }
 
@@ -108,16 +108,16 @@ impl Drone {
         trace!("build_airdrop_transaction: {:?}", req);
         match req {
             DroneRequest::GetAirdrop {
-                tokens,
+                lamports,
                 to,
-                last_id,
+                blockhash,
             } => {
-                if self.check_request_limit(tokens) {
-                    self.request_current += tokens;
-                    bitconch_metrics::submit(
+                if self.check_request_limit(lamports) {
+                    self.request_current += lamports;
+                    soros_metrics::submit(
                         influxdb::Point::new("drone")
                             .add_tag("op", influxdb::Value::String("airdrop".to_string()))
-                            .add_field("request_amount", influxdb::Value::Integer(tokens as i64))
+                            .add_field("request_amount", influxdb::Value::Integer(lamports as i64))
                             .add_field(
                                 "request_current",
                                 influxdb::Value::Integer(self.request_current as i64),
@@ -125,23 +125,23 @@ impl Drone {
                             .to_owned(),
                     );
 
-                    info!("Requesting airdrop of {} to {:?}", tokens, to);
+                    info!("Requesting airdrop of {} to {:?}", lamports, to);
 
                     let create_instruction = SystemInstruction::CreateAccount {
-                        tokens,
+                        lamports,
                         space: 0,
                         program_id: system_program::id(),
                     };
                     let mut transaction = Transaction::new(
                         &self.mint_keypair,
                         &[to],
-                        system_program::id(),
+                        &system_program::id(),
                         &create_instruction,
-                        last_id,
+                        blockhash,
                         0, /*fee*/
                     );
 
-                    transaction.sign(&[&self.mint_keypair], last_id);
+                    transaction.sign(&[&self.mint_keypair], blockhash);
                     Ok(transaction)
                 } else {
                     Err(Error::new(ErrorKind::Other, "token limit reached"))
@@ -186,26 +186,26 @@ impl Drone {
 
 impl Drop for Drone {
     fn drop(&mut self) {
-        bitconch_metrics::flush();
+        soros_metrics::flush();
     }
 }
 
 pub fn request_airdrop_transaction(
     drone_addr: &SocketAddr,
     id: &Pubkey,
-    tokens: u64,
-    last_id: Hash,
+    lamports: u64,
+    blockhash: Hash,
 ) -> Result<Transaction, Error> {
     info!(
-        "request_airdrop_transaction: drone_addr={} id={} tokens={} last_id={}",
-        drone_addr, id, tokens, last_id
+        "request_airdrop_transaction: drone_addr={} id={} lamports={} blockhash={}",
+        drone_addr, id, lamports, blockhash
     );
     // TODO: make this async tokio client
     let mut stream = TcpStream::connect_timeout(drone_addr, Duration::new(3, 0))?;
     stream.set_read_timeout(Some(Duration::new(10, 0)))?;
     let req = DroneRequest::GetAirdrop {
-        tokens,
-        last_id,
+        lamports,
+        blockhash,
         to: *id,
     };
     let req = serialize(&req).expect("serialize drone request");
@@ -294,7 +294,7 @@ pub fn run_local_drone(mint_keypair: Keypair, sender: Sender<SocketAddr>) {
 mod tests {
     use super::*;
     use bytes::BufMut;
-    use bitconch_sdk::signature::{Keypair, KeypairUtil};
+    use soros_sdk::signature::{Keypair, KeypairUtil};
     use std::time::Duration;
 
     #[test]
@@ -353,11 +353,11 @@ mod tests {
     #[test]
     fn test_drone_build_airdrop_transaction() {
         let to = Keypair::new().pubkey();
-        let last_id = Hash::default();
+        let blockhash = Hash::default();
         let request = DroneRequest::GetAirdrop {
-            tokens: 2,
+            lamports: 2,
             to,
-            last_id,
+            blockhash,
         };
 
         let mint = Keypair::new();
@@ -368,15 +368,15 @@ mod tests {
 
         assert_eq!(tx.signatures.len(), 1);
         assert_eq!(tx.account_keys, vec![mint_pubkey, to]);
-        assert_eq!(tx.last_id, last_id);
+        assert_eq!(tx.recent_blockhash, blockhash);
         assert_eq!(tx.program_ids, vec![system_program::id()]);
 
         assert_eq!(tx.instructions.len(), 1);
-        let instruction: SystemInstruction = deserialize(&tx.instructions[0].userdata).unwrap();
+        let instruction: SystemInstruction = deserialize(&tx.instructions[0].data).unwrap();
         assert_eq!(
             instruction,
             SystemInstruction::CreateAccount {
-                tokens: 2,
+                lamports: 2,
                 space: 0,
                 program_id: Pubkey::default()
             }
@@ -391,11 +391,11 @@ mod tests {
     #[test]
     fn test_process_drone_request() {
         let to = Keypair::new().pubkey();
-        let last_id = Hash::new(&to.as_ref());
-        let tokens = 50;
+        let blockhash = Hash::new(&to.as_ref());
+        let lamports = 50;
         let req = DroneRequest::GetAirdrop {
-            tokens,
-            last_id,
+            lamports,
+            blockhash,
             to,
         };
         let req = serialize(&req).unwrap();
@@ -404,19 +404,19 @@ mod tests {
 
         let keypair = Keypair::new();
         let expected_instruction = SystemInstruction::CreateAccount {
-            tokens,
+            lamports,
             space: 0,
             program_id: system_program::id(),
         };
         let mut expected_tx = Transaction::new(
             &keypair,
             &[to],
-            system_program::id(),
+            &system_program::id(),
             &expected_instruction,
-            last_id,
+            blockhash,
             0,
         );
-        expected_tx.sign(&[&keypair], last_id);
+        expected_tx.sign(&[&keypair], blockhash);
         let expected_bytes = serialize(&expected_tx).unwrap();
         let mut expected_vec_with_length = vec![0; 2];
         LittleEndian::write_u16(&mut expected_vec_with_length, expected_bytes.len() as u16);

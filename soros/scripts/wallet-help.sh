@@ -7,7 +7,7 @@ cargo build
 export PATH=$PWD/target/debug:$PATH
 
 echo "\`\`\`manpage"
-bitconch-wallet --help
+soros-wallet --help
 echo "\`\`\`"
 echo ""
 
@@ -15,7 +15,7 @@ commands=(address airdrop balance cancel confirm deploy get-transaction-count pa
 
 for x in "${commands[@]}"; do
     echo "\`\`\`manpage"
-    bitconch-wallet "${x}" --help
+    soros-wallet "${x}" --help
     echo "\`\`\`"
     echo ""
 done

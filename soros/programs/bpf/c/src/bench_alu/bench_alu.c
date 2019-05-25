@@ -4,7 +4,7 @@
  * Counts Armstrong Numbers between 1 and x
  */
 
-#include <bitconch_sdk.h>
+#include <soros_sdk.h>
 
 extern bool entrypoint(const uint8_t *input) {
   uint64_t x = *(uint64_t *) input;

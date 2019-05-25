@@ -1,7 +1,7 @@
 use crate::account::Account;
 use crate::pubkey::Pubkey;
 
-pub const NATIVE_LOADER_PROGRAM_ID: [u8; 32] = [
+const NATIVE_LOADER_PROGRAM_ID: [u8; 32] = [
     1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
@@ -16,9 +16,9 @@ pub fn check_id(program_id: &Pubkey) -> bool {
 /// Create an executable account with the given shared object name.
 pub fn create_program_account(name: &str) -> Account {
     Account {
-        tokens: 1,
+        lamports: 1,
         owner: id(),
-        userdata: name.as_bytes().to_vec(),
+        data: name.as_bytes().to_vec(),
         executable: true,
     }
 }

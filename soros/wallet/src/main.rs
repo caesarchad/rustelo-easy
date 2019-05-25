@@ -1,6 +1,6 @@
-use clap::{crate_version, App, Arg, ArgMatches, SubCommand};
-use bitconch_sdk::signature::{gen_keypair_file, read_keypair, KeypairUtil};
-use bitconch_wallet::wallet::{parse_command, process_command, WalletConfig, WalletError};
+use clap::{crate_version, App, Arg, ArgGroup, ArgMatches, SubCommand};
+use soros_sdk::signature::{gen_keypair_file, read_keypair, KeypairUtil};
+use soros_wallet::wallet::{parse_command, process_command, WalletConfig, WalletError};
 use std::error;
 
 pub fn parse_args(matches: &ArgMatches<'_>) -> Result<WalletConfig, Box<dyn error::Error>> {
@@ -46,7 +46,7 @@ pub fn parse_args(matches: &ArgMatches<'_>) -> Result<WalletConfig, Box<dyn erro
     let id_path = if matches.is_present("keypair") {
         matches.value_of("keypair").unwrap()
     } else {
-        path.extend(&[".config", "bitconch", "id.json"]);
+        path.extend(&[".config", "soros", "id.json"]);
         if !path.exists() {
             gen_keypair_file(path.to_str().unwrap().to_string())?;
             println!("New keypair generated at: {:?}", path.to_str().unwrap());
@@ -61,7 +61,7 @@ pub fn parse_args(matches: &ArgMatches<'_>) -> Result<WalletConfig, Box<dyn erro
         )))
     })?;
 
-    let command = parse_command(id.pubkey(), &matches)?;
+    let command = parse_command(&id.pubkey(), &matches)?;
 
     Ok(WalletConfig {
         id,
@@ -77,7 +77,7 @@ pub fn parse_args(matches: &ArgMatches<'_>) -> Result<WalletConfig, Box<dyn erro
 }
 
 fn main() -> Result<(), Box<dyn error::Error>> {
-    bitconch_logger::setup();
+    soros_logger::setup();
 
     let (default_host, default_rpc_port, default_drone_port) = {
         let defaults = WalletConfig::default();
@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         )
     };
 
-    let matches = App::new("bitconch-wallet")
+    let matches = App::new("soros-wallet")
         .version(crate_version!())
         .arg(
             Arg::with_name("host")
@@ -145,14 +145,14 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .subcommand(SubCommand::with_name("address").about("Get your public key"))
         .subcommand(
             SubCommand::with_name("airdrop")
-                .about("Request a batch of tokens")
+                .about("Request a batch of lamports")
                 .arg(
-                    Arg::with_name("tokens")
+                    Arg::with_name("lamports")
                         .index(1)
                         .value_name("NUM")
                         .takes_value(true)
                         .required(true)
-                        .help("The number of tokens to request"),
+                        .help("The number of lamports to request"),
                 ),
         )
         .subcommand(SubCommand::with_name("balance").about("Get your balance"))
@@ -160,7 +160,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
             SubCommand::with_name("cancel")
                 .about("Cancel a transfer")
                 .arg(
-                    Arg::with_name("process-id")
+                    Arg::with_name("process_id")
                         .index(1)
                         .value_name("PROCESS_ID")
                         .takes_value(true)
@@ -181,10 +181,54 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 ),
         )
         .subcommand(
+            SubCommand::with_name("configure-staking-account")
+                .about("Configure staking account for node")
+                .group(
+                    ArgGroup::with_name("options")
+                        .args(&["delegate", "authorize"])
+                        .multiple(true)
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("delegate")
+                        .long("delegate-account")
+                        .value_name("PUBKEY")
+                        .takes_value(true)
+                        .help("Address to delegate this vote account to"),
+                )
+                .arg(
+                    Arg::with_name("authorize")
+                        .long("authorize-voter")
+                        .value_name("PUBKEY")
+                        .takes_value(true)
+                        .help("Vote signer to authorize"),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("create-staking-account")
+                .about("Create staking account for node")
+                .arg(
+                    Arg::with_name("voting_account_id")
+                        .index(1)
+                        .value_name("PUBKEY")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Staking account address to fund"),
+                )
+                .arg(
+                    Arg::with_name("lamports")
+                        .index(2)
+                        .value_name("NUM")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The number of lamports to send to staking account"),
+                ),
+        )
+        .subcommand(
             SubCommand::with_name("deploy")
                 .about("Deploy a program")
                 .arg(
-                    Arg::with_name("program-location")
+                    Arg::with_name("program_location")
                         .index(1)
                         .value_name("PATH")
                         .takes_value(true)
@@ -207,12 +251,12 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                         .help("The pubkey of recipient"),
                 )
                 .arg(
-                    Arg::with_name("tokens")
+                    Arg::with_name("lamports")
                         .index(2)
                         .value_name("NUM")
                         .takes_value(true)
                         .required(true)
-                        .help("The number of tokens to send"),
+                        .help("The number of lamports to send"),
                 )
                 .arg(
                     Arg::with_name("timestamp")
@@ -222,7 +266,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                         .help("A timestamp after which transaction will execute"),
                 )
                 .arg(
-                    Arg::with_name("timestamp-pubkey")
+                    Arg::with_name("timestamp_pubkey")
                         .long("require-timestamp-from")
                         .value_name("PUBKEY")
                         .takes_value(true)
@@ -236,7 +280,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                         .takes_value(true)
                         .multiple(true)
                         .use_delimiter(true)
-                        .help("Any third party signatures required to unlock the tokens"),
+                        .help("Any third party signatures required to unlock the lamports"),
                 )
                 .arg(
                     Arg::with_name("cancelable")
@@ -256,7 +300,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                         .help("The pubkey of recipient"),
                 )
                 .arg(
-                    Arg::with_name("process-id")
+                    Arg::with_name("process_id")
                         .index(2)
                         .value_name("PROCESS_ID")
                         .takes_value(true)
@@ -276,7 +320,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                         .help("The pubkey of recipient"),
                 )
                 .arg(
-                    Arg::with_name("process-id")
+                    Arg::with_name("process_id")
                         .index(2)
                         .value_name("PROCESS_ID")
                         .takes_value(true)

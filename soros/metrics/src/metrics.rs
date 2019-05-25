@@ -3,8 +3,8 @@
 use influx_db_client as influxdb;
 use lazy_static::lazy_static;
 use log::*;
-use bitconch_sdk::hash::hash;
-use bitconch_sdk::timing;
+use soros_sdk::hash::hash;
+use soros_sdk::timing;
 use std::env;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Barrier, Mutex, Once, ONCE_INIT};
@@ -14,7 +14,7 @@ use sys_info::hostname;
 
 lazy_static! {
     static ref HOST_INFO: String = {
-        let v = env::var("BITCONCH_METRICS_DISPLAY_HOSTNAME")
+        let v = env::var("SOROS_METRICS_DISPLAY_HOSTNAME")
             .map(|x| x.parse().unwrap_or(0))
             .unwrap_or(0);
         let name: String = hostname().unwrap_or_else(|_| "".to_string());
@@ -193,7 +193,7 @@ pub fn submit(point: influxdb::Point) {
 
 fn get_env_settings() -> Result<(String, String, String, String), env::VarError> {
     let host =
-        env::var("INFLUX_HOST").unwrap_or_else(|_| "https://metrics.bitconch.com:8086".to_string());
+        env::var("INFLUX_HOST").unwrap_or_else(|_| "https://dashboard.bitconch.io:8086".to_string());
     let db = env::var("INFLUX_DATABASE")?.to_string();
     let username = env::var("INFLUX_USERNAME")?.to_string();
     let password = env::var("INFLUX_PASSWORD")?.to_string();

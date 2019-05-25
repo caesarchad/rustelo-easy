@@ -14,18 +14,18 @@ usage() {
   echo
   echo " Run bench-tps "
   echo
-  echo "   extra args: additional arguments are pass along to bitconch-bench-tps"
+  echo "   extra args: additional arguments are pass along to soros-bench-tps"
   echo
   exit 1
 }
 
 if [[ -z $1 ]]; then # default behavior
-  $bitconch_bench_tps \
+  $soros_bench_tps \
     --network 127.0.0.1:8001 \
     --drone 127.0.0.1:9900 \
     --duration 90 \
     --tx_count 50000 \
 
 else
-  $bitconch_bench_tps "$@"
+  $soros_bench_tps "$@"
 fi

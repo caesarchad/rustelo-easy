@@ -1,9 +1,9 @@
 //#![feature(test)]
 //
-//extern crate bitconch;
+//extern crate soros;
 //extern crate test;
 //
-//use bitconch::chacha::chacha_cbc_encrypt_files;
+//use soros::chacha::chacha_cbc_encrypt_files;
 //use std::fs::remove_file;
 //use std::fs::File;
 //use std::io::Write;

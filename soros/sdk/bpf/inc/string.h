@@ -1,5 +1,5 @@
 #pragma once
-#include <bitconch_sdk.h>
+#include <soros_sdk.h>
 
 #define memcpy sol_memcpy
 #define memset sol_memset

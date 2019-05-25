@@ -8,8 +8,8 @@ if [[ -z $BUILDKITE ]]; then
   exit 1
 fi
 
-if [[ -z $BITCONCH_METRICS_PARTIAL_CONFIG ]]; then
-  echo BITCONCH_METRICS_PARTIAL_CONFIG not defined
+if [[ -z $SOROS_METRICS_PARTIAL_CONFIG ]]; then
+  echo SOROS_METRICS_PARTIAL_CONFIG not defined
   exit 1
 fi
 
@@ -64,8 +64,12 @@ EOF
   exit 0
 fi
 
-export BITCONCH_METRICS_CONFIG="db=$TESTNET,$BITCONCH_METRICS_PARTIAL_CONFIG"
-echo "BITCONCH_METRICS_CONFIG: $BITCONCH_METRICS_CONFIG"
+if [[ -n $TESTNET_DB_HOST ]]; then
+  SOROS_METRICS_PARTIAL_CONFIG="host=$TESTNET_DB_HOST,$SOROS_METRICS_PARTIAL_CONFIG"
+fi
+
+export SOROS_METRICS_CONFIG="db=$TESTNET,$SOROS_METRICS_PARTIAL_CONFIG"
+echo "SOROS_METRICS_CONFIG: $SOROS_METRICS_CONFIG"
 source scripts/configure-metrics.sh
 
 ci/channel-info.sh
@@ -81,13 +85,8 @@ testnet-beta|testnet-beta-perf)
   CHANNEL_BRANCH=$BETA_CHANNEL
   ;;
 testnet|testnet-perf)
-  if [[ -n $BETA_CHANNEL_LATEST_TAG ]]; then
-    CHANNEL_OR_TAG=$BETA_CHANNEL_LATEST_TAG
-    CHANNEL_BRANCH=$BETA_CHANNEL
-  else
-    CHANNEL_OR_TAG=$STABLE_CHANNEL_LATEST_TAG
-    CHANNEL_BRANCH=$STABLE_CHANNEL
-  fi
+  CHANNEL_OR_TAG=$STABLE_CHANNEL_LATEST_TAG
+  CHANNEL_BRANCH=$STABLE_CHANNEL
   ;;
 *)
   echo "Error: Invalid TESTNET=$TESTNET"
@@ -107,6 +106,7 @@ steps:
       env:
         TESTNET: "$TESTNET"
         TESTNET_OP: "$TESTNET_OP"
+        TESTNET_DB_HOST: "$TESTNET_DB_HOST"
 EOF
   ) | buildkite-agent pipeline upload
   exit 0
@@ -119,7 +119,7 @@ sanity() {
   testnet-edge)
     (
       set -x
-      ci/testnet-sanity.sh edge-testnet-bitconch-com ec2 us-west-1a
+      ci/testnet-sanity.sh edge-testnet-soros-com ec2 us-west-1a
     )
     ;;
   testnet-edge-perf)
@@ -128,13 +128,13 @@ sanity() {
       REJECT_EXTRA_NODES=1 \
       NO_LEDGER_VERIFY=1 \
       NO_VALIDATOR_SANITY=1 \
-        ci/testnet-sanity.sh edge-perf-testnet-bitconch-com ec2 us-west-2b
+        ci/testnet-sanity.sh edge-perf-testnet-soros-com ec2 us-west-2b
     )
     ;;
   testnet-beta)
     (
       set -x
-      ci/testnet-sanity.sh beta-testnet-bitconch-com ec2 us-west-1a
+      ci/testnet-sanity.sh beta-testnet-soros-com ec2 us-west-1a
     )
     ;;
   testnet-beta-perf)
@@ -143,14 +143,14 @@ sanity() {
       REJECT_EXTRA_NODES=1 \
       NO_LEDGER_VERIFY=1 \
       NO_VALIDATOR_SANITY=1 \
-        ci/testnet-sanity.sh beta-perf-testnet-bitconch-com ec2 us-west-2b
+        ci/testnet-sanity.sh beta-perf-testnet-soros-com ec2 us-west-2b
     )
     ;;
   testnet)
     (
       set -x
-      ci/testnet-sanity.sh testnet-bitconch-com ec2 us-west-1a
-      #ci/testnet-sanity.sh testnet-bitconch-com gce us-east1-c
+      ci/testnet-sanity.sh testnet-soros-com ec2 us-west-1a
+      #ci/testnet-sanity.sh testnet-soros-com gce us-east1-c
     )
     ;;
   testnet-perf)
@@ -159,8 +159,8 @@ sanity() {
       REJECT_EXTRA_NODES=1 \
       NO_LEDGER_VERIFY=1 \
       NO_VALIDATOR_SANITY=1 \
-        ci/testnet-sanity.sh perf-testnet-bitconch-com gce us-west1-b
-      #ci/testnet-sanity.sh perf-testnet-bitconch-com ec2 us-east-1a
+        ci/testnet-sanity.sh perf-testnet-soros-com gce us-west1-b
+      #ci/testnet-sanity.sh perf-testnet-soros-com ec2 us-east-1a
     )
     ;;
   *)
@@ -185,9 +185,9 @@ start() {
     (
       set -x
       NO_VALIDATOR_SANITY=1 \
-      RUST_LOG=bitconch=info \
-        ci/testnet-deploy.sh edge-testnet-bitconch-com ec2 us-west-1a \
-          -t "$CHANNEL_OR_TAG" -n 3 -c 0 -P -a eipalloc-0ccd4f2239886fa94 \
+      RUST_LOG=soros=info \
+        ci/testnet-deploy.sh edge-testnet-soros-com ec2 us-west-1a \
+          -t "$CHANNEL_OR_TAG" -n 3 -c 0 -u -P -a eipalloc-0ccd4f2239886fa94 \
           ${maybeReuseLedger:+-r} \
           ${maybeDelete:+-D}
     )
@@ -197,7 +197,7 @@ start() {
       set -x
       NO_LEDGER_VERIFY=1 \
       NO_VALIDATOR_SANITY=1 \
-        ci/testnet-deploy.sh edge-perf-testnet-bitconch-com ec2 us-west-2b \
+        ci/testnet-deploy.sh edge-perf-testnet-soros-com ec2 us-west-2b \
           -g -t "$CHANNEL_OR_TAG" -c 2 \
           -b \
           ${maybeReuseLedger:+-r} \
@@ -208,9 +208,9 @@ start() {
     (
       set -x
       NO_VALIDATOR_SANITY=1 \
-      RUST_LOG=bitconch=info \
-        ci/testnet-deploy.sh beta-testnet-bitconch-com ec2 us-west-1a \
-          -t "$CHANNEL_OR_TAG" -n 3 -c 0 -P -a eipalloc-0f286cf8a0771ce35 \
+      RUST_LOG=soros=info \
+        ci/testnet-deploy.sh beta-testnet-soros-com ec2 us-west-1a \
+          -t "$CHANNEL_OR_TAG" -n 3 -c 0 -u -P -a eipalloc-0f286cf8a0771ce35 \
           -b \
           ${maybeReuseLedger:+-r} \
           ${maybeDelete:+-D}
@@ -221,7 +221,7 @@ start() {
       set -x
       NO_LEDGER_VERIFY=1 \
       NO_VALIDATOR_SANITY=1 \
-        ci/testnet-deploy.sh beta-perf-testnet-bitconch-com ec2 us-west-2b \
+        ci/testnet-deploy.sh beta-perf-testnet-soros-com ec2 us-west-2b \
           -g -t "$CHANNEL_OR_TAG" -c 2 \
           -b \
           ${maybeReuseLedger:+-r} \
@@ -232,14 +232,14 @@ start() {
     (
       set -x
       NO_VALIDATOR_SANITY=1 \
-      RUST_LOG=bitconch=info \
-        ci/testnet-deploy.sh testnet-bitconch-com ec2 us-west-1a \
-          -t "$CHANNEL_OR_TAG" -n 3 -c 0 -P -a eipalloc-0fa502bf95f6f18b2 \
+      RUST_LOG=soros=info \
+        ci/testnet-deploy.sh testnet-soros-com ec2 us-west-1a \
+          -t "$CHANNEL_OR_TAG" -n 3 -c 0 -u -P -a eipalloc-0fa502bf95f6f18b2 \
           -b \
           ${maybeReuseLedger:+-r} \
           ${maybeDelete:+-D}
-        #ci/testnet-deploy.sh testnet-bitconch-com gce us-east1-c \
-        #  -s "$CHANNEL_OR_TAG" -n 3 -c 0 -P -a testnet-bitconch-com  \
+        #ci/testnet-deploy.sh testnet-soros-com gce us-east1-c \
+        #  -t "$CHANNEL_OR_TAG" -n 3 -c 0 -P -a testnet-soros-com  \
         #  ${maybeReuseLedger:+-r} \
         #  ${maybeDelete:+-D}
     )
@@ -249,14 +249,14 @@ start() {
       set -x
       NO_LEDGER_VERIFY=1 \
       NO_VALIDATOR_SANITY=1 \
-        ci/testnet-deploy.sh perf-testnet-bitconch-com gce us-west1-b \
+        ci/testnet-deploy.sh perf-testnet-soros-com gce us-west1-b \
           -G "n1-standard-16 --accelerator count=2,type=nvidia-tesla-v100" \
           -t "$CHANNEL_OR_TAG" -c 2 \
           -b \
           -d pd-ssd \
           ${maybeReuseLedger:+-r} \
           ${maybeDelete:+-D}
-        #ci/testnet-deploy.sh perf-testnet-bitconch-com ec2 us-east-1a \
+        #ci/testnet-deploy.sh perf-testnet-soros-com ec2 us-east-1a \
         #  -g \
         #  -t "$CHANNEL_OR_TAG" -c 2 \
         #  ${maybeReuseLedger:+-r} \
@@ -285,27 +285,16 @@ stop)
   stop
   ;;
 update-or-restart)
-  if start "" update; then
-    echo Update successful
-  else
-    echo "+++ Update failed, restarting the network"
-    $metricsWriteDatapoint "testnet-manager update-failure=1"
-    start
-  fi
+  echo "+++ Restarting the network"
+  start
   ;;
 sanity-or-restart)
   if sanity; then
     echo Pass
   else
-    echo "+++ Sanity failed, updating the network"
+    echo "+++ Sanity failed, restarting the network"
     $metricsWriteDatapoint "testnet-manager sanity-failure=1"
-    if start "" update; then
-      echo Update successful
-    else
-      echo "+++ Update failed, restarting the network"
-      $metricsWriteDatapoint "testnet-manager update-failure=1"
-      start
-    fi
+    start
   fi
   ;;
 esac

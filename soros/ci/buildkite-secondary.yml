@@ -1,8 +1,5 @@
 steps:
-  #- command: "ci/publish-snap.sh"
-  #  timeout_in_minutes: 40
-  #  name: "publish snap"
-  - command: "sdk/docker-bitconch/build.sh"
+  - command: "sdk/docker-soros/build.sh"
     timeout_in_minutes: 20
     name: "publish docker"
   - command: "ci/publish-crate.sh"

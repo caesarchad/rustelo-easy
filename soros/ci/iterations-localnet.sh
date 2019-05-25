@@ -7,7 +7,7 @@ genPipeline=false
 cd "$(dirname "$0")/.."
 
 # Clear cached json keypair files
-rm -rf "$HOME/.config/bitconch"
+rm -rf "$HOME/.config/soros"
 
 source ci/_
 export RUST_BACKTRACE=1
@@ -24,9 +24,10 @@ fi
 
 build() {
   $genPipeline && return
-  ci/version-check-with-upgrade.sh stable
+  source ci/rust-version.sh stable
+
   _ scripts/ulimit-n.sh
-  _ cargo build --all
+  _ cargo +$rust_stable build --all
 }
 
 runTest() {

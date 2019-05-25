@@ -2,40 +2,47 @@
 extern crate log;
 
 use rayon::iter::*;
-use bitconch::cluster_info::{ClusterInfo, Node};
-use bitconch::gossip_service::GossipService;
+use soros::cluster_info::{ClusterInfo, Node};
+use soros::gossip_service::GossipService;
 
-use bitconch::packet::{Blob, SharedBlob};
-use bitconch::result;
-use bitconch::service::Service;
-use bitconch_sdk::signature::{Keypair, KeypairUtil};
-use bitconch_sdk::timing::timestamp;
+use soros::packet::{Blob, SharedBlob};
+use soros::result;
+use soros::service::Service;
+use soros_sdk::signature::{Keypair, KeypairUtil};
+use soros_sdk::timing::timestamp;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::Duration;
 
-fn test_node(exit: Arc<AtomicBool>) -> (Arc<RwLock<ClusterInfo>>, GossipService, UdpSocket) {
-    let keypair = Keypair::new();
-    let mut tn = Node::new_localhost_with_pubkey(keypair.pubkey());
-    let cluster_info = ClusterInfo::new_with_keypair(tn.info.clone(), Arc::new(keypair));
-    let c = Arc::new(RwLock::new(cluster_info));
-    let d = GossipService::new(&c.clone(), None, tn.sockets.gossip, exit);
-    let _ = c.read().unwrap().my_data();
-    (c, d, tn.sockets.tvu.pop().unwrap())
+fn test_node(exit: &Arc<AtomicBool>) -> (Arc<RwLock<ClusterInfo>>, GossipService, UdpSocket) {
+    let keypair = Arc::new(Keypair::new());
+    let mut test_node = Node::new_localhost_with_pubkey(&keypair.pubkey());
+    let cluster_info = Arc::new(RwLock::new(ClusterInfo::new(
+        test_node.info.clone(),
+        keypair,
+    )));
+    let gossip_service =
+        GossipService::new(&cluster_info, None, None, test_node.sockets.gossip, exit);
+    let _ = cluster_info.read().unwrap().my_data();
+    (
+        cluster_info,
+        gossip_service,
+        test_node.sockets.tvu.pop().unwrap(),
+    )
 }
 
 /// Test that the network converges.
-/// Run until every node in the network has a full NodeInfo set.
-/// Check that nodes stop sending updates after all the NodeInfo has been shared.
+/// Run until every node in the network has a full ContactInfo set.
+/// Check that nodes stop sending updates after all the ContactInfo has been shared.
 /// tests that actually use this function are below
 fn run_gossip_topo<F>(num: usize, topo: F)
 where
     F: Fn(&Vec<(Arc<RwLock<ClusterInfo>>, GossipService, UdpSocket)>) -> (),
 {
     let exit = Arc::new(AtomicBool::new(false));
-    let listen: Vec<_> = (0..num).map(|_| test_node(exit.clone())).collect();
+    let listen: Vec<_> = (0..num).map(|_| test_node(&exit)).collect();
     topo(&listen);
     let mut done = true;
     for i in 0..(num * 32) {
@@ -61,7 +68,7 @@ where
 /// ring a -> b -> c -> d -> e -> a
 #[test]
 fn gossip_ring() -> result::Result<()> {
-    bitconch_logger::setup();
+    soros_logger::setup();
     run_gossip_topo(50, |listen| {
         let num = listen.len();
         for n in 0..num {
@@ -69,7 +76,7 @@ fn gossip_ring() -> result::Result<()> {
             let x = (n + 1) % listen.len();
             let mut xv = listen[x].0.write().unwrap();
             let yv = listen[y].0.read().unwrap();
-            let mut d = yv.lookup(yv.id()).unwrap().clone();
+            let mut d = yv.lookup(&yv.id()).unwrap().clone();
             d.wallclock = timestamp();
             xv.insert_info(d);
         }
@@ -82,7 +89,7 @@ fn gossip_ring() -> result::Result<()> {
 #[test]
 #[ignore]
 fn gossip_ring_large() -> result::Result<()> {
-    bitconch_logger::setup();
+    soros_logger::setup();
     run_gossip_topo(600, |listen| {
         let num = listen.len();
         for n in 0..num {
@@ -90,7 +97,7 @@ fn gossip_ring_large() -> result::Result<()> {
             let x = (n + 1) % listen.len();
             let mut xv = listen[x].0.write().unwrap();
             let yv = listen[y].0.read().unwrap();
-            let mut d = yv.lookup(yv.id()).unwrap().clone();
+            let mut d = yv.lookup(&yv.id()).unwrap().clone();
             d.wallclock = timestamp();
             xv.insert_info(d);
         }
@@ -101,7 +108,7 @@ fn gossip_ring_large() -> result::Result<()> {
 /// star a -> (b,c,d,e)
 #[test]
 fn gossip_star() {
-    bitconch_logger::setup();
+    soros_logger::setup();
     run_gossip_topo(10, |listen| {
         let num = listen.len();
         for n in 0..(num - 1) {
@@ -109,7 +116,7 @@ fn gossip_star() {
             let y = (n + 1) % listen.len();
             let mut xv = listen[x].0.write().unwrap();
             let yv = listen[y].0.read().unwrap();
-            let mut yd = yv.lookup(yv.id()).unwrap().clone();
+            let mut yd = yv.lookup(&yv.id()).unwrap().clone();
             yd.wallclock = timestamp();
             xv.insert_info(yd);
             trace!("star leader {}", &xv.id());
@@ -120,12 +127,12 @@ fn gossip_star() {
 /// rstar a <- (b,c,d,e)
 #[test]
 fn gossip_rstar() {
-    bitconch_logger::setup();
+    soros_logger::setup();
     run_gossip_topo(10, |listen| {
         let num = listen.len();
         let xd = {
             let xv = listen[0].0.read().unwrap();
-            xv.lookup(xv.id()).unwrap().clone()
+            xv.lookup(&xv.id()).unwrap().clone()
         };
         trace!("rstar leader {}", xd.id);
         for n in 0..(num - 1) {
@@ -139,22 +146,19 @@ fn gossip_rstar() {
 
 #[test]
 pub fn cluster_info_retransmit() -> result::Result<()> {
-    bitconch_logger::setup();
+    soros_logger::setup();
     let exit = Arc::new(AtomicBool::new(false));
     trace!("c1:");
-    let (c1, dr1, tn1) = test_node(exit.clone());
+    let (c1, dr1, tn1) = test_node(&exit);
     trace!("c2:");
-    let (c2, dr2, tn2) = test_node(exit.clone());
+    let (c2, dr2, tn2) = test_node(&exit);
     trace!("c3:");
-    let (c3, dr3, tn3) = test_node(exit.clone());
+    let (c3, dr3, tn3) = test_node(&exit);
     let c1_data = c1.read().unwrap().my_data().clone();
-    c1.write().unwrap().set_leader(c1_data.id);
 
     c2.write().unwrap().insert_info(c1_data.clone());
     c3.write().unwrap().insert_info(c1_data.clone());
 
-    c2.write().unwrap().set_leader(c1_data.id);
-    c3.write().unwrap().set_leader(c1_data.id);
     let num = 3;
 
     //wait to converge

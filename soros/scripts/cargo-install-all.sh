@@ -4,10 +4,17 @@
 # other workspace crates or native program crates.
 set -e
 
+export rust_version=
+if [[ $1 =~ \+ ]]; then
+  export rust_version=$1
+  shift
+fi
+
 if [[ -z $1 ]]; then
   echo Install directory not specified
   exit 1
 fi
+
 installDir="$(mkdir -p "$1"; cd "$1"; pwd)"
 cargoFeatures="$2"
 echo "Install location: $installDir"
@@ -22,13 +29,12 @@ SECONDS=0
 )
 
 BIN_CRATES=(
-  drone
-  keygen
-  fullnode
   bench-streamer
   bench-tps
-  fullnode-config
+  drone
+  fullnode
   genesis
+  keygen
   ledger-tool
   wallet
 )
@@ -36,12 +42,13 @@ BIN_CRATES=(
 for crate in "${BIN_CRATES[@]}"; do
   (
     set -x
-    cargo install --force --path "$crate" --root "$installDir" --features="$cargoFeatures"
+    # shellcheck disable=SC2086 # Don't want to double quote $rust_version
+    cargo $rust_version install --force --path "$crate" --root "$installDir" --features="$cargoFeatures"
   )
 done
 
-for dir in programs/native/*; do
-  for program in echo target/release/deps/lib{,bitconch_}"$(basename "$dir")"{,_program}.{so,dylib,dll}; do
+for dir in programs/*; do
+  for program in echo target/release/deps/lib{,soros_}"$(basename "$dir")"{,_program}.{so,dylib,dll}; do
     if [[ -f $program ]]; then
       mkdir -p "$installDir/bin/deps"
       rm -f "$installDir/bin/deps/$(basename "$program")"

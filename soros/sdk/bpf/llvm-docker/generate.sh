@@ -10,7 +10,7 @@ exec docker run \
   --workdir "$PWD" \
   --volume "$PWD:$PWD" \
   --volume "$SDKROOT:$SDKROOT" \
-  --rm bitconchlabs/llvm \
+  --rm bitconch/llvm \
   "$PROGRAM" "$@"
 EOM
 

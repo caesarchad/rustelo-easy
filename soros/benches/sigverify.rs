@@ -2,9 +2,9 @@
 
 extern crate test;
 
-use bitconch::packet::to_packets;
-use bitconch::sigverify;
-use bitconch::test_tx::test_tx;
+use soros::packet::to_packets;
+use soros::sigverify;
+use soros::test_tx::test_tx;
 use test::Bencher;
 
 #[bench]

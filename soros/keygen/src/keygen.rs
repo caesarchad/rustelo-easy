@@ -1,9 +1,9 @@
 use clap::{crate_version, App, Arg};
-use bitconch_sdk::signature::gen_keypair_file;
+use soros_sdk::signature::gen_keypair_file;
 use std::error;
 
 fn main() -> Result<(), Box<dyn error::Error>> {
-    let matches = App::new("bitconch-keygen")
+    let matches = App::new("soros-keygen")
         .version(crate_version!())
         .arg(
             Arg::with_name("outfile")
@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let outfile = if matches.is_present("outfile") {
         matches.value_of("outfile").unwrap()
     } else {
-        path.extend(&[".config", "bitconch", "id.json"]);
+        path.extend(&[".config", "soros", "id.json"]);
         path.to_str().unwrap()
     };
 

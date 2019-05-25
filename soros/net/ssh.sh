@@ -46,7 +46,7 @@ fi
 printNode() {
   declare nodeType=$1
   declare ip=$2
-  printf "  %-25s | For logs run: $0 $ip tail -f bitconch/$nodeType.log\n" "$0 $ip"
+  printf "  %-25s | For logs run: $0 $ip tail -f soros/$nodeType.log\n" "$0 $ip"
 }
 
 echo Full nodes:
@@ -60,6 +60,15 @@ if [[ ${#clientIpList[@]} -eq 0 ]]; then
 else
   for ipAddress in "${clientIpList[@]}"; do
     printNode client "$ipAddress"
+  done
+fi
+echo
+echo Blockstreamers:
+if [[ ${#blockstreamerIpList[@]} -eq 0 ]]; then
+  echo "  None"
+else
+  for ipAddress in "${blockstreamerIpList[@]}"; do
+    printNode fullnode "$ipAddress"
   done
 fi
 echo

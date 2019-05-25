@@ -1,9 +1,9 @@
 use serde_json::{json, Value};
-use bitconch::rpc_request::{RpcClient, RpcRequest, RpcRequestHandler};
-use bitconch::thin_client::new_fullnode;
-use bitconch_drone::drone::run_local_drone;
-use bitconch_sdk::bpf_loader;
-use bitconch_wallet::wallet::{process_command, WalletCommand, WalletConfig};
+use soros::fullnode::new_fullnode_for_tests;
+use soros_client::rpc_request::{RpcClient, RpcRequest, RpcRequestHandler};
+use soros_drone::drone::run_local_drone;
+use soros_sdk::bpf_loader;
+use soros_wallet::wallet::{process_command, WalletCommand, WalletConfig};
 use std::fs::{remove_dir_all, File};
 use std::io::Read;
 use std::path::PathBuf;
@@ -11,7 +11,7 @@ use std::sync::mpsc::channel;
 
 #[test]
 fn test_wallet_deploy_program() {
-    bitconch_logger::setup();
+    soros_logger::setup();
 
     let mut pathbuf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     pathbuf.push("tests");
@@ -19,8 +19,7 @@ fn test_wallet_deploy_program() {
     pathbuf.push("noop");
     pathbuf.set_extension("so");
 
-    let (server, leader_data, alice, ledger_path) = new_fullnode("test_wallet_deploy_program");
-    let server_exit = server.run(None);
+    let (server, leader_data, alice, ledger_path) = new_fullnode_for_tests();
 
     let (sender, receiver) = channel();
     run_local_drone(alice, sender);
@@ -51,7 +50,10 @@ fn test_wallet_deploy_program() {
         .make_rpc_request(1, RpcRequest::GetAccountInfo, Some(params))
         .unwrap();
     let account_info_obj = account_info.as_object().unwrap();
-    assert_eq!(account_info_obj.get("tokens").unwrap().as_u64().unwrap(), 1);
+    assert_eq!(
+        account_info_obj.get("lamports").unwrap().as_u64().unwrap(),
+        1
+    );
     let owner_array = account_info.get("owner").unwrap();
     assert_eq!(owner_array, &json!(bpf_loader::id()));
     assert_eq!(
@@ -68,14 +70,10 @@ fn test_wallet_deploy_program() {
     file.read_to_end(&mut elf).unwrap();
 
     assert_eq!(
-        account_info_obj
-            .get("userdata")
-            .unwrap()
-            .as_array()
-            .unwrap(),
+        account_info_obj.get("data").unwrap().as_array().unwrap(),
         &elf
     );
 
-    server_exit();
+    server.close().unwrap();
     remove_dir_all(ledger_path).unwrap();
 }

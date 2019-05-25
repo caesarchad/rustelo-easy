@@ -2,7 +2,7 @@
 set -e
 
 here=$(dirname "$0")
-BITCONCH_ROOT="$(cd "$here"/..; pwd)"
+SOROS_ROOT="$(cd "$here"/..; pwd)"
 
 # shellcheck source=net/common.sh
 source "$here"/common.sh
@@ -26,8 +26,6 @@ Operate a configured testnet
  logs     - Fetch remote logs from each network node
 
  start/update-specific options:
-   -S [snapFilename]           - Deploy the specified Snap file
-   -s edge|beta|stable         - Deploy the latest Snap on the specified Snap release channel
    -T [tarFilename]            - Deploy the specified release tarball
    -t edge|beta|stable|vX.Y.Z  - Deploy the latest tarball release for the
                                  specified release channel (edge|beta|stable) or release tag
@@ -36,6 +34,7 @@ Operate a configured testnet
                                  (ignored if -s or -S is specified)
    -r                          - Reuse existing node/ledger configuration from a
                                  previous |start| (ie, don't run ./multinode-demo/setup.sh).
+   -D /path/to/programs        - Deploy custom programs from this location
 
  sanity/start/update-specific options:
    -o noLedgerVerify    - Skip ledger verification
@@ -54,43 +53,26 @@ EOF
   exit $exitcode
 }
 
-snapChannel=
 releaseChannel=
-snapFilename=
 deployMethod=local
 sanityExtraArgs=
 cargoFeatures=
 skipSetup=false
 updateNodes=false
+customPrograms=
 
 command=$1
 [[ -n $command ]] || usage
 shift
 
-while getopts "h?S:s:T:t:o:f:r" opt; do
+while getopts "h?T:t:o:f:r:D:" opt; do
   case $opt in
   h | \?)
     usage
     ;;
-  S)
-    snapFilename=$OPTARG
-    [[ -f $snapFilename ]] || usage "Snap not readable: $snapFilename"
-    deployMethod=snap
-    ;;
-  s)
-    case $OPTARG in
-    edge|beta|stable)
-      snapChannel=$OPTARG
-      deployMethod=snap
-      ;;
-    *)
-      usage "Invalid snap channel: $OPTARG"
-      ;;
-    esac
-    ;;
   T)
     tarballFilename=$OPTARG
-    [[ -f $tarballFilename ]] || usage "Snap not readable: $tarballFilename"
+    [[ -r $tarballFilename ]] || usage "File not readable: $tarballFilename"
     deployMethod=tar
     ;;
   t)
@@ -109,6 +91,9 @@ while getopts "h?S:s:T:t:o:f:r" opt; do
     ;;
   r)
     skipSetup=true
+    ;;
+  D)
+    customPrograms=$OPTARG
     ;;
   o)
     case $OPTARG in
@@ -132,11 +117,12 @@ loadConfigFile
 build() {
   declare MAYBE_DOCKER=
   if [[ $(uname) != Linux ]]; then
-    MAYBE_DOCKER="ci/docker-run.sh bitconchlabs/rust"
+    source ci/rust-version.sh
+    MAYBE_DOCKER="ci/docker-run.sh +$rust_stable_docker_image"
   fi
   SECONDS=0
   (
-    cd "$BITCONCH_ROOT"
+    cd "$SOROS_ROOT"
     echo "--- Build started at $(date)"
 
     set -x
@@ -149,6 +135,9 @@ build() {
     $MAYBE_DOCKER bash -c "
       set -ex
       scripts/cargo-install-all.sh farf \"$cargoFeatures\"
+      if [[ -n \"$customPrograms\" ]]; then
+        scripts/cargo-install-custom-programs.sh farf $customPrograms
+      fi
     "
   )
   echo "Build took $SECONDS seconds"
@@ -156,27 +145,27 @@ build() {
 
 startCommon() {
   declare ipAddress=$1
-  test -d "$BITCONCH_ROOT"
+  test -d "$SOROS_ROOT"
   if $skipSetup; then
     ssh "${sshOptions[@]}" "$ipAddress" "
       set -x;
-      mkdir -p ~/bitconch/config{,-local}
+      mkdir -p ~/soros/config{,-local}
       rm -rf ~/config{,-local};
-      mv ~/bitconch/config{,-local} ~;
-      rm -rf ~/bitconch;
-      mkdir -p ~/bitconch ~/.cargo/bin;
-      mv ~/config{,-local} ~/bitconch/
+      mv ~/soros/config{,-local} ~;
+      rm -rf ~/soros;
+      mkdir -p ~/soros ~/.cargo/bin;
+      mv ~/config{,-local} ~/soros/
     "
   else
     ssh "${sshOptions[@]}" "$ipAddress" "
       set -x;
-      rm -rf ~/bitconch;
+      rm -rf ~/soros;
       mkdir -p ~/.cargo/bin
     "
   fi
   rsync -vPrc -e "ssh ${sshOptions[*]}" \
-    "$BITCONCH_ROOT"/{fetch-perf-libs.sh,scripts,net,multinode-demo} \
-    "$ipAddress":~/bitconch/
+    "$SOROS_ROOT"/{fetch-perf-libs.sh,scripts,net,multinode-demo} \
+    "$ipAddress":~/soros/
 }
 
 startBootstrapLeader() {
@@ -191,14 +180,11 @@ startBootstrapLeader() {
     set -x
     startCommon "$ipAddress" || exit 1
     case $deployMethod in
-    snap)
-      rsync -vPrc -e "ssh ${sshOptions[*]}" "$snapFilename" "$ipAddress:~/bitconch/bitconch.snap"
-      ;;
     tar)
-      rsync -vPrc -e "ssh ${sshOptions[*]}" "$BITCONCH_ROOT"/bitconch-release/bin/* "$ipAddress:~/.cargo/bin/"
+      rsync -vPrc -e "ssh ${sshOptions[*]}" "$SOROS_ROOT"/soros-release/bin/* "$ipAddress:~/.cargo/bin/"
       ;;
     local)
-      rsync -vPrc -e "ssh ${sshOptions[*]}" "$BITCONCH_ROOT"/farf/bin/* "$ipAddress:~/.cargo/bin/"
+      rsync -vPrc -e "ssh ${sshOptions[*]}" "$SOROS_ROOT"/farf/bin/* "$ipAddress:~/.cargo/bin/"
       ;;
     *)
       usage "Internal error: invalid deployMethod: $deployMethod"
@@ -206,7 +192,7 @@ startBootstrapLeader() {
     esac
 
     ssh "${sshOptions[@]}" -n "$ipAddress" \
-      "./bitconch/net/remote/remote-node.sh \
+      "./soros/net/remote/remote-node.sh \
          $deployMethod \
          bootstrap-leader \
          $publicNetwork \
@@ -225,17 +211,18 @@ startBootstrapLeader() {
 
 startNode() {
   declare ipAddress=$1
+  declare nodeType=$2
   declare logFile="$netLogDir/fullnode-$ipAddress.log"
 
-  echo "--- Starting fullnode: $ipAddress"
+  echo "--- Starting $nodeType: $ipAddress"
   echo "start log: $logFile"
   (
     set -x
     startCommon "$ipAddress"
     ssh "${sshOptions[@]}" -n "$ipAddress" \
-      "./bitconch/net/remote/remote-node.sh \
+      "./soros/net/remote/remote-node.sh \
          $deployMethod \
-         fullnode \
+         $nodeType \
          $publicNetwork \
          $entrypointIp \
          ${#fullnodeIpList[@]} \
@@ -258,7 +245,7 @@ startClient() {
     set -x
     startCommon "$ipAddress"
     ssh "${sshOptions[@]}" -f "$ipAddress" \
-      "./bitconch/net/remote/remote-client.sh $deployMethod $entrypointIp \"$RUST_LOG\""
+      "./soros/net/remote/remote-client.sh $deployMethod $entrypointIp \"$RUST_LOG\""
   ) >> "$logFile" 2>&1 || {
     cat "$logFile"
     echo "^^^ +++"
@@ -277,7 +264,7 @@ sanity() {
     set -x
     # shellcheck disable=SC2029 # remote-client.sh args are expanded on client side intentionally
     ssh "${sshOptions[@]}" "$host" \
-      "./bitconch/net/remote/remote-sanity.sh $sanityExtraArgs \"$RUST_LOG\""
+      "./soros/net/remote/remote-sanity.sh $sanityExtraArgs \"$RUST_LOG\""
   ) || ok=false
 
   $metricsWriteDatapoint "testnet-deploy net-sanity-complete=1"
@@ -286,50 +273,21 @@ sanity() {
 
 start() {
   case $deployMethod in
-  snap)
-    if [[ -n $snapChannel ]]; then
-      rm -f "$BITCONCH_ROOT"/bitconch_*.snap
-      if [[ $(uname) != Linux ]]; then
-        (
-          set -x
-          BITCONCH_DOCKER_RUN_NOSETUID=1 "$BITCONCH_ROOT"/ci/docker-run.sh ubuntu:18.04 bash -c "
-            set -ex;
-            apt-get -qq update;
-            apt-get -qq -y install snapd;
-            until snap download --channel=$snapChannel bitconch; do
-              sleep 1;
-            done
-          "
-        )
-      else
-        (
-          cd "$BITCONCH_ROOT"
-          until snap download --channel="$snapChannel" bitconch; do
-            sleep 1
-          done
-        )
-      fi
-      snapFilename="$(echo "$BITCONCH_ROOT"/bitconch_*.snap)"
-      [[ -r $snapFilename ]] || {
-        echo "Error: Snap not readable: $snapFilename"
-        exit 1
-      }
-    fi
-    ;;
   tar)
     if [[ -n $releaseChannel ]]; then
-      rm -f "$BITCONCH_ROOT"/bitconch-release.tar.bz2
+      rm -f "$SOROS_ROOT"/soros-release.tar.bz2
       (
         set -x
-        curl -o "$BITCONCH_ROOT"/bitconch-release.tar.bz2 http://bitconch-release.s3.amazonaws.com/"$releaseChannel"/bitconch-release.tar.bz2
+        curl -o "$SOROS_ROOT"/soros-release.tar.bz2 \
+          http://soros-release.s3.amazonaws.com/"$releaseChannel"/soros-release-x86_64-unknown-linux-gnu.tar.bz2
       )
-      tarballFilename="$BITCONCH_ROOT"/bitconch-release.tar.bz2
+      tarballFilename="$SOROS_ROOT"/soros-release.tar.bz2
     fi
     (
       set -x
-      rm -rf "$BITCONCH_ROOT"/bitconch-release
-      (cd "$BITCONCH_ROOT"; tar jxv) < "$tarballFilename"
-      cat "$BITCONCH_ROOT"/bitconch-release/version.txt
+      rm -rf "$SOROS_ROOT"/soros-release
+      (cd "$SOROS_ROOT"; tar jxv) < "$tarballFilename"
+      cat "$SOROS_ROOT"/soros-release/version.yml
     )
     ;;
   local)
@@ -347,8 +305,13 @@ start() {
     $metricsWriteDatapoint "testnet-deploy net-start-begin=1"
   fi
 
-  bootstrapLeader=true
-  for ipAddress in "${fullnodeIpList[@]}"; do
+  declare bootstrapLeader=true
+  declare nodeType=fullnode
+  for ipAddress in "${fullnodeIpList[@]}" - "${blockstreamerIpList[@]}"; do
+    if [[ $ipAddress = - ]]; then
+      nodeType=blockstreamer
+      continue
+    fi
     if $updateNodes; then
       stopNode "$ipAddress"
     fi
@@ -364,7 +327,7 @@ start() {
       pids=()
       loopCount=0
     else
-      startNode "$ipAddress"
+      startNode "$ipAddress" $nodeType
 
       # Stagger additional node start time. If too many nodes start simultaneously
       # the bootstrap node gets more rsync requests from the additional nodes than
@@ -407,16 +370,12 @@ start() {
 
   declare networkVersion=unknown
   case $deployMethod in
-  snap)
-    IFS=\  read -r _ networkVersion _ < <(
-      ssh "${sshOptions[@]}" "${fullnodeIpList[0]}" \
-        "snap info bitconch | grep \"^installed:\""
-    )
-    networkVersion=${networkVersion/0+git./}
-    ;;
   tar)
     networkVersion="$(
-      tail -n1 "$BITCONCH_ROOT"/bitconch-release/version.txt || echo "tar-unknown"
+      (
+        set -o pipefail
+        grep "^version: " "$SOROS_ROOT"/soros-release/version.yml | head -n1 | cut -d\  -f2
+      ) || echo "tar-unknown"
     )"
     ;;
   local)
@@ -431,7 +390,7 @@ start() {
   echo
   echo "+++ Deployment Successful"
   echo "Bootstrap leader deployment took $bootstrapNodeDeployTime seconds"
-  echo "Additional fullnode deployment (${#fullnodeIpList[@]} instances) took $additionalNodeDeployTime seconds"
+  echo "Additional fullnode deployment (${#fullnodeIpList[@]} full nodes, ${#blockstreamerIpList[@]} blockstreamer nodes) took $additionalNodeDeployTime seconds"
   echo "Client deployment (${#clientIpList[@]} instances) took $clientDeployTime seconds"
   echo "Network start logs in $netLogDir:"
   ls -l "$netLogDir"
@@ -447,15 +406,12 @@ stopNode() {
     ssh "${sshOptions[@]}" "$ipAddress" "
       PS4=\"$PS4\"
       set -x
-      if snap list bitconch; then
-        sudo snap set bitconch mode=
-      fi
       ! tmux list-sessions || tmux kill-session
-      for pid in bitconch/{net-stats,oom-monitor}.pid; do
+      for pid in soros/{net-stats,oom-monitor}.pid; do
         pgid=\$(ps opgid= \$(cat \$pid) | tr -d '[:space:]')
         sudo kill -- -\$pgid
       done
-      for pattern in bitconch- remote-; do
+      for pattern in node soros- remote-; do
         pkill -9 \$pattern
       done
     "
@@ -466,7 +422,7 @@ stop() {
   SECONDS=0
   $metricsWriteDatapoint "testnet-deploy net-stop-begin=1"
 
-  for ipAddress in "${fullnodeIpList[@]}" "${clientIpList[@]}"; do
+  for ipAddress in "${fullnodeIpList[@]}" "${blockstreamerIpList[@]}" "${clientIpList[@]}"; do
     stopNode "$ipAddress"
   done
 
@@ -505,7 +461,7 @@ logs)
     (
       set -x
       timeout 30s scp "${sshOptions[@]}" \
-        "$ipAddress":bitconch/"$log".log "$netLogDir"/remote-"$log"-"$ipAddress".log
+        "$ipAddress":soros/"$log".log "$netLogDir"/remote-"$log"-"$ipAddress".log
     ) || echo "failed to fetch log"
   }
   fetchRemoteLog "${fullnodeIpList[0]}" drone
@@ -514,6 +470,9 @@ logs)
   done
   for ipAddress in "${clientIpList[@]}"; do
     fetchRemoteLog "$ipAddress" client
+  done
+  for ipAddress in "${blockstreamerIpList[@]}"; do
+    fetchRemoteLog "$ipAddress" fullnode
   done
   ;;
 

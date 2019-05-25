@@ -2,7 +2,7 @@
 
 extern crate test;
 
-use bitconch::gen_keys::GenKeys;
+use soros::gen_keys::GenKeys;
 use test::Bencher;
 
 #[bench]

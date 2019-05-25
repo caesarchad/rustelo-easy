@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 
 if [[ -z $USE_PREBUILT_CHANNEL_TARBALL ]]; then
   echo --- downloading tar from build artifacts
-  buildkite-agent artifact download "bitconch*.tar.bz2" .
+  buildkite-agent artifact download "soros*.tar.bz2" .
 fi
 
 # shellcheck disable=SC1091
@@ -37,7 +37,7 @@ launchTestnet() {
   if [[ -n $USE_PREBUILT_CHANNEL_TARBALL ]]; then
     net/net.sh start -f "cuda" -o noValidatorSanity -t "$CHANNEL"
   else
-    net/net.sh start -f "cuda" -o noValidatorSanity -T bitconch*.tar.bz2
+    net/net.sh start -f "cuda" -o noValidatorSanity -T soros*.tar.bz2
   fi
 
   echo --- wait "$ITERATION_WAIT" seconds to complete test
@@ -72,7 +72,7 @@ launchTestnet() {
       FROM "testnet-automation"."autogen"."leader-confirmation"
       WHERE time > now() - 300s'
 
-  curl -G "https://metrics.bitconch.com:8086/query?u=${INFLUX_USERNAME}&p=${INFLUX_PASSWORD}" \
+  curl -G "https://metrics.soros.com:8086/query?u=${INFLUX_USERNAME}&p=${INFLUX_PASSWORD}" \
     --data-urlencode "db=$INFLUX_DATABASE" \
     --data-urlencode "q=$q_mean_tps;$q_max_tps;$q_mean_confirmation;$q_max_confirmation;$q_99th_confirmation" |
     python ci/testnet-automation-json-parser.py >>TPS"$nodeCount".log

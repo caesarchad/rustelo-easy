@@ -3,10 +3,10 @@ set -ex
 
 cd "$(dirname "$0")"
 
-docker build -t bitconchlabs/rust .
+docker build -t bitconch/rust .
 
-read -r rustc version _ < <(docker run bitconchlabs/rust rustc --version)
+read -r rustc version _ < <(docker run bitconch/rust rustc --version)
 [[ $rustc = rustc ]]
-docker tag bitconchlabs/rust:latest bitconchlabs/rust:"$version"
+docker tag bitconch/rust:latest bitconch/rust:"$version"
 
-docker push bitconchlabs/rust
+docker push bitconch/rust

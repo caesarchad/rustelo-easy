@@ -8,69 +8,85 @@ here=$(dirname "$0")
 source "$here"/common.sh
 
 # shellcheck source=scripts/oom-score-adj.sh
-source "$here"/oom-score-adj.sh
+source "$here"/../scripts/oom-score-adj.sh
 
-if [[ -d "$SNAP" ]]; then
-  # Exit if mode is not yet configured
-  # (typically the case after the Snap is first installed)
-  [[ -n "$(snapctl get mode)" ]] || exit 0
+if [[ $1 = -h ]]; then
+  fullnode_usage "$@"
 fi
 
-[[ -f "$BITCONCH_CONFIG_DIR"/bootstrap-leader.json ]] || {
-  echo "$BITCONCH_CONFIG_DIR/bootstrap-leader.json not found, create it by running:"
-  echo
-  echo "  ${here}/setup.sh"
-  exit 1
-}
+extra_fullnode_args=()
+setup_stakes=true
 
-if [[ -n "$BITCONCH_CUDA" ]]; then
-  program="$bitconch_fullnode_cuda"
-else
-  program="$bitconch_fullnode"
-fi
-
-maybe_entry_stream=
-maybe_init_complete_file=
-maybe_no_leader_rotation=
-
-while [[ -n $1 ]]; do
-  if [[ $1 = --init-complete-file ]]; then
-    maybe_init_complete_file="--init-complete-file $2"
+while [[ ${1:0:1} = - ]]; do
+  if [[ $1 = --blockstream ]]; then
+    extra_fullnode_args+=("$1" "$2")
     shift 2
-  elif [[ $1 = --entry-stream ]]; then
-    maybe_entry_stream="$1 $2"
-    shift 2
-  elif [[ $1 = --no-leader-rotation ]]; then
-    maybe_no_leader_rotation="--no-leader-rotation"
+  elif [[ $1 = --enable-rpc-exit ]]; then
+    extra_fullnode_args+=("$1")
     shift
+  elif [[ $1 = --init-complete-file ]]; then
+    extra_fullnode_args+=("$1" "$2")
+    shift 2
+  elif [[ $1 = --only-bootstrap-stake ]]; then
+    setup_stakes=false
+    shift
+  elif [[ $1 = --public-address ]]; then
+    extra_fullnode_args+=("$1")
+    shift
+  elif [[ $1 = --no-signer ]]; then
+    extra_fullnode_args+=("$1")
+    shift
+  elif [[ $1 = --rpc-port ]]; then
+    extra_fullnode_args+=("$1" "$2")
+    shift 2
   else
     echo "Unknown argument: $1"
     exit 1
   fi
 done
 
+if [[ -n $3 ]]; then
+  fullnode_usage "$@"
+fi
 
-if [[ -d $SNAP ]]; then
-  if [[ $(snapctl get leader-rotation) = false ]]; then
-    maybe_no_leader_rotation="--no-leader-rotation"
-  fi
+
+[[ -f "$SOROS_CONFIG_DIR"/bootstrap-leader-id.json ]] || {
+  echo "$SOROS_CONFIG_DIR/bootstrap-leader-id.json not found, create it by running:"
+  echo
+  echo "  ${here}/setup.sh"
+  exit 1
+}
+
+if [[ -n "$SOROS_CUDA" ]]; then
+  program="$soros_fullnode_cuda"
+else
+  program="$soros_fullnode"
 fi
 
 tune_system
 
-trap 'kill "$pid" && wait "$pid"' INT TERM
-$bitconch_ledger_tool --ledger "$BITCONCH_CONFIG_DIR"/bootstrap-leader-ledger verify
+$soros_ledger_tool --ledger "$SOROS_CONFIG_DIR"/bootstrap-leader-ledger verify
 
-# shellcheck disable=SC2086 # Don't want to double quote maybe_entry_stream or maybe_init_complete_file
+bootstrap_leader_id_path="$SOROS_CONFIG_DIR"/bootstrap-leader-id.json
+bootstrap_leader_staker_id_path="$SOROS_CONFIG_DIR"/bootstrap-leader-staker-id.json
+bootstrap_leader_staker_id=$($soros_wallet --keypair "$bootstrap_leader_staker_id_path" address)
+
+trap 'kill "$pid" && wait "$pid"' INT TERM ERR
 $program \
-  $maybe_entry_stream \
-  $maybe_init_complete_file \
-  $maybe_no_leader_rotation \
-  --identity "$BITCONCH_CONFIG_DIR"/bootstrap-leader.json \
-  --ledger "$BITCONCH_CONFIG_DIR"/bootstrap-leader-ledger \
-  --entry-stream "$BITCONCH_CONFIG_DIR"/tmp/bitconch-blockstream.sock \
+  --identity "$bootstrap_leader_id_path" \
+  --voting-keypair "$bootstrap_leader_staker_id_path" \
+  --staking-account  "$bootstrap_leader_staker_id" \
+  --ledger "$SOROS_CONFIG_DIR"/bootstrap-leader-ledger \
+  --accounts "$SOROS_CONFIG_DIR"/bootstrap-leader-accounts \
   --rpc-port 8899 \
+  --rpc-drone-address 127.0.0.1:9900 \
+  "${extra_fullnode_args[@]}" \
   > >($bootstrap_leader_logger) 2>&1 &
 pid=$!
 oom_score_adj "$pid" 1000
+
+if [[ $setup_stakes = true ]] ; then
+  setup_fullnode_staking 127.0.0.1 "$bootstrap_leader_id_path" "$bootstrap_leader_staker_id_path"
+fi
+
 wait "$pid"

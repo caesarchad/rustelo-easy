@@ -2,7 +2,7 @@
 
 extern crate test;
 
-use bitconch_runtime::*;
+use soros_runtime::*;
 use test::Bencher;
 
 #[bench]

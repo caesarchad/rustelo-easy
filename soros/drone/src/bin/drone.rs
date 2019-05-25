@@ -1,20 +1,20 @@
 use clap::{crate_version, App, Arg};
 use log::*;
-use bitconch_drone::drone::{Drone, DRONE_PORT};
-use bitconch_drone::socketaddr;
-use bitconch_sdk::signature::read_keypair;
+use soros_drone::drone::{Drone, DRONE_PORT};
+use soros_drone::socketaddr;
+use soros_sdk::signature::read_keypair;
 use std::error;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tokio::net::TcpListener;
-use tokio::prelude::*;
+use tokio::prelude::{Future, Sink, Stream};
 use tokio_codec::{BytesCodec, Decoder};
 
 fn main() -> Result<(), Box<error::Error>> {
-    bitconch_logger::setup();
-    bitconch_metrics::set_panic_hook("drone");
+    soros_logger::setup();
+    soros_metrics::set_panic_hook("drone");
     let matches = App::new("drone")
         .version(crate_version!())
         .arg(
@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<error::Error>> {
     info!("Drone started. Listening on: {}", drone_addr);
     let done = socket
         .incoming()
-        .map_err(|e| println!("failed to accept socket; error = {:?}", e))
+        .map_err(|e| warn!("failed to accept socket; error = {:?}", e))
         .for_each(move |socket| {
             let drone2 = drone.clone();
             let framed = BytesCodec::new().framed(socket);

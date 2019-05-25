@@ -13,24 +13,24 @@ impl SystemTransaction {
     /// Create and sign new SystemInstruction::CreateAccount transaction
     pub fn new_program_account(
         from_keypair: &Keypair,
-        to: Pubkey,
-        last_id: Hash,
-        tokens: u64,
+        to: &Pubkey,
+        recent_blockhash: Hash,
+        lamports: u64,
         space: u64,
-        program_id: Pubkey,
+        program_id: &Pubkey,
         fee: u64,
     ) -> Transaction {
         let create = SystemInstruction::CreateAccount {
-            tokens, //TODO, the tokens to allocate might need to be higher then 0 in the future
+            lamports, //TODO, the lamports to allocate might need to be higher then 0 in the future
             space,
-            program_id,
+            program_id: *program_id,
         };
         Transaction::new(
             from_keypair,
-            &[to],
-            system_program::id(),
+            &[*to],
+            &system_program::id(),
             &create,
-            last_id,
+            recent_blockhash,
             fee,
         )
     }
@@ -38,46 +38,56 @@ impl SystemTransaction {
     /// Create and sign a transaction to create a system account
     pub fn new_account(
         from_keypair: &Keypair,
-        to: Pubkey,
-        tokens: u64,
-        last_id: Hash,
+        to: &Pubkey,
+        lamports: u64,
+        recent_blockhash: Hash,
         fee: u64,
     ) -> Transaction {
         let program_id = system_program::id();
-        Self::new_program_account(from_keypair, to, last_id, tokens, 0, program_id, fee)
+        Self::new_program_account(
+            from_keypair,
+            to,
+            recent_blockhash,
+            lamports,
+            0,
+            &program_id,
+            fee,
+        )
     }
     /// Create and sign new SystemInstruction::Assign transaction
     pub fn new_assign(
         from_keypair: &Keypair,
-        last_id: Hash,
-        program_id: Pubkey,
+        recent_blockhash: Hash,
+        program_id: &Pubkey,
         fee: u64,
     ) -> Transaction {
-        let assign = SystemInstruction::Assign { program_id };
+        let assign = SystemInstruction::Assign {
+            program_id: *program_id,
+        };
         Transaction::new(
             from_keypair,
             &[],
-            system_program::id(),
+            &system_program::id(),
             &assign,
-            last_id,
+            recent_blockhash,
             fee,
         )
     }
     /// Create and sign new SystemInstruction::Move transaction
     pub fn new_move(
         from_keypair: &Keypair,
-        to: Pubkey,
-        tokens: u64,
-        last_id: Hash,
+        to: &Pubkey,
+        lamports: u64,
+        recent_blockhash: Hash,
         fee: u64,
     ) -> Transaction {
-        let move_tokens = SystemInstruction::Move { tokens };
+        let move_lamports = SystemInstruction::Move { lamports };
         Transaction::new(
             from_keypair,
-            &[to],
-            system_program::id(),
-            &move_tokens,
-            last_id,
+            &[*to],
+            &system_program::id(),
+            &move_lamports,
+            recent_blockhash,
             fee,
         )
     }
@@ -85,14 +95,14 @@ impl SystemTransaction {
     pub fn new_move_many(
         from: &Keypair,
         moves: &[(Pubkey, u64)],
-        last_id: Hash,
+        recent_blockhash: Hash,
         fee: u64,
     ) -> Transaction {
         let instructions: Vec<_> = moves
             .iter()
             .enumerate()
             .map(|(i, (_, amount))| {
-                let spend = SystemInstruction::Move { tokens: *amount };
+                let spend = SystemInstruction::Move { lamports: *amount };
                 Instruction::new(0, &spend, vec![0, i as u8 + 1])
             })
             .collect();
@@ -101,7 +111,7 @@ impl SystemTransaction {
         Transaction::new_with_instructions(
             &[from],
             &to_keys,
-            last_id,
+            recent_blockhash,
             fee,
             vec![system_program::id()],
             instructions,

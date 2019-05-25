@@ -23,7 +23,7 @@ check_balance_output() {
   exec 42>&1
   attempts=3
   while [[ $attempts -gt 0 ]]; do
-    output=$($bitconch_wallet "${entrypoint[@]}" balance | tee >(cat - >&42))
+    output=$($soros_wallet "${entrypoint[@]}" balance | tee >(cat - >&42))
     if [[ "$output" =~ $expected_output ]]; then
       break
     else
@@ -39,19 +39,17 @@ check_balance_output() {
 
 pay_and_confirm() {
   exec 42>&1
-  signature=$($bitconch_wallet "${entrypoint[@]}" pay "$@" | tee >(cat - >&42))
-  $bitconch_wallet "${entrypoint[@]}" confirm "$signature"
+  signature=$($soros_wallet "${entrypoint[@]}" pay "$@" | tee >(cat - >&42))
+  $soros_wallet "${entrypoint[@]}" confirm "$signature"
 }
 
-$bitconch_keygen
+$soros_keygen
 
 node_readiness=false
 timeout=60
 while [[ $timeout -gt 0 ]]; do
-  expected_output="Leader ready"
-  exec 42>&1
-  output=$($bitconch_wallet "${entrypoint[@]}" get-transaction-count | tee >(cat - >&42))
-  if [[ $output -gt 0 ]]; then
+  output=$($soros_wallet "${entrypoint[@]}" get-transaction-count)
+  if [[ -n $output ]]; then
     node_readiness=true
     break
   fi
@@ -63,11 +61,11 @@ if ! "$node_readiness"; then
   exit 1
 fi
 
-$bitconch_wallet "${entrypoint[@]}" address
+$soros_wallet "${entrypoint[@]}" address
 check_balance_output "No account found" "Your balance is: 0"
-$bitconch_wallet "${entrypoint[@]}" airdrop 60
+$soros_wallet "${entrypoint[@]}" airdrop 60
 check_balance_output "Your balance is: 60"
-$bitconch_wallet "${entrypoint[@]}" airdrop 40
+$soros_wallet "${entrypoint[@]}" airdrop 40
 check_balance_output "Your balance is: 100"
 pay_and_confirm $garbage_address 99
 check_balance_output "Your balance is: 1"

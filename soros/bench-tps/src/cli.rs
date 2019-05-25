@@ -3,8 +3,8 @@ use std::process::exit;
 use std::time::Duration;
 
 use clap::{crate_version, App, Arg, ArgMatches};
-use bitconch_drone::drone::DRONE_PORT;
-use bitconch_sdk::signature::{read_keypair, Keypair, KeypairUtil};
+use soros_drone::drone::DRONE_PORT;
+use soros_sdk::signature::{read_keypair, Keypair, KeypairUtil};
 
 /// Holds the configuration for a single run of the benchmark
 pub struct Config {
@@ -41,7 +41,7 @@ impl Default for Config {
 
 /// Defines and builds the CLI args for a run of the benchmark
 pub fn build_args<'a, 'b>() -> App<'a, 'b> {
-    App::new("bitconch-bench-tps")
+    App::new("soros-bench-tps")
         .version(crate_version!())
         .arg(
             Arg::with_name("network")

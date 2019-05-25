@@ -1,7 +1,7 @@
 use clap::{App, Arg};
-use bitconch::packet::{Packet, SharedPackets, BLOB_SIZE, PACKET_DATA_SIZE};
-use bitconch::result::Result;
-use bitconch::streamer::{receiver, PacketReceiver};
+use soros::packet::{Packet, SharedPackets, BLOB_SIZE, PACKET_DATA_SIZE};
+use soros::result::Result;
+use soros::streamer::{receiver, PacketReceiver};
 use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -51,7 +51,7 @@ fn sink(exit: Arc<AtomicBool>, rvs: Arc<AtomicUsize>, r: PacketReceiver) -> Join
 fn main() -> Result<()> {
     let mut num_sockets = 1usize;
 
-    let matches = App::new("bitconch-bench-streamer")
+    let matches = App::new("soros-bench-streamer")
         .arg(
             Arg::with_name("num-recv-sockets")
                 .long("num-recv-sockets")
@@ -73,7 +73,7 @@ fn main() -> Result<()> {
     let mut read_channels = Vec::new();
     let mut read_threads = Vec::new();
     for _ in 0..num_sockets {
-        let read = bitconch_netutil::bind_to(port, false).unwrap();
+        let read = soros_netutil::bind_to(port, false).unwrap();
         read.set_read_timeout(Some(Duration::new(1, 0))).unwrap();
 
         addr = read.local_addr().unwrap();
@@ -81,12 +81,7 @@ fn main() -> Result<()> {
 
         let (s_reader, r_reader) = channel();
         read_channels.push(r_reader);
-        read_threads.push(receiver(
-            Arc::new(read),
-            exit.clone(),
-            s_reader,
-            "bench-streamer",
-        ));
+        read_threads.push(receiver(Arc::new(read), &exit, s_reader, "bench-streamer"));
     }
 
     let t_producer1 = producer(&addr, exit.clone());

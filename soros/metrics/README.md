@@ -4,16 +4,16 @@
 
 There are three versions of the testnet dashboard, corresponding to the three
 release channels:
-* https://metrics.bitconch.com:3000/d/testnet-edge/testnet-monitor-edge
-* https://metrics.bitconch.com:3000/d/testnet-beta/testnet-monitor-beta
-* https://metrics.bitconch.com:3000/d/testnet/testnet-monitor
+* https://dashboard.bitconch.io:3000/d/testnet-edge/testnet-monitor-edge
+* https://dashboard.bitconch.io:3000/d/testnet-beta/testnet-monitor-beta
+* https://dashboard.bitconch.io:3000/d/testnet/testnet-monitor
 
 The dashboard for each channel is defined from the
 `metrics/testnet-monitor.json` source file in the git branch associated with
 that channel, and deployed by automation running `ci/publish-metrics-dashboard.sh`.
 
 A deploy can be triggered at any time via the `New Build` button of
-https://buildkite.com/bitconch-labs/publish-metrics-dashboard.
+https://buildkite.com/bitconch/publish-metrics-dashboard.
 
 ### Modifying a Dashboard
 
@@ -33,7 +33,7 @@ Dashboard updates are accomplished by modifying `metrics/testnet-monitor.json`,
 If you need to immediately deploy a dashboard using the contents of
 `metrics/testnet-monitor.json` in your local workspace,
 ```
-$ export GRAFANA_API_TOKEN="an API key from https://metrics.bitconch.com:3000/org/apikeys"
+$ export GRAFANA_API_TOKEN="an API key from https://dashboard.bitconch.io:3000/org/apikeys"
 $ metrics/publish-metrics-dashboard.sh (edge|beta|stable)
 ```
 Note that automation will eventually overwrite your manual deploy.

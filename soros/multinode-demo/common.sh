@@ -15,42 +15,20 @@ drone_logger="tee drone.log"
 if [[ $(uname) != Linux ]]; then
   # Protect against unsupported configurations to prevent non-obvious errors
   # later. Arguably these should be fatal errors but for now prefer tolerance.
-  if [[ -n $USE_SNAP ]]; then
-    echo "Warning: Snap is not supported on $(uname)"
-    USE_SNAP=
-  fi
-  if [[ -n $BITCONCH_CUDA ]]; then
+  if [[ -n $SOROS_CUDA ]]; then
     echo "Warning: CUDA is not supported on $(uname)"
-    BITCONCH_CUDA=
+    SOROS_CUDA=
   fi
 fi
 
-if [[ -d $SNAP ]]; then # Running inside a Linux Snap?
-  bitconch_program() {
-    declare program="$1"
-    printf "%s/command-%s.wrapper" "$SNAP" "$program"
-  }
-  rsync="$SNAP"/bin/rsync
-  multilog="$SNAP/bin/multilog t s16777215 n200"
-  bootstrap_leader_logger="$multilog $SNAP_DATA/bootstrap-leader"
-  fullnode_logger="$multilog t $SNAP_DATA/fullnode"
-  drone_logger="$multilog $SNAP_DATA/drone"
-  # Create log directories manually to prevent multilog from creating them as
-  # 0700
-  mkdir -p "$SNAP_DATA"/{drone,bootstrap-leader,fullnode}
 
-elif [[ -n $USE_SNAP ]]; then # Use the Linux Snap binaries
-  bitconch_program() {
+if [[ -n $USE_INSTALL || ! -f "$(dirname "${BASH_SOURCE[0]}")"/../Cargo.toml ]]; then
+  soros_program() {
     declare program="$1"
-    printf "bitconch.%s" "$program"
-  }
-elif [[ -n $USE_INSTALL ]]; then # Assume |./scripts/cargo-install-all.sh| was run
-  bitconch_program() {
-    declare program="$1"
-    printf "bitconch-%s" "$program"
+    printf "soros-%s" "$program"
   }
 else
-  bitconch_program() {
+  soros_program() {
     declare program="$1"
     declare features=""
     if [[ "$program" =~ ^(.*)-cuda$ ]]; then
@@ -59,14 +37,14 @@ else
     fi
 
     if [[ -r "$(dirname "${BASH_SOURCE[0]}")"/../"$program"/Cargo.toml ]]; then
-      maybe_package="--package bitconch-$program"
+      maybe_package="--package soros-$program"
     fi
     if [[ -n $NDEBUG ]]; then
       maybe_release=--release
     fi
-    printf "cargo run $maybe_release $maybe_package --bin bitconch-%s %s -- " "$program" "$features"
+    printf "cargo run $maybe_release $maybe_package --bin soros-%s %s -- " "$program" "$features"
   }
-  if [[ -n $BITCONCH_CUDA ]]; then
+  if [[ -n $SOROS_CUDA ]]; then
     # shellcheck disable=2154 # 'here' is referenced but not assigned
     if [[ -z $here ]]; then
       echo "|here| is not defined"
@@ -79,17 +57,16 @@ else
   fi
 fi
 
-bitconch_bench_tps=$(bitconch_program bench-tps)
-bitconch_wallet=$(bitconch_program wallet)
-bitconch_drone=$(bitconch_program drone)
-bitconch_fullnode=$(bitconch_program fullnode)
-bitconch_fullnode_config=$(bitconch_program fullnode-config)
-bitconch_fullnode_cuda=$(bitconch_program fullnode-cuda)
-bitconch_genesis=$(bitconch_program genesis)
-bitconch_keygen=$(bitconch_program keygen)
-bitconch_ledger_tool=$(bitconch_program ledger-tool)
+soros_bench_tps=$(soros_program bench-tps)
+soros_wallet=$(soros_program wallet)
+soros_drone=$(soros_program drone)
+soros_fullnode=$(soros_program fullnode)
+soros_fullnode_cuda=$(soros_program fullnode-cuda)
+soros_genesis=$(soros_program genesis)
+soros_keygen=$(soros_program keygen)
+soros_ledger_tool=$(soros_program ledger-tool)
 
-export RUST_LOG=${RUST_LOG:-bitconch=info} # if RUST_LOG is unset, default to info
+export RUST_LOG=${RUST_LOG:-soros=info} # if RUST_LOG is unset, default to info
 export RUST_BACKTRACE=1
 
 # shellcheck source=scripts/configure-metrics.sh
@@ -134,9 +111,101 @@ tune_system() {
   fi
 }
 
+airdrop() {
+  declare keypair_file=$1
+  declare host=$2
+  declare amount=$3
+
+  declare address
+  address=$($soros_wallet --keypair "$keypair_file" address)
+
+  # TODO: Until https://github.com/bitconch/bus/issues/2355 is resolved
+  # a fullnode needs N lamports as its vote account gets re-created on every
+  # node restart, costing it lamports
+  declare retries=5
+
+  while ! $soros_wallet --keypair "$keypair_file" --host "$host" airdrop "$amount"; do
+
+    # TODO: Consider moving this retry logic into `soros-wallet airdrop`
+    #   itself, currently it does not retry on "Connection refused" errors.
+    ((retries--))
+    if [[ $retries -le 0 ]]; then
+        echo "Airdrop to $address failed."
+        return 1
+    fi
+    echo "Airdrop to $address failed. Remaining retries: $retries"
+    sleep 1
+  done
+
+  return 0
+}
+
+setup_fullnode_staking() {
+  declare drone_address=$1
+  declare fullnode_id_path=$2
+  declare staker_id_path=$3
+
+  declare fullnode_id
+  fullnode_id=$($soros_wallet --keypair "$fullnode_id_path" address)
+
+  declare staker_id
+  staker_id=$($soros_wallet --keypair "$staker_id_path" address)
+
+  if [[ -f "$staker_id_path".configured ]]; then
+    echo "Staking account has already been configured"
+    return 0
+  fi
+
+  # A fullnode requires 43 lamports to function:
+  # - one lamport to keep the node identity public key valid. TODO: really??
+  # - 42 more for the staker account we fund
+  airdrop "$fullnode_id_path" "$drone_address" 43 || return $?
+
+  # A little wrong, fund the staking account from the
+  #  to the node.  Maybe next time consider doing this the opposite
+  #  way or use an ephemeral account
+  $soros_wallet --keypair "$fullnode_id_path" --host "$drone_address" \
+               create-staking-account "$staker_id" 42 || return $?
+
+  # as the staker, set the node as the delegate and the staker as
+  #  the vote-signer
+  $soros_wallet --keypair "$staker_id_path" --host "$drone_address" \
+                 configure-staking-account \
+                 --delegate-account "$fullnode_id" \
+                 --authorize-voter "$staker_id"  || return $?
+
+
+  touch "$staker_id_path".configured
+  return 0
+}
+
+fullnode_usage() {
+  if [[ -n $1 ]]; then
+    echo "$*"
+    echo
+  fi
+  cat <<EOF
+usage: $0 [-x] [--blockstream PATH] [--init-complete-file FILE] [--only-bootstrap-stake] [--no-signer] [--rpc-port port] [rsync network path to bootstrap leader configuration] [network entry point]
+
+Start a full node on the specified network
+
+  -x                        - start a new, dynamically-configured full node. Does not apply to the bootstrap leader
+  -X [label]                - start or restart a dynamically-configured full node with
+                              the specified label. Does not apply to the bootstrap leader
+  --blockstream PATH        - open blockstream at this unix domain socket location
+  --init-complete-file FILE - create this file, if it doesn't already exist, once node initialization is complete
+  --only-bootstrap-stake    - only stake the bootstrap leader, effectively disabling leader rotation
+  --public-address          - advertise public machine address in gossip.  By default the local machine address is advertised
+  --no-signer               - start node without vote signer
+  --rpc-port port           - custom RPC port for this node
+
+EOF
+  exit 1
+}
+
 # The directory on the bootstrap leader that is rsynced by other full nodes as
 # they boot (TODO: Eventually this should go away)
-BITCONCH_RSYNC_CONFIG_DIR=${SNAP_DATA:-$PWD}/config
+SOROS_RSYNC_CONFIG_DIR=$PWD/config
 
 # Configuration that remains local
-BITCONCH_CONFIG_DIR=${SNAP_DATA:-$PWD}/config-local
+SOROS_CONFIG_DIR=$PWD/config-local

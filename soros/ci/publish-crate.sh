@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 cd "$(dirname "$0")/.."
-
+source ci/semver_bash/semver.sh
 
 # List of internal crates to publish
 #
@@ -16,15 +16,17 @@ CRATES=(
   sdk
   keygen
   metrics
+  client
   drone
-  programs/native/{budget,bpf_loader,native_loader,noop,system,vote}
-  .
-  fullnode-config
+  programs/{budget_api,storage_api,token_api,vote_api}
+  runtime
+  programs/{budget,bpf_loader,storage,token,vote}
+  vote-signer
+  core
   fullnode
   genesis
   ledger-tool
   wallet
-  runtime
 )
 
 
@@ -33,6 +35,9 @@ CRATES=(
   echo TRIGGERED_BUILDKITE_TAG unset, skipped
   exit 0
 }
+
+semverParseInto "$TRIGGERED_BUILDKITE_TAG" MAJOR MINOR PATCH SPECIAL
+expectedCrateVersion="$MAJOR.$MINOR.$PATCH$SPECIAL"
 
 [[ -n "$CRATES_IO_TOKEN" ]] || {
   echo CRATES_IO_TOKEN undefined
@@ -47,13 +52,17 @@ for crate in "${CRATES[@]}"; do
     exit 1
   fi
   echo "-- $crate"
-  # TODO: Ensure the published version matches the contents of
-  # TRIGGERED_BUILDKITE_TAG
+  grep -q "^version = \"$expectedCrateVersion\"$" Cargo.toml || {
+    echo "Error: $crate/Cargo.toml version is not $expectedCrateVersion"
+    exit 1
+  }
+
   (
     set -x
     # TODO: the rocksdb package does not build with the stock rust docker image,
-    # so use the bitconch rust docker image until this is resolved upstream
-    ci/docker-run.sh bitconchlabs/rust:1.31.0 bash -exc "cd $crate; $cargoCommand"
+    # so use the soros rust docker image until this is resolved upstream
+    source ci/rust-version.sh
+    ci/docker-run.sh "$rust_stable_docker_image" bash -exc "cd $crate; $cargoCommand"
     #ci/docker-run.sh rust bash -exc "cd $crate; $cargoCommand"
   )
 done

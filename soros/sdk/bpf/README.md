@@ -7,7 +7,7 @@ include path/to/bpf.mk
 ```
 and `src/program.c` containing:
 ```c
-#include <bitconch_sdk.h>
+#include <soros_sdk.h>
 
 bool entrypoint(const uint8_t *input) {
   SolKeyedAccount ka[1];
@@ -41,4 +41,4 @@ Then run `make test`.
 
 ### Limitations
 * Programs must be fully contained within a single .c file
-* No libc is available but `bitconch_sdk.h` provides a minimal set of primitives
+* No libc is available but `soros_sdk.h` provides a minimal set of primitives

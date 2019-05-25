@@ -16,11 +16,11 @@ mkdir -p target/perf-libs
   cd target/perf-libs
   (
     set -x
-    curl https://bitconch-perf.s3.amazonaws.com/v0.11.1/x86_64-unknown-linux-gnu/bitconch-perf.tgz | tar zxvf -
+    curl https://soros-perf.s3.amazonaws.com/v0.11.1/x86_64-unknown-linux-gnu/soros-perf.tgz | tar zxvf -
   )
 
-  if [[ -r bitconch-perf-CUDA_HOME.txt ]]; then
-    CUDA_HOME=$(cat bitconch-perf-CUDA_HOME.txt)
+  if [[ -r soros-perf-CUDA_HOME.txt ]]; then
+    CUDA_HOME=$(cat soros-perf-CUDA_HOME.txt)
   else
     CUDA_HOME=/usr/local/cuda
   fi
@@ -47,7 +47,7 @@ export LD_LIBRARY_PATH="$PWD:$CUDA_HOME/lib64:$LD_LIBRARY_PATH"
 export PATH="$PATH:$CUDA_HOME/bin"
 EOF
 
-  echo "Downloaded bitconch-perf version: $(cat bitconch-perf-HEAD.txt)"
+  echo "Downloaded soros-perf version: $(cat soros-perf-HEAD.txt)"
   echo
   echo "source ./target/perf-libs/env.sh to setup compatible build environment"
 )

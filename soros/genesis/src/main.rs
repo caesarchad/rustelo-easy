@@ -1,24 +1,20 @@
 //! A command-line executable for generating the chain's genesis block.
 
 use clap::{crate_version, value_t_or_exit, App, Arg};
-use bitconch::blocktree::create_new_ledger;
-use bitconch::genesis_block::GenesisBlock;
-use bitconch_sdk::signature::{read_keypair, Keypair, KeypairUtil};
+use soros::blocktree::create_new_ledger;
+use soros_sdk::genesis_block::GenesisBlock;
+use soros_sdk::signature::{read_keypair, Keypair, KeypairUtil};
 use std::error;
 
 /**
- * Bootstrap leader gets two tokens:
- * - one token to create an instance of the vote_program with
- * - one token for the transaction fee
- * - one second token to keep the node identity public key valid
+ * Bootstrap leader gets two lamports:
+ * - one lamport to use as stake
+ * - one lamport to keep the node identity public key valid
  */
-//pub const BOOTSTRAP_LEADER_TOKENS: u64 = 3;
-// TODO: Until https://github.com/bitconch/bus/issues/2355 is resolved the bootstrap leader
-// needs N tokens as its vote account gets re-created on every node restart, costing it tokens
-pub const BOOTSTRAP_LEADER_TOKENS: u64 = 1_000_000;
+pub const BOOTSTRAP_LEADER_LAMPORTS: u64 = 2;
 
 fn main() -> Result<(), Box<dyn error::Error>> {
-    let matches = App::new("bitconch-genesis")
+    let matches = App::new("soros-genesis")
         .version(crate_version!())
         .arg(
             Arg::with_name("bootstrap_leader_keypair_file")
@@ -39,13 +35,13 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .help("Use directory as persistent ledger location"),
         )
         .arg(
-            Arg::with_name("num_tokens")
+            Arg::with_name("lamports")
                 .short("t")
-                .long("num_tokens")
-                .value_name("TOKENS")
+                .long("lamports")
+                .value_name("LAMPORTS")
                 .takes_value(true)
                 .required(true)
-                .help("Number of tokens to create in the mint"),
+                .help("Number of lamports to create in the mint"),
         )
         .arg(
             Arg::with_name("mint_keypair_file")
@@ -61,24 +57,20 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let bootstrap_leader_keypair_file = matches.value_of("bootstrap_leader_keypair_file").unwrap();
     let ledger_path = matches.value_of("ledger_path").unwrap();
     let mint_keypair_file = matches.value_of("mint_keypair_file").unwrap();
-    let num_tokens = value_t_or_exit!(matches, "num_tokens", u64);
+    let lamports = value_t_or_exit!(matches, "lamports", u64);
 
     let bootstrap_leader_keypair = read_keypair(bootstrap_leader_keypair_file)?;
     let mint_keypair = read_keypair(mint_keypair_file)?;
 
     let bootstrap_leader_vote_account_keypair = Keypair::new();
-    let genesis_block = GenesisBlock {
-        mint_id: mint_keypair.pubkey(),
-        tokens: num_tokens,
-        bootstrap_leader_id: bootstrap_leader_keypair.pubkey(),
-        bootstrap_leader_tokens: BOOTSTRAP_LEADER_TOKENS,
-        bootstrap_leader_vote_account_id: bootstrap_leader_vote_account_keypair.pubkey(),
-    };
+    let (mut genesis_block, _mint_keypair) = GenesisBlock::new_with_leader(
+        lamports,
+        &bootstrap_leader_keypair.pubkey(),
+        BOOTSTRAP_LEADER_LAMPORTS,
+    );
+    genesis_block.mint_id = mint_keypair.pubkey();
+    genesis_block.bootstrap_leader_vote_account_id = bootstrap_leader_vote_account_keypair.pubkey();
 
-    create_new_ledger(
-        ledger_path,
-        &genesis_block,
-        &bitconch::blocktree::BlocktreeConfig::default(),
-    )?;
+    create_new_ledger(ledger_path, &genesis_block)?;
     Ok(())
 }

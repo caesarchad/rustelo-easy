@@ -13,7 +13,7 @@ if [[ -d target/perf-libs ]]; then
 fi
 
 set -x
-git clone git@github.com:bitconch-labs/bitconch-perf-libs.git target/perf-libs
+git clone git@github.com:bitconch/soros-perf-libs.git target/perf-libs
 cd target/perf-libs
 make -j"$(nproc)"
 make DESTDIR=. install

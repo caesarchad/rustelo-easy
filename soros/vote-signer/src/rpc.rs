@@ -3,8 +3,8 @@
 use jsonrpc_core::{Error, MetaIoHandler, Metadata, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_http_server::{hyper, AccessControlAllowOrigin, DomainsValidation, ServerBuilder};
-use bitconch_sdk::pubkey::Pubkey;
-use bitconch_sdk::signature::{Keypair, KeypairUtil, Signature};
+use soros_sdk::pubkey::Pubkey;
+use soros_sdk::signature::{Keypair, KeypairUtil, Signature};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,15 +14,14 @@ use std::time::Duration;
 
 pub struct VoteSignerRpcService {
     thread_hdl: JoinHandle<()>,
-    exit: Arc<AtomicBool>,
 }
 
 impl VoteSignerRpcService {
-    pub fn new(rpc_addr: SocketAddr, exit: Arc<AtomicBool>) -> Self {
+    pub fn new(rpc_addr: SocketAddr, exit: &Arc<AtomicBool>) -> Self {
         let request_processor = LocalVoteSigner::default();
-        let exit_ = exit.clone();
+        let exit = exit.clone();
         let thread_hdl = Builder::new()
-            .name("bitconch-vote-signer-jsonrpc".to_string())
+            .name("soros-vote-signer-jsonrpc".to_string())
             .spawn(move || {
                 let mut io = MetaIoHandler::default();
                 let rpc = VoteSignerRpcImpl;
@@ -40,22 +39,13 @@ impl VoteSignerRpcService {
                     warn!("JSON RPC service unavailable: unable to bind to RPC port {}. \nMake sure this port is not already in use by another application", rpc_addr.port());
                     return;
                 }
-                while !exit_.load(Ordering::Relaxed) {
+                while !exit.load(Ordering::Relaxed) {
                     sleep(Duration::from_millis(100));
                 }
                 server.unwrap().close();
             })
             .unwrap();
-        Self { thread_hdl, exit }
-    }
-
-    pub fn exit(&self) {
-        self.exit.store(true, Ordering::Relaxed);
-    }
-
-    pub fn close(self) -> thread::Result<()> {
-        self.exit();
-        self.join()
+        Self { thread_hdl }
     }
 
     pub fn join(self) -> thread::Result<()> {
@@ -95,7 +85,7 @@ impl VoteSignerRpc for VoteSignerRpcImpl {
         signed_msg: Vec<u8>,
     ) -> Result<Pubkey> {
         info!("register rpc request received: {:?}", id);
-        meta.request_processor.register(id, &sig, &signed_msg)
+        meta.request_processor.register(&id, &sig, &signed_msg)
     }
 
     fn sign(
@@ -106,7 +96,7 @@ impl VoteSignerRpc for VoteSignerRpcImpl {
         signed_msg: Vec<u8>,
     ) -> Result<Signature> {
         info!("sign rpc request received: {:?}", id);
-        meta.request_processor.sign(id, &sig, &signed_msg)
+        meta.request_processor.sign(&id, &sig, &signed_msg)
     }
 
     fn deregister(
@@ -117,7 +107,7 @@ impl VoteSignerRpc for VoteSignerRpcImpl {
         signed_msg: Vec<u8>,
     ) -> Result<()> {
         info!("deregister rpc request received: {:?}", id);
-        meta.request_processor.deregister(id, &sig, &signed_msg)
+        meta.request_processor.deregister(&id, &sig, &signed_msg)
     }
 }
 
@@ -130,9 +120,9 @@ fn verify_signature(sig: &Signature, pubkey: &Pubkey, msg: &[u8]) -> Result<()> 
 }
 
 pub trait VoteSigner {
-    fn register(&self, pubkey: Pubkey, sig: &Signature, signed_msg: &[u8]) -> Result<Pubkey>;
-    fn sign(&self, pubkey: Pubkey, sig: &Signature, msg: &[u8]) -> Result<Signature>;
-    fn deregister(&self, pubkey: Pubkey, sig: &Signature, msg: &[u8]) -> Result<()>;
+    fn register(&self, pubkey: &Pubkey, sig: &Signature, signed_msg: &[u8]) -> Result<Pubkey>;
+    fn sign(&self, pubkey: &Pubkey, sig: &Signature, msg: &[u8]) -> Result<Signature>;
+    fn deregister(&self, pubkey: &Pubkey, sig: &Signature, msg: &[u8]) -> Result<()>;
 }
 
 #[derive(Clone)]
@@ -141,7 +131,7 @@ pub struct LocalVoteSigner {
 }
 impl VoteSigner for LocalVoteSigner {
     /// Process JSON-RPC request items sent via JSON-RPC.
-    fn register(&self, pubkey: Pubkey, sig: &Signature, msg: &[u8]) -> Result<Pubkey> {
+    fn register(&self, pubkey: &Pubkey, sig: &Signature, msg: &[u8]) -> Result<Pubkey> {
         verify_signature(&sig, &pubkey, &msg)?;
         {
             if let Some(voting_keypair) = self.nodes.read().unwrap().get(&pubkey) {
@@ -150,17 +140,17 @@ impl VoteSigner for LocalVoteSigner {
         }
         let voting_keypair = Keypair::new();
         let voting_pubkey = voting_keypair.pubkey();
-        self.nodes.write().unwrap().insert(pubkey, voting_keypair);
+        self.nodes.write().unwrap().insert(*pubkey, voting_keypair);
         Ok(voting_pubkey)
     }
-    fn sign(&self, pubkey: Pubkey, sig: &Signature, msg: &[u8]) -> Result<Signature> {
+    fn sign(&self, pubkey: &Pubkey, sig: &Signature, msg: &[u8]) -> Result<Signature> {
         verify_signature(&sig, &pubkey, &msg)?;
         match self.nodes.read().unwrap().get(&pubkey) {
             Some(voting_keypair) => Ok(voting_keypair.sign_message(&msg)),
             None => Err(Error::invalid_request()),
         }
     }
-    fn deregister(&self, pubkey: Pubkey, sig: &Signature, msg: &[u8]) -> Result<()> {
+    fn deregister(&self, pubkey: &Pubkey, sig: &Signature, msg: &[u8]) -> Result<()> {
         verify_signature(&sig, &pubkey, &msg)?;
         self.nodes.write().unwrap().remove(&pubkey);
         Ok(())
@@ -179,7 +169,7 @@ impl Default for LocalVoteSigner {
 mod tests {
     use super::*;
     use jsonrpc_core::{types::*, Response};
-    use bitconch_sdk::signature::{Keypair, KeypairUtil};
+    use soros_sdk::signature::{Keypair, KeypairUtil};
     use std::mem;
 
     fn start_rpc_handler() -> (MetaIoHandler<Meta>, Meta) {

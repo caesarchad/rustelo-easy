@@ -1,19 +1,36 @@
 [package]
-name = "bitconch-runtime"
-version = "0.12.0"
+name = "soros-runtime"
+version = "0.12.3"
 description = "Bitconch runtime"
-authors = ["Bitconch Dev <info@bitconch.io>"]
+authors = ["Bitconch Dev Team"]
 repository = "https://github.com/bitconch/bus"
 license = "Apache-2.0"
-homepage = "https://bitconch.io/"
+homepage = "https://bitconch.io"
 edition = "2018"
 
 [dependencies]
-bitconch-sdk = { path = "../sdk", version = "0.12.0" }
-bitconch-native-loader = { path = "../programs/native/native_loader", version = "0.12.0" }
-bitconch-system-program = { path = "../programs/native/system", version = "0.12.0" }
+bincode = "1.1.2"
+bv = { version = "0.11.0", features = ["serde"] }
+byteorder = "1.3.1"
+fnv = "1.0.6"
+hashbrown = "0.1.8"
+libc = "0.2.49"
+libloading = "0.5.0"
+log = "0.4.2"
+memmap = "0.6.2"
+rand = "0.6.5"
+serde = "1.0.88"
+serde_derive = "1.0.88"
+serde_json = "1.0.38"
+soros-budget-api = { path = "../programs/budget_api", version = "0.12.3" }
+soros-logger = { path = "../logger", version = "0.12.3" }
+soros-metrics = { path = "../metrics", version = "0.12.3" }
+soros-sdk = { path = "../sdk", version = "0.12.3" }
+soros-storage-api = { path = "../programs/storage_api", version = "0.12.3" }
+soros-token-api = { path = "../programs/token_api", version = "0.12.3" }
+soros-vote-api = { path = "../programs/vote_api", version = "0.12.3" }
 
 [lib]
-name = "bitconch_runtime"
+name = "soros_runtime"
 crate-type = ["lib"]
 
