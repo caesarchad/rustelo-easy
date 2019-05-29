@@ -1,7 +1,5 @@
-/target
-buffett/target
-/*/target
-
+*/target/*
+*/*/target/*
 # remove Cargo.lock
 Cargo.lock
 /*/Cargo.lock
