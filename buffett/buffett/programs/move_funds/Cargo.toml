@@ -1,0 +1,14 @@
+[package]
+name = "move_funds"
+version = "0.1.0"
+authors = ["Bitconch Dev"]
+
+[dependencies]
+bincode = "1.0.0"
+generic-array = { version = "0.12.0", default-features = false, features = ["serde"] }
+buffett_program_interface = { path = "../../common" }
+
+[lib]
+name = "move_funds"
+crate-type = ["dylib"]
+

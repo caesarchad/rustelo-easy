@@ -139,4 +139,8 @@ members = [
     "programs/print",
     "programs/move_funds",
 ]
-
+# Optional key, empty if not present.
+exclude = [
+    "bench-tps", 
+    "core",
+]
