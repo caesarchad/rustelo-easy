@@ -1,0 +1,12 @@
+[package]
+name = "noop"
+version = "0.1.0"
+authors = ["Bitconch Dev"]
+
+[dependencies]
+buffett_program_interface = { path = "../../../common" }
+
+[lib]
+name = "noop"
+crate-type = ["dylib"]
+
