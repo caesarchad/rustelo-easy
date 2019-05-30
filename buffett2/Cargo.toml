@@ -3,7 +3,7 @@ members = [
     "bench-tps",
     "common",
     "core",
-    "drone",
+    "tokenbot",
     "fullnode",
     "fullnode-config",
     "genesis",
