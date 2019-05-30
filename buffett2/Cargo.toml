@@ -7,6 +7,6 @@ members = [
     "fullnode",
     "fullnode-config",
     "genesis",
-    "keygen",
+    "keybot",
     "ledger-tool",
 ]
