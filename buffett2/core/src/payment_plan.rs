@@ -4,7 +4,7 @@
 //! `Payment`, the payment is executed.
 
 use chrono::prelude::*;
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 
 /// The types of events a payment plan can process.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

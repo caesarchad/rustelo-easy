@@ -4,8 +4,8 @@ use crate::budget::Budget;
 use crate::budget_instruction::Instruction;
 use chrono::prelude::{DateTime, Utc};
 use payment_plan::Witness;
-use buffett_program_interface::account::Account;
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::account::Account;
+use buffett_interface::pubkey::Pubkey;
 use std::io;
 use crate::transaction::Transaction;
 
@@ -271,8 +271,8 @@ mod test {
     use chrono::prelude::{DateTime, NaiveDate, Utc};
     use crate::hash::Hash;
     use crate::signature::{GenKeys, Keypair, KeypairUtil};
-    use buffett_program_interface::account::Account;
-    use buffett_program_interface::pubkey::Pubkey;
+    use buffett_interface::account::Account;
+    use buffett_interface::pubkey::Pubkey;
     use crate::transaction::Transaction;
 
     #[test]

@@ -2,8 +2,8 @@
 
 use crate::hash::Hash;
 use crate::signature::Signature;
-use buffett_program_interface::account::Account;
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::account::Account;
+use buffett_interface::pubkey::Pubkey;
 
 #[cfg_attr(feature = "cargo-clippy", allow(large_enum_variant))]
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]

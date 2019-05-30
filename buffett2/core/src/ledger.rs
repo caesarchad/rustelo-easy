@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use crate::result::{Error, Result};
 #[cfg(test)]
 use crate::signature::{Keypair, KeypairUtil};
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use std::fs::{create_dir_all, remove_dir_all, File, OpenOptions};
 use std::io::prelude::*;
 use std::io::{self, BufReader, BufWriter, Seek, SeekFrom};

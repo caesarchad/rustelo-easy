@@ -11,7 +11,7 @@ use rpc::{JsonRpcService, RPC_PORT};
 use rpu::Rpu;
 use crate::service::Service;
 use crate::signature::{Keypair, KeypairUtil};
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use std::net::UdpSocket;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};

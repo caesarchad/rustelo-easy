@@ -289,7 +289,7 @@ mod tests {
     use crate::coinery::Mint;
     use crate::service::Service;
     use crate::signature::{Keypair, KeypairUtil};
-    use buffett_program_interface::pubkey::Pubkey;
+    use buffett_interface::pubkey::Pubkey;
     use std::cmp;
     use std::sync::atomic::AtomicBool;
     use std::sync::mpsc::{channel, Sender};

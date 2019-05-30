@@ -4,7 +4,7 @@ use crate::entry::Entry;
 use crate::hash::{hash, Hash};
 use ring::rand::SystemRandom;
 use crate::signature::{Keypair, KeypairUtil};
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use crate::system_transaction::SystemTransaction;
 use crate::transaction::Transaction;
 use untrusted::Input;

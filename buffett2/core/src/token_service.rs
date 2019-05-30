@@ -14,7 +14,7 @@ use bytes::Bytes;
 use influx_db_client as influxdb;
 use crate::metrics;
 use crate::signature::{Keypair, Signature};
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use std::io;
 use std::io::{Error, ErrorKind};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};

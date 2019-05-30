@@ -1,8 +1,8 @@
 //! tic-tac-toe dashboard program
 
 use serde_cbor;
-use buffett_program_interface::account::Account;
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::account::Account;
+use buffett_interface::pubkey::Pubkey;
 use tictactoe_program::{Error, Game, Result, State, TicTacToeProgram};
 use crate::transaction::Transaction;
 

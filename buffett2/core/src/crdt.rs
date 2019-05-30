@@ -25,7 +25,7 @@ use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use crate::result::{Error, Result};
 use crate::signature::{Keypair, KeypairUtil};
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use std;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -1387,7 +1387,7 @@ mod tests {
     use crate::packet::SharedBlob;
     use crate::result::Error;
     use crate::signature::{Keypair, KeypairUtil};
-    use buffett_program_interface::pubkey::Pubkey;
+    use buffett_interface::pubkey::Pubkey;
     use std::fs::remove_dir_all;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::atomic::{AtomicBool, Ordering};

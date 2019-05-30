@@ -3,7 +3,7 @@ extern crate generic_array;
 
 use libc;
 use libloading;
-use buffett_program_interface::account::KeyedAccount;
+use buffett_interface::account::KeyedAccount;
 use std::path::PathBuf;
 
 #[cfg(debug_assertions)]
@@ -99,8 +99,8 @@ impl DynamicProgram {
 mod tests {
     use super::*;
     use bincode::serialize;
-    use buffett_program_interface::account::Account;
-    use buffett_program_interface::pubkey::Pubkey;
+    use buffett_interface::account::Account;
+    use buffett_interface::pubkey::Pubkey;
     use std::path::Path;
     use std::thread;
 

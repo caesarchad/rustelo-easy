@@ -3,7 +3,7 @@
 use bincode::serialize;
 use crate::hash::{Hash, Hasher};
 use crate::signature::{Keypair, KeypairUtil, Signature};
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use std::mem::size_of;
 
 pub const SIGNED_DATA_OFFSET: usize = size_of::<Signature>();

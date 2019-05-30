@@ -298,7 +298,7 @@ mod tests {
     use crate::ledger::{genesis, next_entries_mut, read_ledger};
     use crate::service::Service;
     use crate::signature::{Keypair, KeypairUtil};
-    use buffett_program_interface::pubkey::Pubkey;
+    use buffett_interface::pubkey::Pubkey;
     use std::fs::remove_dir_all;
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::{Arc, RwLock};

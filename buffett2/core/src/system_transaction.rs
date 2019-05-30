@@ -3,7 +3,7 @@
 use bincode::serialize;
 use crate::hash::Hash;
 use crate::signature::{Keypair, KeypairUtil};
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use system_program::SystemProgram;
 use crate::transaction::Transaction;
 

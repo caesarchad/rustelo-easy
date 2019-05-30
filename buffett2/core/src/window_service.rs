@@ -7,7 +7,7 @@ use log::Level;
 use crate::packet::SharedBlob;
 use rand::{thread_rng, Rng};
 use crate::result::{Error, Result};
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::RecvTimeoutError;

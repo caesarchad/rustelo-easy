@@ -45,7 +45,7 @@ pub fn init() {
 fn verify_packet(packet: &Packet) -> u8 {
     use ring::signature;
     use crate::signature::Signature;
-    use buffett_program_interface::pubkey::Pubkey;
+    use buffett_interface::pubkey::Pubkey;
     use untrusted;
 
     let msg_start = TX_OFFSET + SIGNED_DATA_OFFSET;

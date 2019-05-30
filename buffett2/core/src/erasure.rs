@@ -1,6 +1,6 @@
 // Support erasure coding
 use crate::packet::{SharedBlob, BLOB_DATA_SIZE, BLOB_HEADER_SIZE};
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use std::cmp;
 use std::mem;
 use std::result;
@@ -597,7 +597,7 @@ mod test {
     use crate::packet::{SharedBlob, BLOB_DATA_SIZE, BLOB_HEADER_SIZE, BLOB_SIZE};
     use rand::{thread_rng, Rng};
     use crate::signature::{Keypair, KeypairUtil};
-    use buffett_program_interface::pubkey::Pubkey;
+    use buffett_interface::pubkey::Pubkey;
     //    use std::sync::{Arc, RwLock};
     use crate::window::{index_blobs, WindowSlot};
 

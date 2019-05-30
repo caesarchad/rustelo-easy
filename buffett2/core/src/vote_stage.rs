@@ -12,7 +12,7 @@ use crate::metrics;
 use crate::packet::SharedBlob;
 use crate::result::Result;
 use crate::signature::Keypair;
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use std::result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};

@@ -3,7 +3,7 @@ extern crate bincode;
 extern crate rand;
 extern crate rayon;
 extern crate buffett;
-extern crate buffett_program_interface;
+extern crate buffett_interface;
 extern crate test;
 
 use rand::{thread_rng, Rng};
@@ -16,7 +16,7 @@ use buffett::packet::to_packets_chunked;
 use buffett::signature::{KeypairUtil, Signature};
 use buffett::system_transaction::SystemTransaction;
 use buffett::transaction::Transaction;
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use std::iter;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;

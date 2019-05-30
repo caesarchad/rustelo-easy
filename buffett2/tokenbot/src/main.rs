@@ -37,8 +37,8 @@ macro_rules! socketaddr {
 
 fn main() -> Result<(), Box<error::Error>> {
     logger::setup();
-    set_panic_hook("drone");
-    let matches = App::new("drone")
+    set_panic_hook("tokenbot");
+    let matches = App::new("tokenbot")
         .version(crate_version!())
         .arg(
             Arg::with_name("network")
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<error::Error>> {
                 .value_name("HOST:PORT")
                 .takes_value(true)
                 .required(true)
-                .help("Rendezvous with the network at this gossip entry point"),
+                .help("Ip and port number of the leader node"),
         ).arg(
             Arg::with_name("keypair")
                 .short("k")
@@ -61,13 +61,13 @@ fn main() -> Result<(), Box<error::Error>> {
                 .long("slice")
                 .value_name("SECS")
                 .takes_value(true)
-                .help("Time slice over which to limit requests to drone"),
+                .help("Time interval limit for airdropping request"),
         ).arg(
             Arg::with_name("cap")
                 .long("cap")
                 .value_name("NUM")
                 .takes_value(true)
-                .help("Request limit for time slice"),
+                .help("Request limit during each interval"),
         ).get_matches();
 
     let network = matches

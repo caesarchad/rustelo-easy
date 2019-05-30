@@ -2,8 +2,8 @@
 
 use bincode::deserialize;
 use crate::dynamic_program::DynamicProgram;
-use buffett_program_interface::account::Account;
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::account::Account;
+use buffett_interface::pubkey::Pubkey;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use crate::transaction::Transaction;
@@ -100,8 +100,8 @@ mod test {
     use bincode::serialize;
     use crate::hash::Hash;
     use crate::signature::{Keypair, KeypairUtil};
-    use buffett_program_interface::account::{Account, KeyedAccount};
-    use buffett_program_interface::pubkey::Pubkey;
+    use buffett_interface::account::{Account, KeyedAccount};
+    use buffett_interface::pubkey::Pubkey;
     use std::collections::HashMap;
     use std::sync::RwLock;
     use std::thread;

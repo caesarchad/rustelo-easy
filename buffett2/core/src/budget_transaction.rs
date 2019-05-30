@@ -8,7 +8,7 @@ use chrono::prelude::*;
 use crate::hash::Hash;
 use payment_plan::Payment;
 use crate::signature::Keypair;
-use buffett_program_interface::pubkey::Pubkey;
+use buffett_interface::pubkey::Pubkey;
 use crate::transaction::Transaction;
 
 pub trait BudgetTransaction {
