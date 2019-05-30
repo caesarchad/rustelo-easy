@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "bench-tps",
+    "common",
+    "core",
+    "drone",
+    "fullnode",
+    "fullnode-config",
+    "genesis",
+    "keygen",
+    "ledger-tool",
+]

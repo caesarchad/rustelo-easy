@@ -1,5 +1,5 @@
 [package]
-name = "bench-tps"
+name = "buffett-bench-tps"
 version = "0.1.0"
 authors = ["Caesar Chad <BLUE.WEB.GEEK@gmail.com>"]
 edition = "2018"

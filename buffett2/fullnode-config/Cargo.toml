@@ -1,5 +1,5 @@
 [package]
-name = "keygen"
+name = "buffett-fullnode-config"
 version = "0.1.0"
 authors = ["Caesar Chad <BLUE.WEB.GEEK@gmail.com>"]
 edition = "2018"
@@ -7,6 +7,5 @@ edition = "2018"
 [dependencies]
 clap = "2.32"
 dirs = "1.0.2"
-ring = "0.13.2"
 serde_json = "1.0.10"
 buffett-core = { path = "../core" }

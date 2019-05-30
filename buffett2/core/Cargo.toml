@@ -87,8 +87,3 @@ name = "sigverify"
 required-features = ["chacha"]
 name = "chacha"
 
-[workspace]
-members = [
-    ".",
-]
-
