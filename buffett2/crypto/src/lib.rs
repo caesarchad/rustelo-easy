@@ -1,6 +1,5 @@
 pub mod hash;
 pub mod signature;
-pub mod chacha;
 extern crate bs58;
 
 extern crate rayon;
