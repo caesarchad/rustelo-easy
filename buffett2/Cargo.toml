@@ -10,4 +10,5 @@ members = [
     "keybot",
     "ledger-tool",
     "metrics",
+    "crypto",
 ]
