@@ -1,28 +1,3 @@
-//! The `rpu` module implements the Request Processing Unit, a
-//! 3-stage transaction processing pipeline in software. It listens
-//! for `Request` messages from clients and replies with `Response`
-//! messages.
-//!
-//! ```text
-//!                             .------.
-//!                             | Bank |
-//!                             `---+--`
-//!                                 |
-//!              .------------------|-------------------.
-//!              |  RPU             |                   |
-//!              |                  v                   |
-//!  .---------. |  .-------.  .---------.  .---------. |   .---------.
-//!  |  Alice  |--->|       |  |         |  |         +---->|  Alice  |
-//!  `---------` |  | Fetch |  | Request |  | Respond | |   `---------`
-//!              |  | Stage |->|  Stage  |->|  Stage  | |
-//!  .---------. |  |       |  |         |  |         | |   .---------.
-//!  |   Bob   |--->|       |  |         |  |         +---->|   Bob   |
-//!  `---------` |  `-------`  `---------`  `---------` |   `---------`
-//!              |                                      |
-//!              |                                      |
-//!              `--------------------------------------`
-//! ```
-
 use crate::tx_vault::Bank;
 use request_processor::RequestProcessor;
 use request_stage::RequestStage;

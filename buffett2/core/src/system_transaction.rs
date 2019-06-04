@@ -1,10 +1,10 @@
-//! The `system_transaction` module provides functionality for creating system transactions.
+
 
 use bincode::serialize;
-use crate::hash::Hash;
-use crate::signature::{Keypair, KeypairUtil};
+use buffett_crypto::hash::Hash;
+use buffett_crypto::signature::{Keypair, KeypairUtil};
 use buffett_interface::pubkey::Pubkey;
-use system_program::SystemProgram;
+use crate::system_program::SystemProgram;
 use crate::transaction::Transaction;
 
 pub trait SystemTransaction {
@@ -40,7 +40,7 @@ pub trait SystemTransaction {
 }
 
 impl SystemTransaction for Transaction {
-    /// Create and sign new SystemProgram::CreateAccount transaction
+    
     fn system_create(
         from_keypair: &Keypair,
         to: Pubkey,
@@ -51,7 +51,7 @@ impl SystemTransaction for Transaction {
         fee: i64,
     ) -> Self {
         let create = SystemProgram::CreateAccount {
-            tokens, //TODO, the tokens to allocate might need to be higher then 0 in the future
+            tokens, 
             space,
             program_id,
         };
@@ -64,7 +64,7 @@ impl SystemTransaction for Transaction {
             fee,
         )
     }
-    /// Create and sign new SystemProgram::CreateAccount transaction
+    
     fn system_assign(from_keypair: &Keypair, last_id: Hash, program_id: Pubkey, fee: i64) -> Self {
         let create = SystemProgram::Assign { program_id };
         Transaction::new(
@@ -76,11 +76,11 @@ impl SystemTransaction for Transaction {
             fee,
         )
     }
-    /// Create and sign new SystemProgram::CreateAccount transaction with some defaults
+    
     fn system_new(from_keypair: &Keypair, to: Pubkey, tokens: i64, last_id: Hash) -> Self {
         Transaction::system_create(from_keypair, to, last_id, tokens, 0, Pubkey::default(), 0)
     }
-    /// Create and sign new SystemProgram::Move transaction
+    
     fn system_move(
         from_keypair: &Keypair,
         to: Pubkey,
@@ -98,7 +98,7 @@ impl SystemTransaction for Transaction {
             fee,
         )
     }
-    /// Create and sign new SystemProgram::Load transaction
+    
     fn system_load(
         from_keypair: &Keypair,
         last_id: Hash,
@@ -137,49 +137,3 @@ pub fn memfind<A: Eq>(a: &[A], b: &[A]) -> Option<usize> {
     None
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bincode::{deserialize, serialize};
-    use crate::packet::PACKET_DATA_SIZE;
-    use crate::transaction::{PUB_KEY_OFFSET, SIGNED_DATA_OFFSET, SIG_OFFSET};
-
-    #[test]
-    fn test_layout() {
-        let tx = test_tx();
-        let sign_data = tx.get_sign_data();
-        let tx_bytes = serialize(&tx).unwrap();
-        assert_eq!(memfind(&tx_bytes, &sign_data), Some(SIGNED_DATA_OFFSET));
-        assert_eq!(memfind(&tx_bytes, &tx.signature.as_ref()), Some(SIG_OFFSET));
-        assert_eq!(
-            memfind(&tx_bytes, &tx.from().as_ref()),
-            Some(PUB_KEY_OFFSET)
-        );
-        assert!(tx.verify_signature());
-    }
-
-    #[test]
-    fn test_userdata_layout() {
-        let mut tx0 = test_tx();
-        tx0.userdata = vec![1, 2, 3];
-        let sign_data0a = tx0.get_sign_data();
-        let tx_bytes = serialize(&tx0).unwrap();
-        assert!(tx_bytes.len() < PACKET_DATA_SIZE);
-        assert_eq!(memfind(&tx_bytes, &sign_data0a), Some(SIGNED_DATA_OFFSET));
-        assert_eq!(
-            memfind(&tx_bytes, &tx0.signature.as_ref()),
-            Some(SIG_OFFSET)
-        );
-        assert_eq!(
-            memfind(&tx_bytes, &tx0.from().as_ref()),
-            Some(PUB_KEY_OFFSET)
-        );
-        let tx1 = deserialize(&tx_bytes).unwrap();
-        assert_eq!(tx0, tx1);
-        assert_eq!(tx1.userdata, vec![1, 2, 3]);
-
-        tx0.userdata = vec![1, 2, 4];
-        let sign_data0b = tx0.get_sign_data();
-        assert_ne!(sign_data0a, sign_data0b);
-    }
-}

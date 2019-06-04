@@ -1,5 +1,3 @@
-//! The `socket_streamer` pulls blobs from UDP sockets and sends it to a channel.
-
 use crate::service::Service;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};

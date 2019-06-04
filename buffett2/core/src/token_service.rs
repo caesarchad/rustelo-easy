@@ -13,7 +13,7 @@ use bincode::{deserialize, serialize};
 use bytes::Bytes;
 use influx_db_client as influxdb;
 use crate::metrics;
-use crate::signature::{Keypair, Signature};
+use buffett_crypto::signature::{Keypair, Signature};
 use buffett_interface::pubkey::Pubkey;
 use std::io;
 use std::io::{Error, ErrorKind};
@@ -235,7 +235,7 @@ mod tests {
     use crate::logger;
     use crate::coinery::Mint;
     use netutil::get_ip_addr;
-    use crate::signature::{Keypair, KeypairUtil};
+    use buffett_crypto::signature::{Keypair, KeypairUtil};
     use std::fs::remove_dir_all;
     use std::net::{SocketAddr, UdpSocket};
     use std::time::Duration;
@@ -374,8 +374,6 @@ mod tests {
         };
         let bob_sig = drone.send_airdrop(bob_req).unwrap();
         assert!(client.poll_for_signature(&bob_sig).is_ok());
-
-        // restart the leader, drone should find the new one at the same gossip port
         server.close().unwrap();
 
         let leader_keypair = Keypair::new();
@@ -399,7 +397,6 @@ mod tests {
             client_pubkey: carlos_pubkey,
         };
 
-        // using existing drone, new thin client
         let carlos_sig = drone.send_airdrop(carlos_req).unwrap();
         assert!(client.poll_for_signature(&carlos_sig).is_ok());
 

@@ -10,7 +10,7 @@ use crate::ledger::{Block, LedgerWriter};
 use log::Level;
 use crate::result::{Error, Result};
 use crate::service::Service;
-use crate::signature::Keypair;
+use buffett_crypto::signature::Keypair;
 use std::cmp;
 use std::net::UdpSocket;
 use std::sync::atomic::AtomicUsize;
@@ -19,7 +19,7 @@ use std::sync::{Arc, RwLock};
 use std::thread::{self, Builder, JoinHandle};
 use std::time::{Duration, Instant};
 use crate::streamer::responder;
-use crate::timing::{duration_as_ms, duration_as_s};
+use buffett_timing::timing::{duration_in_milliseconds, duration_in_seconds};
 use crate::vote_stage::send_leader_vote;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -137,7 +137,7 @@ impl WriteStage {
             let crdt_votes_start = Instant::now();
             let votes = &entries.votes();
             crdt.write().unwrap().insert_votes(&votes);
-            crdt_votes_total += duration_as_ms(&crdt_votes_start.elapsed());
+            crdt_votes_total += duration_in_milliseconds(&crdt_votes_start.elapsed());
 
             ledger_writer.write_entries(entries.clone())?;
             // Once the entries have been written to the ledger, then we can
@@ -159,15 +159,15 @@ impl WriteStage {
                 entry_sender.send(entries)?;
             }
 
-            entries_send_total += duration_as_ms(&entries_send_start.elapsed());
+            entries_send_total += duration_in_milliseconds(&entries_send_start.elapsed());
         }
         inc_new_counter_info!(
             "write_stage-time_ms",
-            duration_as_ms(&now.elapsed()) as usize
+            duration_in_milliseconds(&now.elapsed()) as usize
         );
         info!("done write_stage txs: {} time {} ms txs/s: {} entries_send_total: {} crdt_votes_total: {}",
-              num_txs, duration_as_ms(&start.elapsed()),
-              num_txs as f32 / duration_as_s(&start.elapsed()),
+              num_txs, duration_in_milliseconds(&start.elapsed()),
+              num_txs as f32 / duration_in_seconds(&start.elapsed()),
               entries_send_total,
               crdt_votes_total);
 
@@ -289,258 +289,3 @@ impl Service for WriteStage {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::tx_vault::Bank;
-    use crate::crdt::{Crdt, Node};
-    use crate::entry::Entry;
-    use crate::hash::Hash;
-    use crate::ledger::{genesis, next_entries_mut, read_ledger};
-    use crate::service::Service;
-    use crate::signature::{Keypair, KeypairUtil};
-    use buffett_interface::pubkey::Pubkey;
-    use std::fs::remove_dir_all;
-    use std::sync::mpsc::{channel, Receiver, Sender};
-    use std::sync::{Arc, RwLock};
-    use crate::write_stage::{WriteStage, WriteStageReturnType};
-
-    struct DummyWriteStage {
-        my_id: Pubkey,
-        write_stage: WriteStage,
-        entry_sender: Sender<Vec<Entry>>,
-        _write_stage_entry_receiver: Receiver<Vec<Entry>>,
-        crdt: Arc<RwLock<Crdt>>,
-        bank: Arc<Bank>,
-        leader_ledger_path: String,
-        ledger_tail: Vec<Entry>,
-    }
-
-    fn process_ledger(ledger_path: &str, bank: &Bank) -> (u64, Vec<Entry>) {
-        let entries = read_ledger(ledger_path, true).expect("opening ledger");
-
-        let entries = entries
-            .map(|e| e.unwrap_or_else(|err| panic!("failed to parse entry. error: {}", err)));
-
-        info!("Process ");
-        bank.process_ledger(entries).expect("process_ledger")
-    }
-
-    fn setup_dummy_write_stage(leader_rotation_interval: u64) -> DummyWriteStage {
-        // Setup leader info
-        let leader_keypair = Arc::new(Keypair::new());
-        let my_id = leader_keypair.pubkey();
-        let leader_info = Node::new_localhost_with_pubkey(leader_keypair.pubkey());
-
-        let mut crdt = Crdt::new(leader_info.info).expect("Crdt::new");
-        crdt.set_leader_rotation_interval(leader_rotation_interval);
-        let crdt = Arc::new(RwLock::new(crdt));
-        let bank = Bank::new_default(true);
-        let bank = Arc::new(bank);
-
-        // Make a ledger
-        let (_, leader_ledger_path) = genesis("test_leader_rotation_exit", 10_000);
-
-        let (entry_height, ledger_tail) = process_ledger(&leader_ledger_path, &bank);
-
-        // Make a dummy pipe
-        let (entry_sender, entry_receiver) = channel();
-
-        // Start up the write stage
-        let (write_stage, _write_stage_entry_receiver) = WriteStage::new(
-            leader_keypair,
-            bank.clone(),
-            crdt.clone(),
-            &leader_ledger_path,
-            entry_receiver,
-            entry_height,
-        );
-
-        DummyWriteStage {
-            my_id,
-            write_stage,
-            entry_sender,
-            // Need to keep this alive, otherwise the write_stage will detect ChannelClosed
-            // and shut down
-            _write_stage_entry_receiver,
-            crdt,
-            bank,
-            leader_ledger_path,
-            ledger_tail,
-        }
-    }
-
-    #[test]
-    fn test_write_stage_leader_rotation_exit() {
-        let leader_rotation_interval = 10;
-        let write_stage_info = setup_dummy_write_stage(leader_rotation_interval);
-
-        {
-            let mut wcrdt = write_stage_info.crdt.write().unwrap();
-            wcrdt.set_scheduled_leader(leader_rotation_interval, write_stage_info.my_id);
-        }
-
-        let mut last_id = write_stage_info
-            .ledger_tail
-            .last()
-            .expect("Ledger should not be empty")
-            .id;
-        let mut num_hashes = 0;
-
-        let genesis_entry_height = write_stage_info.ledger_tail.len() as u64;
-
-        // Input enough entries to make exactly leader_rotation_interval entries, which will
-        // trigger a check for leader rotation. Because the next scheduled leader
-        // is ourselves, we won't exit
-        for _ in genesis_entry_height..leader_rotation_interval {
-            let new_entry = next_entries_mut(&mut last_id, &mut num_hashes, vec![]);
-            write_stage_info.entry_sender.send(new_entry).unwrap();
-        }
-
-        // Set the scheduled next leader in the crdt to some other node
-        let leader2_keypair = Keypair::new();
-        let leader2_info = Node::new_localhost_with_pubkey(leader2_keypair.pubkey());
-
-        {
-            let mut wcrdt = write_stage_info.crdt.write().unwrap();
-            wcrdt.insert(&leader2_info.info);
-            wcrdt.set_scheduled_leader(2 * leader_rotation_interval, leader2_keypair.pubkey());
-        }
-
-        // Input another leader_rotation_interval dummy entries one at a time,
-        // which will take us past the point of the leader rotation.
-        // The write_stage will see that it's no longer the leader after
-        // checking the schedule, and exit
-        for _ in 0..leader_rotation_interval {
-            let new_entry = next_entries_mut(&mut last_id, &mut num_hashes, vec![]);
-            write_stage_info.entry_sender.send(new_entry).unwrap();
-        }
-
-        assert_eq!(
-            write_stage_info.write_stage.join().unwrap(),
-            WriteStageReturnType::LeaderRotation
-        );
-
-        // Make sure the ledger contains exactly 2 * leader_rotation_interval entries
-        let (entry_height, _) =
-            process_ledger(&write_stage_info.leader_ledger_path, &write_stage_info.bank);
-        remove_dir_all(write_stage_info.leader_ledger_path).unwrap();
-        assert_eq!(entry_height, 2 * leader_rotation_interval);
-    }
-
-    #[test]
-    fn test_leader_index_calculation() {
-        // Set up a dummy node
-        let leader_keypair = Arc::new(Keypair::new());
-        let my_id = leader_keypair.pubkey();
-        let leader_info = Node::new_localhost_with_pubkey(leader_keypair.pubkey());
-
-        let leader_rotation_interval = 10;
-
-        // An epoch is the period of leader_rotation_interval entries
-        // time during which a leader is in power
-        let num_epochs = 3;
-
-        let mut crdt = Crdt::new(leader_info.info).expect("Crdt::new");
-        crdt.set_leader_rotation_interval(leader_rotation_interval as u64);
-        for i in 0..num_epochs {
-            crdt.set_scheduled_leader(i * leader_rotation_interval, my_id)
-        }
-
-        let crdt = Arc::new(RwLock::new(crdt));
-        let entry = Entry::new(&Hash::default(), 0, vec![]);
-
-        // A vector that is completely within a certain epoch should return that
-        // entire vector
-        let mut len = leader_rotation_interval as usize - 1;
-        let mut input = vec![entry.clone(); len];
-        let mut result = WriteStage::find_leader_rotation_index(
-            &crdt,
-            leader_rotation_interval,
-            (num_epochs - 1) * leader_rotation_interval,
-            input.clone(),
-        );
-
-        assert_eq!(result, (input, false));
-
-        // A vector that spans two different epochs for different leaders
-        // should get truncated
-        len = leader_rotation_interval as usize - 1;
-        input = vec![entry.clone(); len];
-        result = WriteStage::find_leader_rotation_index(
-            &crdt,
-            leader_rotation_interval,
-            (num_epochs * leader_rotation_interval) - 1,
-            input.clone(),
-        );
-
-        input.truncate(1);
-        assert_eq!(result, (input, true));
-
-        // A vector that triggers a check for leader rotation should return
-        // the entire vector and signal leader_rotation == false, if the
-        // same leader is in power for the next epoch as well.
-        len = 1;
-        let mut input = vec![entry.clone(); len];
-        result = WriteStage::find_leader_rotation_index(
-            &crdt,
-            leader_rotation_interval,
-            leader_rotation_interval - 1,
-            input.clone(),
-        );
-
-        assert_eq!(result, (input, false));
-
-        // A vector of new entries that spans two epochs should return the
-        // entire vector, assuming that the same leader is in power for both epochs.
-        len = leader_rotation_interval as usize;
-        input = vec![entry.clone(); len];
-        result = WriteStage::find_leader_rotation_index(
-            &crdt,
-            leader_rotation_interval,
-            leader_rotation_interval - 1,
-            input.clone(),
-        );
-
-        assert_eq!(result, (input, false));
-
-        // A vector of new entries that spans multiple epochs should return the
-        // entire vector, assuming that the same leader is in power for both dynasties.
-        len = (num_epochs - 1) as usize * leader_rotation_interval as usize;
-        input = vec![entry.clone(); len];
-        result = WriteStage::find_leader_rotation_index(
-            &crdt,
-            leader_rotation_interval,
-            leader_rotation_interval - 1,
-            input.clone(),
-        );
-
-        assert_eq!(result, (input, false));
-
-        // A vector of new entries that spans multiple leader epochs and has a length
-        // exactly equal to the remainining number of entries before the next, different
-        // leader should return the entire vector and signal that leader_rotation == true.
-        len = (num_epochs - 1) as usize * leader_rotation_interval as usize + 1;
-        input = vec![entry.clone(); len];
-        result = WriteStage::find_leader_rotation_index(
-            &crdt,
-            leader_rotation_interval,
-            leader_rotation_interval - 1,
-            input.clone(),
-        );
-
-        assert_eq!(result, (input, true));
-
-        // Start at entry height == the height for leader rotation, should return
-        // no entries.
-        len = leader_rotation_interval as usize;
-        input = vec![entry.clone(); len];
-        result = WriteStage::find_leader_rotation_index(
-            &crdt,
-            leader_rotation_interval,
-            num_epochs * leader_rotation_interval,
-            input.clone(),
-        );
-
-        assert_eq!(result, (vec![], true));
-    }
-}

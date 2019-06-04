@@ -1,9 +1,3 @@
-//! The `sigverify` module provides digital signature verification functions.
-//! By default, signatures are verified in parallel using all available CPU
-//! cores.  When `--features=cuda` is enabled, signature verification is
-//! offloaded to the GPU.
-//!
-
 use crate::counter::Counter;
 use log::Level;
 use crate::packet::{Packet, SharedPackets};
@@ -44,7 +38,7 @@ pub fn init() {
 
 fn verify_packet(packet: &Packet) -> u8 {
     use ring::signature;
-    use crate::signature::Signature;
+    use buffett_crypto::signature::Signature;
     use buffett_interface::pubkey::Pubkey;
     use untrusted;
 
@@ -201,84 +195,4 @@ pub fn ed25519_verify(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
     }
     inc_new_counter_info!("ed25519_verify_gpu", count);
     rvs
-}
-
-#[cfg(test)]
-mod tests {
-    use bincode::serialize;
-    use crate::packet::{Packet, SharedPackets};
-    use crate::sigverify;
-    use crate::system_transaction::{memfind, test_tx};
-    use crate::transaction::Transaction;
-
-    #[test]
-    fn test_layout() {
-        let tx = test_tx();
-        let tx_bytes = serialize(&tx).unwrap();
-        let packet = serialize(&tx).unwrap();
-        assert_matches!(memfind(&packet, &tx_bytes), Some(sigverify::TX_OFFSET));
-        assert_matches!(memfind(&packet, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), None);
-    }
-
-    fn make_packet_from_transaction(tx: Transaction) -> Packet {
-        let tx_bytes = serialize(&tx).unwrap();
-        let mut packet = Packet::default();
-        packet.meta.size = tx_bytes.len();
-        packet.data[..packet.meta.size].copy_from_slice(&tx_bytes);
-        return packet;
-    }
-
-    fn test_verify_n(n: usize, modify_data: bool) {
-        let tx = test_tx();
-        let mut packet = make_packet_from_transaction(tx);
-
-        // jumble some data to test failure
-        if modify_data {
-            packet.data[20] = packet.data[20].wrapping_add(10);
-        }
-
-        // generate packet vector
-        let batches: Vec<_> = (0..2)
-            .map(|_| {
-                let packets = SharedPackets::default();
-                packets
-                    .write()
-                    .unwrap()
-                    .packets
-                    .resize(0, Default::default());
-                for _ in 0..n {
-                    packets.write().unwrap().packets.push(packet.clone());
-                }
-                assert_eq!(packets.read().unwrap().packets.len(), n);
-                packets
-            }).collect();
-        assert_eq!(batches.len(), 2);
-
-        // verify packets
-        let ans = sigverify::ed25519_verify(&batches);
-
-        // check result
-        let ref_ans = if modify_data { 0u8 } else { 1u8 };
-        assert_eq!(ans, vec![vec![ref_ans; n], vec![ref_ans; n]]);
-    }
-
-    #[test]
-    fn test_verify_zero() {
-        test_verify_n(0, false);
-    }
-
-    #[test]
-    fn test_verify_one() {
-        test_verify_n(1, false);
-    }
-
-    #[test]
-    fn test_verify_seventy_one() {
-        test_verify_n(71, false);
-    }
-
-    #[test]
-    fn test_verify_fail() {
-        test_verify_n(5, true);
-    }
 }

@@ -5,19 +5,19 @@ use bincode::serialize;
 use crate::budget_transaction::BudgetTransaction;
 use crate::counter::Counter;
 use crate::crdt::Crdt;
-use crate::hash::Hash;
+use buffett_crypto::hash::Hash;
 use influx_db_client as influxdb;
 use log::Level;
 use crate::metrics;
 use crate::packet::SharedBlob;
 use crate::result::Result;
-use crate::signature::Keypair;
+use buffett_crypto::signature::Keypair;
 use buffett_interface::pubkey::Pubkey;
 use std::result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
 use crate::streamer::BlobSender;
-use crate::timing;
+use buffett_timing::timing;
 use crate::transaction::Transaction;
 
 pub const VOTE_TIMEOUT_MS: u64 = 1000;
@@ -159,184 +159,3 @@ pub fn send_validator_vote(
     Ok(())
 }
 
-#[cfg(test)]
-pub mod tests {
-    use super::*;
-    use crate::tx_vault::Bank;
-    use bincode::deserialize;
-    use crate::budget_instruction::Vote;
-    use crate::crdt::{Crdt, NodeInfo};
-    use crate::entry::next_entry;
-    use crate::hash::{hash, Hash};
-    use crate::logger;
-    use crate::coinery::Mint;
-    use std::sync::mpsc::channel;
-    use std::sync::{Arc, RwLock};
-    use std::thread::sleep;
-    use std::time::Duration;
-    use crate::system_transaction::SystemTransaction;
-    use crate::transaction::Transaction;
-
-    #[test]
-    fn test_send_leader_vote() {
-        logger::setup();
-
-        // create a mint/bank
-        let mint = Mint::new(1000);
-        let bank = Arc::new(Bank::new(&mint));
-        let hash0 = Hash::default();
-
-        // get a non-default hash last_id
-        let entry = next_entry(&hash0, 1, vec![]);
-        bank.register_entry_id(&entry.id);
-
-        // Create a leader
-        let leader_data = NodeInfo::new_with_socketaddr(&"127.0.0.1:1234".parse().unwrap());
-        let leader_pubkey = leader_data.id.clone();
-        let mut leader_crdt = Crdt::new(leader_data).unwrap();
-
-        // give the leader some tokens
-        let give_leader_tokens_tx =
-            Transaction::system_new(&mint.keypair(), leader_pubkey.clone(), 100, entry.id);
-        bank.process_transaction(&give_leader_tokens_tx).unwrap();
-
-        leader_crdt.set_leader(leader_pubkey);
-
-        // Insert 7 agreeing validators / 3 disagreeing
-        // and votes for new last_id
-        for i in 0..10 {
-            let mut validator =
-                NodeInfo::new_with_socketaddr(&format!("127.0.0.1:234{}", i).parse().unwrap());
-
-            let vote = Vote {
-                version: validator.version + 1,
-                contact_info_version: 1,
-            };
-
-            if i < 7 {
-                validator.ledger_state.last_id = entry.id;
-            }
-
-            leader_crdt.insert(&validator);
-            trace!("validator id: {:?}", validator.id);
-
-            leader_crdt.insert_vote(&validator.id, &vote, entry.id);
-        }
-        let leader = Arc::new(RwLock::new(leader_crdt));
-        let (vote_blob_sender, vote_blob_receiver) = channel();
-        let mut last_vote: u64 = timing::timestamp() - VOTE_TIMEOUT_MS - 1;
-        let mut last_valid_validator_timestamp = 0;
-        let res = send_leader_vote(
-            &mint.pubkey(),
-            &mint.keypair(),
-            &bank,
-            &leader,
-            &vote_blob_sender,
-            &mut last_vote,
-            &mut last_valid_validator_timestamp,
-        );
-        trace!("vote result: {:?}", res);
-        assert!(res.is_ok());
-        let vote_blob = vote_blob_receiver.recv_timeout(Duration::from_millis(500));
-        trace!("vote_blob: {:?}", vote_blob);
-
-        // leader shouldn't vote yet, not enough votes
-        assert!(vote_blob.is_err());
-
-        // add two more nodes and see that it succeeds
-        for i in 0..2 {
-            let mut validator =
-                NodeInfo::new_with_socketaddr(&format!("127.0.0.1:234{}", i).parse().unwrap());
-
-            let vote = Vote {
-                version: validator.version + 1,
-                contact_info_version: 1,
-            };
-
-            validator.ledger_state.last_id = entry.id;
-
-            leader.write().unwrap().insert(&validator);
-            trace!("validator id: {:?}", validator.id);
-
-            leader
-                .write()
-                .unwrap()
-                .insert_vote(&validator.id, &vote, entry.id);
-        }
-
-        last_vote = timing::timestamp() - VOTE_TIMEOUT_MS - 1;
-        let res = send_leader_vote(
-            &Pubkey::default(),
-            &mint.keypair(),
-            &bank,
-            &leader,
-            &vote_blob_sender,
-            &mut last_vote,
-            &mut last_valid_validator_timestamp,
-        );
-        trace!("vote result: {:?}", res);
-        assert!(res.is_ok());
-        let vote_blob = vote_blob_receiver.recv_timeout(Duration::from_millis(500));
-        trace!("vote_blob: {:?}", vote_blob);
-
-        // leader should vote now
-        assert!(vote_blob.is_ok());
-
-        // vote should be valid
-        let blob = &vote_blob.unwrap()[0];
-        let tx = deserialize(&(blob.read().unwrap().data)).unwrap();
-        assert!(bank.process_transaction(&tx).is_ok());
-    }
-
-    #[test]
-    fn test_get_last_id_to_vote_on() {
-        logger::setup();
-
-        let mint = Mint::new(1234);
-        let bank = Arc::new(Bank::new(&mint));
-        let mut last_vote = 0;
-        let mut last_valid_validator_timestamp = 0;
-
-        // generate 10 last_ids, register 6 with the bank
-        let ids: Vec<_> = (0..10)
-            .map(|i| {
-                let last_id = hash(&serialize(&i).unwrap()); // Unique hash
-                if i < 6 {
-                    bank.register_entry_id(&last_id);
-                }
-                // sleep to get a different timestamp in the bank
-                sleep(Duration::from_millis(1));
-                last_id
-            }).collect();
-
-        // see that we fail to have 2/3rds consensus
-        assert!(
-            get_last_id_to_vote_on(
-                &Pubkey::default(),
-                &ids,
-                &bank,
-                0,
-                &mut last_vote,
-                &mut last_valid_validator_timestamp
-            ).is_err()
-        );
-
-        // register another, see passing
-        bank.register_entry_id(&ids[6]);
-
-        let res = get_last_id_to_vote_on(
-            &Pubkey::default(),
-            &ids,
-            &bank,
-            0,
-            &mut last_vote,
-            &mut last_valid_validator_timestamp,
-        );
-        if let Ok((hash, timestamp)) = res {
-            assert!(hash == ids[6]);
-            assert!(timestamp != 0);
-        } else {
-            assert!(false, "get_last_id returned error!: {:?}", res);
-        }
-    }
-}

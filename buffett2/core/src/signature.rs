@@ -1,5 +1,3 @@
-//! The `signature` module provides functionality for public, and private keys.
-
 use bs58;
 use generic_array::typenum::U64;
 use generic_array::GenericArray;
@@ -108,33 +106,3 @@ pub fn read_keypair(path: &str) -> Result<Keypair, Box<error::Error>> {
     Ok(keypair)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashSet;
-
-    #[test]
-    fn test_new_key_is_deterministic() {
-        let seed = [0u8; 32];
-        let mut gen0 = GenKeys::new(seed);
-        let mut gen1 = GenKeys::new(seed);
-
-        for _ in 0..100 {
-            assert_eq!(gen0.gen_seed().to_vec(), gen1.gen_seed().to_vec());
-        }
-    }
-
-    fn gen_n_pubkeys(seed: [u8; 32], n: i64) -> HashSet<Pubkey> {
-        GenKeys::new(seed)
-            .gen_n_keypairs(n)
-            .into_iter()
-            .map(|x| x.pubkey())
-            .collect()
-    }
-
-    #[test]
-    fn test_gen_n_pubkeys_deterministic() {
-        let seed = [0u8; 32];
-        assert_eq!(gen_n_pubkeys(seed, 50), gen_n_pubkeys(seed, 50));
-    }
-}

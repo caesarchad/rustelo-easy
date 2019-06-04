@@ -1,5 +1,3 @@
-//! The `result` module exposes a Result type that propagates one of many different Error types.
-
 use crate::tx_vault;
 use bincode;
 use crdt;

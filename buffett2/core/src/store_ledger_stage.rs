@@ -1,5 +1,3 @@
-//! The `store_ledger` stores the ledger from received entries for storage nodes
-
 use crate::counter::Counter;
 use crate::entry::EntryReceiver;
 use crate::ledger::LedgerWriter;
@@ -16,7 +14,7 @@ pub struct StoreLedgerStage {
 }
 
 impl StoreLedgerStage {
-    /// Process entries, already in order
+    
     fn store_requests(
         window_receiver: &EntryReceiver,
         ledger_writer: Option<&mut LedgerWriter>,

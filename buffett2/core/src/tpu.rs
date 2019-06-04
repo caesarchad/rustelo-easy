@@ -1,37 +1,10 @@
-//! The `tpu` module implements the Transaction Processing Unit, a
-//! 5-stage transaction processing pipeline in software.
-//!
-//! ```text
-//!             .----------------------------------------------------.
-//!             |  TPU                      .-------------.          |
-//!             |                           | PoH Service |          |
-//!             |                           `-------+-----`          |
-//!             |                              ^    |                |
-//!             |                              |    v                |
-//!             |  .-------.  .-----------.  .-+-------.   .-------. |
-//! .---------. |  | Fetch |  | SigVerify |  | Banking |   | Write | |  .------------.
-//! | Clients |--->| Stage |->|   Stage   |->|  Stage  |-->| Stage +--->| Validators |
-//! `---------` |  |       |  |           |  |         |   |       | |  `------------`
-//!             |  `-------`  `-----------`  `----+----`   `---+---` |
-//!             |                                 |            |     |
-//!             |                                 |            |     |
-//!             |                                 |            |     |
-//!             |                                 |            |     |
-//!             `---------------------------------|------------|-----`
-//!                                               |            |
-//!                                               v            v
-//!                                            .------.    .--------.
-//!                                            | Bank |    | Ledger |
-//!                                            `------`    `--------`
-//! ```
-
 use crate::tx_vault::Bank;
 use crate::tx_process::{BankingStage, Config};
 use crate::crdt::Crdt;
 use crate::entry::Entry;
 use crate::fetch_stage::FetchStage;
 use crate::service::Service;
-use crate::signature::Keypair;
+use buffett_crypto::signature::Keypair;
 use crate::sigverify_stage::SigVerifyStage;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};

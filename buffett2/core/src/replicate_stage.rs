@@ -1,5 +1,3 @@
-//! The `replicate_stage` replicates transactions broadcast by the leader.
-
 use crate::tx_vault::Bank;
 use crate::counter::Counter;
 use crate::crdt::Crdt;
@@ -8,7 +6,7 @@ use crate::ledger::{Block, LedgerWriter};
 use log::Level;
 use crate::result::{Error, Result};
 use crate::service::Service;
-use crate::signature::Keypair;
+use buffett_crypto::signature::Keypair;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
@@ -20,8 +18,6 @@ use std::time::Instant;
 use crate::streamer::{responder, BlobSender};
 use crate::vote_stage::send_validator_vote;
 
-// Implement a destructor for the ReplicateStage thread to signal it exited
-// even on panics
 struct Finalizer {
     exit_sender: Arc<AtomicBool>,
 }
@@ -31,7 +27,7 @@ impl Finalizer {
         Finalizer { exit_sender }
     }
 }
-// Implement a destructor for Finalizer.
+
 impl Drop for Finalizer {
     fn drop(&mut self) {
         self.exit_sender.clone().store(true, Ordering::Relaxed);
@@ -43,7 +39,6 @@ pub struct ReplicateStage {
 }
 
 impl ReplicateStage {
-    /// Process entry blobs, already in order
     fn replicate_requests(
         bank: &Arc<Bank>,
         crdt: &Arc<RwLock<Crdt>>,
@@ -53,7 +48,7 @@ impl ReplicateStage {
         vote_blob_sender: Option<&BlobSender>,
     ) -> Result<()> {
         let timer = Duration::new(1, 0);
-        //coalesce all the available entries into a single vote
+        
         let mut entries = window_receiver.recv_timeout(timer)?;
         while let Ok(mut more) = window_receiver.try_recv() {
             entries.append(&mut more);
@@ -75,7 +70,7 @@ impl ReplicateStage {
             entries.iter().map(|x| x.transactions.len()).sum()
         );
 
-        // TODO: move this to another stage?
+        
         if let Some(ledger_writer) = ledger_writer {
             ledger_writer.write_entries(entries)?;
         }
@@ -106,7 +101,7 @@ impl ReplicateStage {
                 let now = Instant::now();
                 let mut next_vote_secs = 1;
                 loop {
-                    // Only vote once a second.
+                    
                     let vote_sender = if now.elapsed().as_secs() > next_vote_secs {
                         next_vote_secs += 1;
                         Some(&vote_blob_sender)

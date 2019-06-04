@@ -1,5 +1,3 @@
-//! The `request_stage` processes thin client Request messages.
-
 use bincode::deserialize;
 use crate::counter::Counter;
 use log::Level;
@@ -16,7 +14,7 @@ use std::sync::Arc;
 use std::thread::{self, Builder, JoinHandle};
 use std::time::Instant;
 use crate::streamer::{self, BlobReceiver, BlobSender};
-use crate::timing;
+use buffett_timing::timing;
 
 pub struct RequestStage {
     thread_hdl: JoinHandle<()>,
@@ -65,8 +63,8 @@ impl RequestStage {
                 blob_sender.send(blobs)?;
             }
         }
-        let total_time_s = timing::duration_as_s(&proc_start.elapsed());
-        let total_time_ms = timing::duration_as_ms(&proc_start.elapsed());
+        let total_time_s = timing::duration_in_seconds(&proc_start.elapsed());
+        let total_time_ms = timing::duration_in_milliseconds(&proc_start.elapsed());
         inc_new_counter_info!("request_stage-time_ms", total_time_ms as usize);
         debug!(
             "@{:?} done process batches: {} time: {:?}ms reqs: {} reqs/s: {}",

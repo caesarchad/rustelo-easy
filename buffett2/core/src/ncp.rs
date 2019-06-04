@@ -1,5 +1,3 @@
-//! The `ncp` module implements the network control plane.
-
 use crate::crdt::Crdt;
 use crate::service::Service;
 use std::net::UdpSocket;
@@ -64,23 +62,3 @@ impl Service for Ncp {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::crdt::{Crdt, Node};
-    use crate::ncp::Ncp;
-    use std::sync::atomic::AtomicBool;
-    use std::sync::{Arc, RwLock};
-
-    #[test]
-    #[ignore]
-    // test that stage will exit when flag is set
-    fn test_exit() {
-        let exit = Arc::new(AtomicBool::new(false));
-        let tn = Node::new_localhost();
-        let crdt = Crdt::new(tn.info.clone()).expect("Crdt::new");
-        let c = Arc::new(RwLock::new(crdt));
-        let w = Arc::new(RwLock::new(vec![]));
-        let d = Ncp::new(&c, w, None, tn.sockets.gossip, exit.clone());
-        d.close().expect("thread join");
-    }
-}

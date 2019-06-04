@@ -1,5 +1,3 @@
-//! The `netutil` module assists with networking
-
 use nix::sys::socket::setsockopt;
 use nix::sys::socket::sockopt::{ReuseAddr, ReusePort};
 use pnet_datalink as datalink;
@@ -10,14 +8,12 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::unix::io::AsRawFd;
 
-/// A data type representing a public Udp socket
 pub struct UdpSocketPair {
     pub addr: SocketAddr,    // Public address of the socket
     pub receiver: UdpSocket, // Locally bound socket that can receive from the public address
     pub sender: UdpSocket,   // Locally bound socket to send via public address
 }
 
-/// Tries to determine the public IP address of this machine
 pub fn get_public_ip_addr() -> Result<IpAddr, String> {
     let body = reqwest::get("http://ifconfig.co/ip")
         .map_err(|err| err.to_string())?
@@ -133,7 +129,6 @@ pub fn bind_in_range(range: (u16, u16)) -> io::Result<(u16, UdpSocket)> {
     }
 }
 
-// binds many sockets to the same port in a range
 pub fn multi_bind_in_range(range: (u16, u16), num: usize) -> io::Result<(u16, Vec<UdpSocket>)> {
     let mut sockets = Vec::with_capacity(num);
 
@@ -159,108 +154,3 @@ pub fn bind_to(port: u16, reuseaddr: bool) -> io::Result<UdpSocket> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use ipnetwork::IpNetwork;
-    use crate::logger;
-    use netutil::*;
-    use pnet_datalink as datalink;
-
-    #[test]
-    fn test_find_eth0ish_ip_addr() {
-        logger::setup();
-
-        macro_rules! mock_interface {
-            ($name:ident, $ip_mask:expr) => {
-                datalink::NetworkInterface {
-                    name: stringify!($name).to_string(),
-                    index: 0,
-                    mac: None,
-                    ips: vec![IpNetwork::V4($ip_mask.parse().unwrap())],
-                    flags: 0,
-                }
-            };
-        }
-
-        // loopback bad
-        assert_eq!(
-            find_eth0ish_ip_addr(&mut vec![mock_interface!(lo, "127.0.0.1/24")]),
-            None
-        );
-        // multicast bad
-        assert_eq!(
-            find_eth0ish_ip_addr(&mut vec![mock_interface!(eth0, "224.0.1.5/24")]),
-            None
-        );
-
-        // finds "wifi0"
-        assert_eq!(
-            find_eth0ish_ip_addr(&mut vec![
-                mock_interface!(eth0, "224.0.1.5/24"),
-                mock_interface!(eth2, "192.168.137.1/8"),
-                mock_interface!(eth3, "10.0.75.1/8"),
-                mock_interface!(eth4, "172.22.140.113/4"),
-                mock_interface!(lo, "127.0.0.1/24"),
-                mock_interface!(wifi0, "192.168.1.184/8"),
-            ]),
-            Some(mock_interface!(wifi0, "192.168.1.184/8").ips[0].ip())
-        );
-        // finds "wifi0" in the middle
-        assert_eq!(
-            find_eth0ish_ip_addr(&mut vec![
-                mock_interface!(eth0, "224.0.1.5/24"),
-                mock_interface!(eth2, "192.168.137.1/8"),
-                mock_interface!(eth3, "10.0.75.1/8"),
-                mock_interface!(wifi0, "192.168.1.184/8"),
-                mock_interface!(eth4, "172.22.140.113/4"),
-                mock_interface!(lo, "127.0.0.1/24"),
-            ]),
-            Some(mock_interface!(wifi0, "192.168.1.184/8").ips[0].ip())
-        );
-        // picks "eth2", is lowest valid "eth"
-        assert_eq!(
-            find_eth0ish_ip_addr(&mut vec![
-                mock_interface!(eth0, "224.0.1.5/24"),
-                mock_interface!(eth2, "192.168.137.1/8"),
-                mock_interface!(eth3, "10.0.75.1/8"),
-                mock_interface!(eth4, "172.22.140.113/4"),
-                mock_interface!(lo, "127.0.0.1/24"),
-            ]),
-            Some(mock_interface!(eth2, "192.168.137.1/8").ips[0].ip())
-        );
-    }
-
-    #[test]
-    fn test_parse_port_or_addr() {
-        let p1 = parse_port_or_addr(Some("9000"), 1);
-        assert_eq!(p1.port(), 9000);
-        let p2 = parse_port_or_addr(Some("127.0.0.1:7000"), 1);
-        assert_eq!(p2.port(), 7000);
-        let p2 = parse_port_or_addr(Some("hi there"), 1);
-        assert_eq!(p2.port(), 1);
-        let p3 = parse_port_or_addr(None, 1);
-        assert_eq!(p3.port(), 1);
-    }
-
-    #[test]
-    fn test_bind() {
-        assert_eq!(bind_in_range((2000, 2001)).unwrap().0, 2000);
-        let x = bind_to(2002, true).unwrap();
-        let y = bind_to(2002, true).unwrap();
-        assert_eq!(
-            x.local_addr().unwrap().port(),
-            y.local_addr().unwrap().port()
-        );
-        let (port, v) = multi_bind_in_range((2010, 2110), 10).unwrap();
-        for sock in &v {
-            assert_eq!(port, sock.local_addr().unwrap().port());
-        }
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bind_in_range_nil() {
-        let _ = bind_in_range((2000, 2000));
-    }
-
-}

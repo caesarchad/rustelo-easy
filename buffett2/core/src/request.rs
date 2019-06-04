@@ -1,7 +1,5 @@
-//! The `request` module defines the messages for the thin client.
-
-use crate::hash::Hash;
-use crate::signature::Signature;
+use buffett_crypto::hash::Hash;
+use buffett_crypto::signature::Signature;
 use buffett_interface::account::Account;
 use buffett_interface::pubkey::Pubkey;
 
@@ -16,7 +14,7 @@ pub enum Request {
 }
 
 impl Request {
-    /// Verify the request is valid.
+    
     pub fn verify(&self) -> bool {
         true
     }

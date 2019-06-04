@@ -23,7 +23,7 @@ pub mod entry_writer;
 pub mod erasure;
 pub mod fetch_stage;
 pub mod fullnode;
-pub mod hash;
+//pub mod hash;
 pub mod ledger;
 pub mod logger;
 pub mod metrics;
@@ -45,7 +45,7 @@ pub mod retransmit_stage;
 pub mod rpc;
 pub mod rpu;
 pub mod service;
-pub mod signature;
+//pub mod signature;
 pub mod sigverify;
 pub mod sigverify_stage;
 pub mod storage_program;
@@ -56,7 +56,7 @@ pub mod system_transaction;
 pub mod thin_client;
 pub mod tictactoe_dashboard_program;
 pub mod tictactoe_program;
-pub mod timing;
+//pub mod timing;
 pub mod tpu;
 pub mod transaction;
 pub mod tvu;
@@ -92,10 +92,10 @@ extern crate serde_json;
 extern crate serde_cbor;
 extern crate sha2;
 extern crate socket2;
-extern crate solana_jsonrpc_core as jsonrpc_core;
-extern crate solana_jsonrpc_http_server as jsonrpc_http_server;
+extern crate bitconch_jsonrpc_core as jsonrpc_core;
+extern crate bitconch_jsonrpc_http_server as jsonrpc_http_server;
 #[macro_use]
-extern crate solana_jsonrpc_macros as jsonrpc_macros;
+extern crate bitconch_jsonrpc_macros as jsonrpc_macros;
 extern crate buffett_interface;
 extern crate sys_info;
 extern crate tokio;
@@ -108,5 +108,6 @@ extern crate matches;
 
 extern crate influx_db_client;
 extern crate rand;
-
+extern crate buffett_crypto;
+extern crate buffett_timing;
 pub mod asciiart; //mvp001

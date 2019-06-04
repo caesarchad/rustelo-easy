@@ -1,5 +1,3 @@
-//! The `metrics` module enables sending measurements to an InfluxDB instance
-
 use influx_db_client as influxdb;
 use std::env;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
@@ -7,7 +5,7 @@ use std::sync::{Arc, Barrier, Mutex, Once, ONCE_INIT};
 use std::thread;
 use std::time::{Duration, Instant};
 use sys_info::hostname;
-use crate::timing;
+use buffett_timing::timing;
 
 #[derive(Debug)]
 enum MetricsCommand {
@@ -20,8 +18,7 @@ struct MetricsAgent {
 }
 
 trait MetricsWriter {
-    // Write the points and empty the vector.  Called on the internal
-    // MetricsAgent worker thread.
+    
     fn write(&self, points: Vec<influxdb::Point>);
 }
 
@@ -169,23 +166,21 @@ fn get_singleton_agent() -> Arc<Mutex<MetricsAgent>> {
     }
 }
 
-/// Submits a new point from any thread.  Note that points are internally queued
-/// and transmitted periodically in batches.
+
 pub fn submit(point: influxdb::Point) {
     let agent_mutex = get_singleton_agent();
     let agent = agent_mutex.lock().unwrap();
     agent.submit(point);
 }
 
-/// Blocks until all pending points from previous calls to `submit` have been
-/// transmitted.
+
 pub fn flush() {
     let agent_mutex = get_singleton_agent();
     let agent = agent_mutex.lock().unwrap();
     agent.flush();
 }
 
-/// Hook the panic handler to generate a data point on each panic
+
 pub fn set_panic_hook(program: &'static str) {
     use std::panic;
     use std::sync::{Once, ONCE_INIT};
@@ -203,13 +198,12 @@ pub fn set_panic_hook(program: &'static str) {
                             thread::current().name().unwrap_or("?").to_string(),
                         ),
                     )
-                    // The 'one' field exists to give Kapacitor Alerts a numerical value
-                    // to filter on
+                    
                     .add_field("one", influxdb::Value::Integer(1))
                     .add_field(
                         "message",
                         influxdb::Value::String(
-                            // TODO: use ono.message() when it becomes stable
+                            
                             ono.to_string(),
                         ),
                     )
@@ -228,125 +222,9 @@ pub fn set_panic_hook(program: &'static str) {
                     )
                     .to_owned(),
             );
-            // Flush metrics immediately in case the process exits immediately
-            // upon return
+            
             flush();
         }));
     });
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use rand::random;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    struct MockMetricsWriter {
-        points_written: AtomicUsize,
-    }
-    impl MockMetricsWriter {
-        fn new() -> Self {
-            MockMetricsWriter {
-                points_written: AtomicUsize::new(0),
-            }
-        }
-
-        fn points_written(&self) -> usize {
-            return self.points_written.load(Ordering::SeqCst);
-        }
-    }
-
-    impl MetricsWriter for MockMetricsWriter {
-        fn write(&self, points: Vec<influxdb::Point>) {
-            assert!(!points.is_empty());
-
-            self.points_written
-                .fetch_add(points.len(), Ordering::SeqCst);
-
-            info!(
-                "Writing {} Measurements ({} total)",
-                points.len(),
-                self.points_written.load(Ordering::SeqCst)
-            );
-        }
-    }
-
-    #[test]
-    fn test_submit() {
-        let writer = Arc::new(MockMetricsWriter::new());
-        let agent = MetricsAgent::new(writer.clone(), Duration::from_secs(10));
-
-        for i in 0..42 {
-            agent.submit(influxdb::Point::new(&format!("measurement {}", i)));
-        }
-
-        agent.flush();
-        assert_eq!(writer.points_written(), 42);
-    }
-
-    #[test]
-    fn test_submit_with_delay() {
-        let writer = Arc::new(MockMetricsWriter::new());
-        let agent = MetricsAgent::new(writer.clone(), Duration::from_millis(100));
-
-        agent.submit(influxdb::Point::new("point 1"));
-        thread::sleep(Duration::from_secs(2));
-        assert_eq!(writer.points_written(), 1);
-    }
-
-    #[test]
-    fn test_multithread_submit() {
-        let writer = Arc::new(MockMetricsWriter::new());
-        let agent = Arc::new(Mutex::new(MetricsAgent::new(
-            writer.clone(),
-            Duration::from_secs(10),
-        )));
-
-        //
-        // Submit measurements from different threads
-        //
-        let mut threads = Vec::new();
-        for i in 0..42 {
-            let point = influxdb::Point::new(&format!("measurement {}", i));
-            let agent = Arc::clone(&agent);
-            threads.push(thread::spawn(move || {
-                agent.lock().unwrap().submit(point);
-            }));
-        }
-
-        for thread in threads {
-            thread.join().unwrap();
-        }
-
-        agent.lock().unwrap().flush();
-        assert_eq!(writer.points_written(), 42);
-    }
-
-    #[test]
-    fn test_flush_before_drop() {
-        let writer = Arc::new(MockMetricsWriter::new());
-        {
-            let agent = MetricsAgent::new(writer.clone(), Duration::from_secs(9999999));
-            agent.submit(influxdb::Point::new("point 1"));
-        }
-
-        assert_eq!(writer.points_written(), 1);
-    }
-
-    #[test]
-    fn test_live_submit() {
-        let agent = MetricsAgent::default();
-
-        let point = influxdb::Point::new("live_submit_test")
-            .add_tag("test", influxdb::Value::Boolean(true))
-            .add_field(
-                "random_bool",
-                influxdb::Value::Boolean(random::<u8>() < 128),
-            ).add_field(
-                "random_int",
-                influxdb::Value::Integer(random::<u8>() as i64),
-            ).to_owned();
-        agent.submit(point);
-    }
-
-}

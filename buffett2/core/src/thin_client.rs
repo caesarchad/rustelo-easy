@@ -1,17 +1,12 @@
-//! The `thin_client` module is a client-side object that interfaces with
-//! a server-side TPU.  Client code should use this object instead of writing
-//! messages to the network directly. The binary encoding of its messages are
-//! unstable and may change in future releases.
-
 use crate::tx_vault::Bank;
 use bincode::{deserialize, serialize};
 use crate::crdt::{Crdt, CrdtError, NodeInfo};
-use crate::hash::Hash;
+use buffett_crypto::hash::Hash;
 use log::Level;
 use crate::ncp::Ncp;
 use crate::request::{Request, Response};
 use crate::result::{Error, Result};
-use crate::signature::{Keypair, Signature};
+use buffett_crypto::signature::{Keypair, Signature};
 use buffett_interface::account::Account;
 use buffett_interface::pubkey::Pubkey;
 use std;
@@ -24,13 +19,13 @@ use std::thread::sleep;
 use std::time::Duration;
 use std::time::Instant;
 use crate::system_transaction::SystemTransaction;
-use crate::timing;
+use buffett_timing::timing;
 use crate::transaction::Transaction;
 
 use influx_db_client as influxdb;
 use crate::metrics;
 
-/// An object for querying and sending transactions to the network.
+
 pub struct ThinClient {
     requests_addr: SocketAddr,
     requests_socket: UdpSocket,
@@ -44,9 +39,7 @@ pub struct ThinClient {
 }
 
 impl ThinClient {
-    /// Create a new ThinClient that will interface with Rpu
-    /// over `requests_socket` and `transactions_socket`. To receive responses, the caller must bind `socket`
-    /// to a public address before invoking ThinClient methods.
+    
     pub fn new(
         requests_addr: SocketAddr,
         requests_socket: UdpSocket,
@@ -118,8 +111,7 @@ impl ThinClient {
         }
     }
 
-    /// Send a signed Transaction to the server for processing. This method
-    /// does not wait for a response.
+    
     pub fn transfer_signed(&self, tx: &Transaction) -> io::Result<Signature> {
         let data = serialize(&tx).expect("serialize Transaction in pub fn transfer_signed");
         self.transactions_socket
@@ -127,7 +119,7 @@ impl ThinClient {
         Ok(tx.signature)
     }
 
-    /// Retry a sending a signed Transaction to the server for processing.
+   
     pub fn retry_transfer_signed(
         &mut self,
         tx: &Transaction,
@@ -148,7 +140,6 @@ impl ThinClient {
         ))
     }
 
-    /// Creates, signs, and processes a Transaction. Useful for writing unit-tests.
     pub fn transfer(
         &self,
         n: i64,
@@ -164,15 +155,11 @@ impl ThinClient {
                 .add_tag("op", influxdb::Value::String("transfer".to_string()))
                 .add_field(
                     "duration_ms",
-                    influxdb::Value::Integer(timing::duration_as_ms(&now.elapsed()) as i64),
+                    influxdb::Value::Integer(timing::duration_in_milliseconds(&now.elapsed()) as i64),
                 ).to_owned(),
         );
         result
     }
-
-    /// Request the balance of the user holding `pubkey`. This method blocks
-    /// until the server sends a response. If the response packet is dropped
-    /// by the network, this method will hang indefinitely.
     pub fn get_balance(&mut self, pubkey: &Pubkey) -> io::Result<i64> {
         trace!("get_balance sending request to {}", self.requests_addr);
         let req = Request::GetAccount { key: *pubkey };
@@ -190,15 +177,12 @@ impl ThinClient {
             self.process_response(&resp);
         }
         trace!("get_balance {:?}", self.balances.get(pubkey));
-        // TODO: This is a hard coded call to introspect the balance of a budget_dsl contract
-        // In the future custom contracts would need their own introspection
         self.balances
             .get(pubkey)
             .map(Bank::read_balance)
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "AccountNotFound"))
     }
 
-    /// Request the finality from the leader node
     pub fn get_finality(&mut self) -> usize {
         trace!("get_finality");
         let req = Request::GetFinality;
@@ -225,8 +209,6 @@ impl ThinClient {
         self.finality.expect("some finality")
     }
 
-    /// Request the transaction count.  If the response packet is dropped by the network,
-    /// this method will try again 5 times.
     pub fn transaction_count(&mut self) -> u64 {
         debug!("transaction_count");
         let req = Request::GetTransactionCount;
@@ -251,8 +233,7 @@ impl ThinClient {
         self.transaction_count
     }
 
-    /// Request the last Entry ID from the server. This method blocks
-    /// until the server sends a response.
+    
     pub fn get_last_id(&mut self) -> Hash {
         trace!("get_last_id");
         let req = Request::GetLastId;
@@ -285,7 +266,7 @@ impl ThinClient {
                 .add_tag("op", influxdb::Value::String("get_balance".to_string()))
                 .add_field(
                     "duration_ms",
-                    influxdb::Value::Integer(timing::duration_as_ms(elapsed) as i64),
+                    influxdb::Value::Integer(timing::duration_in_milliseconds(elapsed) as i64),
                 ).to_owned(),
         );
     }
@@ -318,7 +299,6 @@ impl ThinClient {
         self.poll_balance_with_timeout(pubkey, &Duration::from_millis(100), &Duration::from_secs(1))
     }
 
-    /// Poll the server to confirm a transaction.
     pub fn poll_for_signature(&mut self, signature: &Signature) -> io::Result<()> {
         let now = Instant::now();
         while !self.check_signature(signature) {
@@ -331,8 +311,7 @@ impl ThinClient {
         Ok(())
     }
 
-    /// Check a signature in the bank. This method blocks
-    /// until the server sends a response.
+    
     pub fn check_signature(&mut self, signature: &Signature) -> bool {
         trace!("check_signature");
         let req = Request::GetSignature {
@@ -358,7 +337,7 @@ impl ThinClient {
                 .add_tag("Operation", influxdb::Value::String("Signature Validation".to_string()))
                 .add_field(
                     "duration_ms",
-                    influxdb::Value::Integer(timing::duration_as_ms(&now.elapsed()) as i64),
+                    influxdb::Value::Integer(timing::duration_in_milliseconds(&now.elapsed()) as i64),
                 ).to_owned(),
         );
         self.signature_status
@@ -420,262 +399,3 @@ pub fn poll_gossip_for_leader(leader_ncp: SocketAddr, timeout: Option<u64>) -> R
     Ok(leader.unwrap().clone())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tx_vault::Bank;
-    use crate::crdt::Node;
-    use crate::fullnode::Fullnode;
-    use crate::ledger::LedgerWriter;
-    use crate::logger;
-    use crate::coinery::Mint;
-    use crate::signature::{Keypair, KeypairUtil};
-    use std::fs::remove_dir_all;
-    use system_program::SystemProgram;
-
-    fn tmp_ledger(name: &str, mint: &Mint) -> String {
-        use std::env;
-        let out_dir = env::var("OUT_DIR").unwrap_or_else(|_| "target".to_string());
-        let keypair = Keypair::new();
-
-        let path = format!("{}/tmp-ledger-{}-{}", out_dir, name, keypair.pubkey());
-
-        let mut writer = LedgerWriter::open(&path, true).unwrap();
-        writer.write_entries(mint.create_entries()).unwrap();
-
-        path
-    }
-
-    #[test]
-    fn test_thin_client() {
-        logger::setup();
-        let leader_keypair = Keypair::new();
-        let leader = Node::new_localhost_with_pubkey(leader_keypair.pubkey());
-        let leader_data = leader.info.clone();
-
-        let alice = Mint::new(10_000);
-        let bank = Bank::new(&alice);
-        let bob_pubkey = Keypair::new().pubkey();
-        let ledger_path = tmp_ledger("thin_client", &alice);
-
-        let server = Fullnode::new_with_bank(
-            leader_keypair,
-            bank,
-            0,
-            &[],
-            leader,
-            None,
-            &ledger_path,
-            false,
-            None,
-            Some(0),
-        );
-        sleep(Duration::from_millis(900));
-
-        let requests_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        let transactions_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-
-        let mut client = ThinClient::new(
-            leader_data.contact_info.rpu,
-            requests_socket,
-            leader_data.contact_info.tpu,
-            transactions_socket,
-        );
-        let last_id = client.get_last_id();
-        let signature = client
-            .transfer(500, &alice.keypair(), bob_pubkey, &last_id)
-            .unwrap();
-        client.poll_for_signature(&signature).unwrap();
-        let balance = client.get_balance(&bob_pubkey);
-        assert_eq!(balance.unwrap(), 500);
-        server.close().unwrap();
-        remove_dir_all(ledger_path).unwrap();
-    }
-
-    // sleep(Duration::from_millis(300)); is unstable
-    #[test]
-    #[ignore]
-    fn test_bad_sig() {
-        logger::setup();
-        let leader_keypair = Keypair::new();
-        let leader = Node::new_localhost_with_pubkey(leader_keypair.pubkey());
-        let alice = Mint::new(10_000);
-        let bank = Bank::new(&alice);
-        let bob_pubkey = Keypair::new().pubkey();
-        let leader_data = leader.info.clone();
-        let ledger_path = tmp_ledger("bad_sig", &alice);
-
-        let server = Fullnode::new_with_bank(
-            leader_keypair,
-            bank,
-            0,
-            &[],
-            leader,
-            None,
-            &ledger_path,
-            false,
-            None,
-            Some(0),
-        );
-        //TODO: remove this sleep, or add a retry so CI is stable
-        sleep(Duration::from_millis(300));
-
-        let requests_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        requests_socket
-            .set_read_timeout(Some(Duration::new(5, 0)))
-            .unwrap();
-        let transactions_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        let mut client = ThinClient::new(
-            leader_data.contact_info.rpu,
-            requests_socket,
-            leader_data.contact_info.tpu,
-            transactions_socket,
-        );
-        let last_id = client.get_last_id();
-
-        let tx = Transaction::system_new(&alice.keypair(), bob_pubkey, 500, last_id);
-
-        let _sig = client.transfer_signed(&tx).unwrap();
-
-        let last_id = client.get_last_id();
-
-        let mut tr2 = Transaction::system_new(&alice.keypair(), bob_pubkey, 501, last_id);
-        let mut instruction2 = deserialize(&tr2.userdata).unwrap();
-        if let SystemProgram::Move { ref mut tokens } = instruction2 {
-            *tokens = 502;
-        }
-        tr2.userdata = serialize(&instruction2).unwrap();
-        let signature = client.transfer_signed(&tr2).unwrap();
-        client.poll_for_signature(&signature).unwrap();
-
-        let balance = client.get_balance(&bob_pubkey);
-        assert_eq!(balance.unwrap(), 500);
-        server.close().unwrap();
-        remove_dir_all(ledger_path).unwrap();
-    }
-
-    #[test]
-    fn test_client_check_signature() {
-        logger::setup();
-        let leader_keypair = Keypair::new();
-        let leader = Node::new_localhost_with_pubkey(leader_keypair.pubkey());
-        let alice = Mint::new(10_000);
-        let bank = Bank::new(&alice);
-        let bob_pubkey = Keypair::new().pubkey();
-        let leader_data = leader.info.clone();
-        let ledger_path = tmp_ledger("client_check_signature", &alice);
-
-        let server = Fullnode::new_with_bank(
-            leader_keypair,
-            bank,
-            0,
-            &[],
-            leader,
-            None,
-            &ledger_path,
-            false,
-            None,
-            Some(0),
-        );
-        sleep(Duration::from_millis(300));
-
-        let requests_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        requests_socket
-            .set_read_timeout(Some(Duration::new(5, 0)))
-            .unwrap();
-        let transactions_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        let mut client = ThinClient::new(
-            leader_data.contact_info.rpu,
-            requests_socket,
-            leader_data.contact_info.tpu,
-            transactions_socket,
-        );
-        let last_id = client.get_last_id();
-        let signature = client
-            .transfer(500, &alice.keypair(), bob_pubkey, &last_id)
-            .unwrap();
-
-        assert!(client.poll_for_signature(&signature).is_ok());
-
-        server.close().unwrap();
-        remove_dir_all(ledger_path).unwrap();
-    }
-
-    #[test]
-    fn test_transaction_count() {
-        // set a bogus address, see that we don't hang
-        logger::setup();
-        let addr = "0.0.0.0:1234".parse().unwrap();
-        let requests_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        requests_socket
-            .set_read_timeout(Some(Duration::from_millis(250)))
-            .unwrap();
-        let transactions_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        let mut client = ThinClient::new(addr, requests_socket, addr, transactions_socket);
-        assert_eq!(client.transaction_count(), 0);
-    }
-
-    #[test]
-    fn test_zero_balance_after_nonzero() {
-        logger::setup();
-        let leader_keypair = Keypair::new();
-        let leader = Node::new_localhost_with_pubkey(leader_keypair.pubkey());
-        let alice = Mint::new(10_000);
-        let bank = Bank::new(&alice);
-        let bob_keypair = Keypair::new();
-        let leader_data = leader.info.clone();
-        let ledger_path = tmp_ledger("zero_balance_check", &alice);
-
-        let server = Fullnode::new_with_bank(
-            leader_keypair,
-            bank,
-            0,
-            &[],
-            leader,
-            None,
-            &ledger_path,
-            false,
-            None,
-            Some(0),
-        );
-        sleep(Duration::from_millis(900));
-
-        let requests_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        requests_socket
-            .set_read_timeout(Some(Duration::new(5, 0)))
-            .unwrap();
-        let transactions_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        let mut client = ThinClient::new(
-            leader_data.contact_info.rpu,
-            requests_socket,
-            leader_data.contact_info.tpu,
-            transactions_socket,
-        );
-        let last_id = client.get_last_id();
-
-        // give bob 500 tokens
-        let signature = client
-            .transfer(500, &alice.keypair(), bob_keypair.pubkey(), &last_id)
-            .unwrap();
-        assert!(client.poll_for_signature(&signature).is_ok());
-
-        let balance = client.poll_get_balance(&bob_keypair.pubkey());
-        assert!(balance.is_ok());
-        assert_eq!(balance.unwrap(), 500);
-
-        // take them away
-        let signature = client
-            .transfer(500, &bob_keypair, alice.keypair().pubkey(), &last_id)
-            .unwrap();
-        assert!(client.poll_for_signature(&signature).is_ok());
-
-        // should get an error when bob's account is purged
-        let balance = client.poll_get_balance(&bob_keypair.pubkey());
-        assert!(balance.is_err());
-
-        server
-            .close()
-            .unwrap_or_else(|e| panic!("close() failed! {:?}", e));
-        remove_dir_all(ledger_path).unwrap();
-    }
-}

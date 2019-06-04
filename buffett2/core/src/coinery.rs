@@ -1,9 +1,7 @@
-//! Coinery is for minting the genesis block.
-
 use crate::entry::Entry;
-use crate::hash::{hash, Hash};
+use buffett_crypto::hash::{hash, Hash};
 use ring::rand::SystemRandom;
-use crate::signature::{Keypair, KeypairUtil};
+use buffett_crypto::signature::{Keypair, KeypairUtil};
 use buffett_interface::pubkey::Pubkey;
 use crate::system_transaction::SystemTransaction;
 use crate::transaction::Transaction;
@@ -65,28 +63,3 @@ impl Mint {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bincode::deserialize;
-    use crate::ledger::Block;
-    use system_program::SystemProgram;
-
-    #[test]
-    fn test_create_transactions() {
-        let mut transactions = Mint::new(100).create_transactions().into_iter();
-        let tx = transactions.next().unwrap();
-        assert!(SystemProgram::check_id(&tx.program_id));
-        let instruction: SystemProgram = deserialize(&tx.userdata).unwrap();
-        if let SystemProgram::Move { tokens } = instruction {
-            assert_eq!(tokens, 100);
-        }
-        assert_eq!(transactions.next(), None);
-    }
-
-    #[test]
-    fn test_verify_entries() {
-        let entries = Mint::new(100).create_entries();
-        assert!(entries[..].verify(&entries[0].id));
-    }
-}

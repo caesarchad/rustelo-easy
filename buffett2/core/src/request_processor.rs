@@ -1,5 +1,3 @@
-//! The `request_processor` processes thin client Request messages.
-
 use crate::tx_vault::Bank;
 use crate::request::{Request, Response};
 use std::net::SocketAddr;
@@ -10,12 +8,10 @@ pub struct RequestProcessor {
 }
 
 impl RequestProcessor {
-    /// Create a new Tpu that wraps the given Bank.
     pub fn new(bank: Arc<Bank>) -> Self {
         RequestProcessor { bank }
     }
 
-    /// Process Request items sent by clients.
     fn process_request(
         &self,
         msg: Request,

@@ -1,10 +1,3 @@
-//! The `sigverify_stage` implements the signature verification stage of the TPU. It
-//! receives a list of lists of packets and outputs the same list, but tags each
-//! top-level list with a list of booleans, telling the next stage whether the
-//! signature in that packet is valid. It assumes each packet contains one
-//! transaction. All processing is done on the CPU by default and on a GPU
-//! if the `cuda` feature is enabled with `--features=cuda`.
-
 use crate::counter::Counter;
 use influx_db_client as influxdb;
 use log::Level;
@@ -20,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, spawn, JoinHandle};
 use std::time::Instant;
 use crate::streamer::{self, PacketReceiver};
-use crate::timing;
+use buffett_timing::timing;
 
 pub type VerifiedPackets = Vec<(SharedPackets, Vec<u8>)>;
 
@@ -83,8 +76,8 @@ impl SigVerifyStage {
             return Err(Error::SendError);
         }
 
-        let total_time_ms = timing::duration_as_ms(&now.elapsed());
-        let total_time_s = timing::duration_as_s(&now.elapsed());
+        let total_time_ms = timing::duration_in_milliseconds(&now.elapsed());
+        let total_time_s = timing::duration_in_seconds(&now.elapsed());
         inc_new_counter_info!(
             "sigverify_stage-time_ms",
             (total_time_ms + recv_time) as usize

@@ -1,12 +1,10 @@
-//! The `rpc` module implements the RPC interface.
-
 use crate::tx_vault::{Bank, BankError};
 use bincode::deserialize;
 use bs58;
 use jsonrpc_core::*;
 use jsonrpc_http_server::*;
 use crate::service::Service;
-use crate::signature::Signature;
+use buffett_crypto::signature::Signature;
 use buffett_interface::account::Account;
 use buffett_interface::pubkey::Pubkey;
 use std::mem;
@@ -258,134 +256,3 @@ impl JsonRpcRequestProcessor {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tx_vault::Bank;
-    use jsonrpc_core::Response;
-    use crate::coinery::Mint;
-    use crate::signature::{Keypair, KeypairUtil};
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    use std::sync::Arc;
-    use crate::system_transaction::SystemTransaction;
-    use crate::transaction::Transaction;
-
-    #[test]
-    fn test_rpc_request() {
-        let alice = Mint::new(10_000);
-        let bob_pubkey = Keypair::new().pubkey();
-        let bank = Bank::new(&alice);
-
-        let last_id = bank.last_id();
-        let tx = Transaction::system_move(&alice.keypair(), bob_pubkey, 20, last_id, 0);
-        bank.process_transaction(&tx).expect("process transaction");
-
-        let request_processor = JsonRpcRequestProcessor::new(Arc::new(bank));
-        let transactions_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
-        let drone_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
-
-        let mut io = MetaIoHandler::default();
-        let rpc = RpcSolImpl;
-        io.extend_with(rpc.to_delegate());
-        let meta = Meta {
-            request_processor,
-            transactions_addr,
-            drone_addr,
-        };
-
-        let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"getBalance","params":["{}"]}}"#,
-            bob_pubkey
-        );
-        let res = io.handle_request_sync(&req, meta.clone());
-        let expected = format!(r#"{{"jsonrpc":"2.0","result":20,"id":1}}"#);
-        let expected: Response =
-            serde_json::from_str(&expected).expect("expected response deserialization");
-
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
-        assert_eq!(expected, result);
-
-        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getTransactionCount"}}"#);
-        let res = io.handle_request_sync(&req, meta.clone());
-        let expected = format!(r#"{{"jsonrpc":"2.0","result":1,"id":1}}"#);
-        let expected: Response =
-            serde_json::from_str(&expected).expect("expected response deserialization");
-
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
-        assert_eq!(expected, result);
-
-        let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"getAccountInfo","params":["{}"]}}"#,
-            bob_pubkey
-        );
-
-        let res = io.handle_request_sync(&req, meta.clone());
-        let expected = r#"{
-            "jsonrpc":"2.0",
-            "result":{
-                "program_id": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-                "tokens": 20,
-                "userdata": []
-            },
-            "id":1}
-        "#;
-        let expected: Response =
-            serde_json::from_str(&expected).expect("expected response deserialization");
-
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
-        assert_eq!(expected, result);
-    }
-    #[test]
-    fn test_rpc_request_bad_parameter_type() {
-        let alice = Mint::new(10_000);
-        let bank = Bank::new(&alice);
-
-        let mut io = MetaIoHandler::default();
-        let rpc = RpcSolImpl;
-        io.extend_with(rpc.to_delegate());
-        let req = r#"{"jsonrpc":"2.0","id":1,"method":"confirmTransaction","params":[1234567890]}"#;
-        let meta = Meta {
-            request_processor: JsonRpcRequestProcessor::new(Arc::new(bank)),
-            transactions_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
-            drone_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
-        };
-
-        let res = io.handle_request_sync(req, meta);
-        let expected = r#"{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid params: invalid type: integer `1234567890`, expected a string."},"id":1}"#;
-        let expected: Response =
-            serde_json::from_str(expected).expect("expected response deserialization");
-
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
-        assert_eq!(expected, result);
-    }
-    #[test]
-    fn test_rpc_request_bad_signature() {
-        let alice = Mint::new(10_000);
-        let bank = Bank::new(&alice);
-
-        let mut io = MetaIoHandler::default();
-        let rpc = RpcSolImpl;
-        io.extend_with(rpc.to_delegate());
-        let req =
-            r#"{"jsonrpc":"2.0","id":1,"method":"confirmTransaction","params":["a1b2c3d4e5"]}"#;
-        let meta = Meta {
-            request_processor: JsonRpcRequestProcessor::new(Arc::new(bank)),
-            transactions_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
-            drone_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
-        };
-
-        let res = io.handle_request_sync(req, meta);
-        let expected =
-            r#"{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid request"},"id":1}"#;
-        let expected: Response =
-            serde_json::from_str(expected).expect("expected response deserialization");
-
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
-        assert_eq!(expected, result);
-    }
-}

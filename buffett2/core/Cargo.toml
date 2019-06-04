@@ -1,11 +1,7 @@
 [package]
 name = "buffett-core"
-description = "Core package for Bitconch "
-version = "0.10.0"
-documentation = "https://bitconch.io"
-homepage = "https://bitconch.io/"
-readme = "README.md"
-repository = ""
+description = "Core library for Bitconch:buffett "
+version = "0.1.0"
 authors = [
     "Bitconch Core Dev Team",
 ]
@@ -13,7 +9,7 @@ license = "Apache-2.0"
 
 
 [badges]
-codecov = { repository = "buffett-labs/buffett", branch = "master", service = "github" }
+codecov = { repository = "bitconch/bus", branch = "master", service = "github" }
 
 [features]
 unstable = []
@@ -36,9 +32,9 @@ env_logger = "0.5.12"
 generic-array = { version = "0.12.0", default-features = false, features = ["serde"] }
 getopts = "0.2"
 influx_db_client = "0.3.4"
-solana-jsonrpc-core = "0.1"
-solana-jsonrpc-http-server = "0.1"
-solana-jsonrpc-macros = "0.1"
+bitconch-jsonrpc-core = "0.1"
+bitconch-jsonrpc-http-server = "0.1"
+bitconch-jsonrpc-macros = "0.1"
 ipnetwork = "0.12.7"
 itertools = "0.7.8"
 libc = "0.2.43"
@@ -62,11 +58,10 @@ sys-info = "0.5.6"
 tokio = "0.1"
 tokio-codec = "0.1"
 untrusted = "0.6.2"
-
+buffett-crypto="0.1.1"
+buffett-timing="0.1.0"
 [dev-dependencies]
-noop = { path = "programs/noop" }
-print = { path = "programs/print" }
-move_funds = { path = "programs/move_funds" }
+
 
 [[bench]]
 name = "bank"

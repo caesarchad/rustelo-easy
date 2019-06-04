@@ -1,7 +1,3 @@
-//! The `entry_writer` module helps implement the TPU's write stage. It
-//! writes entries to the given writer, which is typically a file or
-//! stdout, and then sends the Entry to its output channel.
-
 use crate::tx_vault::Bank;
 use bincode;
 use crate::entry::Entry;
@@ -14,7 +10,7 @@ pub struct EntryWriter<'a, W> {
 }
 
 impl<'a, W: Write> EntryWriter<'a, W> {
-    /// Create a new Tpu that wraps the given Bank.
+    
     pub fn new(bank: &'a Bank, writer: W) -> Self {
         EntryWriter { bank, writer }
     }
@@ -84,12 +80,12 @@ impl<R: BufRead> Iterator for EntryReader<R> {
                 )
             }
         } else {
-            None // EOF (probably)
+            None 
         }
     }
 }
 
-/// Return an iterator for all the entries in the given file.
+
 pub fn read_entries<R: BufRead>(reader: R) -> impl Iterator<Item = io::Result<Entry>> {
     EntryReader {
         reader,
@@ -97,29 +93,3 @@ pub fn read_entries<R: BufRead>(reader: R) -> impl Iterator<Item = io::Result<En
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::coinery::Mint;
-    use std::io::Cursor;
-
-    /// Same as read_entries() but parsing a buffer and returning a vector.
-    fn read_entries_from_buf(s: &[u8]) -> io::Result<Vec<Entry>> {
-        let mut result = vec![];
-        let reader = Cursor::new(s);
-        for x in read_entries(reader) {
-            trace!("entry... {:?}", x);
-            result.push(x?);
-        }
-        Ok(result)
-    }
-
-    #[test]
-    fn test_read_entries_from_buf() {
-        let mint = Mint::new(1);
-        let mut buf = vec![];
-        EntryWriter::write_entries(&mut buf, mint.create_entries()).unwrap();
-        let entries = read_entries_from_buf(&buf).unwrap();
-        assert_eq!(entries, mint.create_entries());
-    }
-}

@@ -1,7 +1,3 @@
-//! The `banking_stage` processes Transaction messages. It is intended to be used
-//! to contruct a software pipeline. The stage uses all available CPU cores and
-//! can do its processing in parallel with signature verification on the GPU.
-
 use crate::tx_vault::Bank;
 use bincode::deserialize;
 use crate::budget_transaction::BudgetTransaction;
@@ -22,34 +18,33 @@ use std::thread::sleep;
 use std::thread::{self, Builder, JoinHandle};
 use std::time::Duration;
 use std::time::Instant;
-use crate::timing;
+use buffett_timing::timing;
 use crate::transaction::Transaction;
 
-// number of threads is 1 until mt bank is ready
+
 pub const NUM_THREADS: usize = 1;
 
-/// Stores the stage's thread handle and output receiver.
+
 pub struct BankingStage {
-    /// Handle to the stage's thread.
+    
     thread_hdls: Vec<JoinHandle<()>>,
 }
 
 pub enum Config {
-    /// * `Tick` - Run full PoH thread.  Tick is a rough estimate of how many hashes to roll before transmitting a new entry.
+    
     Tick(usize),
-    /// * `Sleep`- Low power mode.  Sleep is a rough estimate of how long to sleep before rolling 1 poh once and producing 1
-    /// tick.
+    
     Sleep(Duration),
 }
 
 impl Default for Config {
     fn default() -> Config {
-        // TODO: Change this to Tick to enable PoH
+        
         Config::Sleep(Duration::from_millis(500))
     }
 }
 impl BankingStage {
-    /// Create the stage using `bank`. Exit when `verified_receiver` is dropped.
+    
     pub fn new(
         bank: &Arc<Bank>,
         verified_receiver: Receiver<VerifiedPackets>,
@@ -59,14 +54,10 @@ impl BankingStage {
         let shared_verified_receiver = Arc::new(Mutex::new(verified_receiver));
         let poh = PohRecorder::new(bank.clone(), entry_sender);
         let tick_poh = poh.clone();
-        // Tick producer is a headless producer, so when it exits it should notify the banking stage.
-        // Since channel are not used to talk between these threads an AtomicBool is used as a
-        // signal.
+        
         let poh_exit = Arc::new(AtomicBool::new(false));
         let banking_exit = poh_exit.clone();
-        // Single thread to generate entries from many banks.
-        // This thread talks to poh_service and broadcasts the entries once they have been recorded.
-        // Once an entry has been recorded, its last_id is registered with the bank.
+        
         let tick_producer = Builder::new()
             .name("bitconch-banking-stage-tick_producer".to_string())
             .spawn(move || {
@@ -83,7 +74,7 @@ impl BankingStage {
                 poh_exit.store(true, Ordering::Relaxed);
             }).unwrap();
 
-        // Many banks that process transactions in parallel.
+        
         let mut thread_hdls: Vec<JoinHandle<()>> = (0..NUM_THREADS)
             .into_iter()
             .map(|_| {
@@ -123,8 +114,7 @@ impl BankingStage {
         (BankingStage { thread_hdls }, entry_receiver)
     }
 
-    /// Convert the transactions from a blob of binary data to a vector of transactions and
-    /// an unused `SocketAddr` that could be used to send a response.
+    
     fn deserialize_transactions(p: &Packets) -> Vec<Option<(Transaction, SocketAddr)>> {
         p.packets
             .par_iter()
@@ -189,8 +179,7 @@ impl BankingStage {
         Ok(())
     }
 
-    /// Process the incoming packets and send output `Signal` messages to `signal_sender`.
-    /// Discard packets via `packet_recycler`.
+    
     pub fn process_packets(
         bank: &Arc<Bank>,
         verified_receiver: &Arc<Mutex<Receiver<VerifiedPackets>>>,
@@ -206,7 +195,7 @@ impl BankingStage {
         info!(
             "@{:?} process start stalled for: {:?}ms batches: {}",
             timing::timestamp(),
-            timing::duration_as_ms(&recv_start.elapsed()),
+            timing::duration_in_milliseconds(&recv_start.elapsed()),
             mms.len(),
         );
         inc_new_counter_info!("banking_stage-entries_received", mms_len);
@@ -236,10 +225,10 @@ impl BankingStage {
 
         inc_new_counter_info!(
             "banking_stage-time_ms",
-            timing::duration_as_ms(&proc_start.elapsed()) as usize
+            timing::duration_in_milliseconds(&proc_start.elapsed()) as usize
         );
-        let total_time_s = timing::duration_as_s(&proc_start.elapsed());
-        let total_time_ms = timing::duration_as_ms(&proc_start.elapsed());
+        let total_time_s = timing::duration_in_seconds(&proc_start.elapsed());
+        let total_time_ms = timing::duration_in_milliseconds(&proc_start.elapsed());
         info!(
             "Current Timing @{:?} done processing transaction bundle: {} time: {:?}milli-seconds requested: {} requsts per second: {}",
             timing::timestamp(),
@@ -268,147 +257,3 @@ impl Service for BankingStage {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tx_vault::Bank;
-    use crate::ledger::Block;
-    use crate::coinery::Mint;
-    use crate::packet::to_packets;
-    use crate::signature::{Keypair, KeypairUtil};
-    use std::thread::sleep;
-    use crate::system_transaction::SystemTransaction;
-    use crate::transaction::Transaction;
-
-    #[test]
-    fn test_banking_stage_shutdown1() {
-        let bank = Bank::new(&Mint::new(2));
-        let (verified_sender, verified_receiver) = channel();
-        let (banking_stage, _entry_receiver) =
-            BankingStage::new(&Arc::new(bank), verified_receiver, Default::default());
-        drop(verified_sender);
-        assert_eq!(banking_stage.join().unwrap(), ());
-    }
-
-    #[test]
-    fn test_banking_stage_shutdown2() {
-        let bank = Bank::new(&Mint::new(2));
-        let (_verified_sender, verified_receiver) = channel();
-        let (banking_stage, entry_receiver) =
-            BankingStage::new(&Arc::new(bank), verified_receiver, Default::default());
-        drop(entry_receiver);
-        assert_eq!(banking_stage.join().unwrap(), ());
-    }
-
-    #[test]
-    fn test_banking_stage_tick() {
-        let bank = Arc::new(Bank::new(&Mint::new(2)));
-        let start_hash = bank.last_id();
-        let (verified_sender, verified_receiver) = channel();
-        let (banking_stage, entry_receiver) = BankingStage::new(
-            &bank,
-            verified_receiver,
-            Config::Sleep(Duration::from_millis(1)),
-        );
-        sleep(Duration::from_millis(500));
-        drop(verified_sender);
-
-        let entries: Vec<_> = entry_receiver.iter().flat_map(|x| x).collect();
-        assert!(entries.len() != 0);
-        assert!(entries.verify(&start_hash));
-        assert_eq!(entries[entries.len() - 1].id, bank.last_id());
-        assert_eq!(banking_stage.join().unwrap(), ());
-    }
-
-    #[test]
-    fn test_banking_stage_entries_only() {
-        let mint = Mint::new(2);
-        let bank = Arc::new(Bank::new(&mint));
-        let start_hash = bank.last_id();
-        let (verified_sender, verified_receiver) = channel();
-        let (banking_stage, entry_receiver) =
-            BankingStage::new(&bank, verified_receiver, Default::default());
-
-        // good tx
-        let keypair = mint.keypair();
-        let tx = Transaction::system_new(&keypair, keypair.pubkey(), 1, start_hash);
-
-        // good tx, but no verify
-        let tx_no_ver = Transaction::system_new(&keypair, keypair.pubkey(), 1, start_hash);
-
-        // bad tx, AccountNotFound
-        let keypair = Keypair::new();
-        let tx_anf = Transaction::system_new(&keypair, keypair.pubkey(), 1, start_hash);
-
-        // send 'em over
-        let packets = to_packets(&[tx, tx_no_ver, tx_anf]);
-
-        // glad they all fit
-        assert_eq!(packets.len(), 1);
-        verified_sender                       // tx, no_ver, anf
-            .send(vec![(packets[0].clone(), vec![1u8, 0u8, 1u8])])
-            .unwrap();
-
-        drop(verified_sender);
-
-        //receive entries + ticks
-        let entries: Vec<_> = entry_receiver.iter().map(|x| x).collect();
-        assert!(entries.len() >= 1);
-
-        let mut last_id = start_hash;
-        entries.iter().for_each(|entries| {
-            assert_eq!(entries.len(), 1);
-            assert!(entries.verify(&last_id));
-            last_id = entries.last().unwrap().id;
-        });
-        drop(entry_receiver);
-        assert_eq!(banking_stage.join().unwrap(), ());
-    }
-    #[test]
-    fn test_banking_stage_entryfication() {
-        // In this attack we'll demonstrate that a verifier can interpret the ledger
-        // differently if either the server doesn't signal the ledger to add an
-        // Entry OR if the verifier tries to parallelize across multiple Entries.
-        let mint = Mint::new(2);
-        let bank = Arc::new(Bank::new(&mint));
-        let (verified_sender, verified_receiver) = channel();
-        let (banking_stage, entry_receiver) =
-            BankingStage::new(&bank, verified_receiver, Default::default());
-
-        // Process a batch that includes a transaction that receives two tokens.
-        let alice = Keypair::new();
-        let tx = Transaction::system_new(&mint.keypair(), alice.pubkey(), 2, mint.last_id());
-
-        let packets = to_packets(&[tx]);
-        verified_sender
-            .send(vec![(packets[0].clone(), vec![1u8])])
-            .unwrap();
-
-        // Process a second batch that spends one of those tokens.
-        let tx = Transaction::system_new(&alice, mint.pubkey(), 1, mint.last_id());
-        let packets = to_packets(&[tx]);
-        verified_sender
-            .send(vec![(packets[0].clone(), vec![1u8])])
-            .unwrap();
-        drop(verified_sender);
-        assert_eq!(banking_stage.join().unwrap(), ());
-
-        // Collect the ledger and feed it to a new bank.
-        let entries: Vec<_> = entry_receiver.iter().flat_map(|x| x).collect();
-        // same assertion as running through the bank, really...
-        assert!(entries.len() >= 2);
-
-        // Assert the user holds one token, not two. If the stage only outputs one
-        // entry, then the second transaction will be rejected, because it drives
-        // the account balance below zero before the credit is added.
-        let bank = Bank::new(&mint);
-        for entry in entries {
-            assert!(
-                bank.process_transactions(&entry.transactions)
-                    .into_iter()
-                    .all(|x| x.is_ok())
-            );
-        }
-        assert_eq!(bank.get_balance(&alice.pubkey()), 1);
-    }
-}

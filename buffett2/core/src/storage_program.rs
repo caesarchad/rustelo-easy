@@ -1,7 +1,3 @@
-//! storage program
-//!  Receive mining proofs from miners, validate the answers
-//!  and give reward for good proofs.
-
 use bincode::deserialize;
 use buffett_interface::account::Account;
 use buffett_interface::pubkey::Pubkey;
@@ -48,5 +44,3 @@ impl StorageProgram {
     }
 }
 
-#[cfg(test)]
-mod test {}

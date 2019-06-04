@@ -6,7 +6,7 @@ use bincode::{self, deserialize, deserialize_from, serialize_into, serialized_si
 use crate::budget_instruction::Vote;
 use crate::budget_transaction::BudgetTransaction;
 use crate::entry::Entry;
-use crate::hash::Hash;
+use buffett_crypto::hash::Hash;
 use log::Level::Trace;
 #[cfg(test)]
 use crate::coinery::Mint;
@@ -14,7 +14,7 @@ use crate::packet::{SharedBlob, BLOB_DATA_SIZE};
 use rayon::prelude::*;
 use crate::result::{Error, Result};
 #[cfg(test)]
-use crate::signature::{Keypair, KeypairUtil};
+use buffett_crypto::signature::{Keypair, KeypairUtil};
 use buffett_interface::pubkey::Pubkey;
 use std::fs::{create_dir_all, remove_dir_all, File, OpenOptions};
 use std::io::prelude::*;
@@ -542,12 +542,7 @@ pub fn next_entries(
     next_entries_mut(&mut id, &mut num_hashes, transactions)
 }
 
-#[cfg(test)]
-pub fn tmp_ledger_path(name: &str) -> String {
-    let keypair = Keypair::new();
 
-    format!("/tmp/tmp-ledger-{}-{}", name, keypair.pubkey())
-}
 
 #[cfg(test)]
 pub fn genesis(name: &str, num: i64) -> (Mint, String) {
@@ -567,9 +562,9 @@ mod tests {
     use crate::budget_transaction::BudgetTransaction;
     use chrono::prelude::*;
     use crate::entry::{next_entry, Entry};
-    use crate::hash::hash;
+    use buffett_crypto::hash::hash;
     use crate::packet::{to_blobs, BLOB_DATA_SIZE, PACKET_DATA_SIZE};
-    use crate::signature::{Keypair, KeypairUtil};
+    use buffett_crypto::signature::{Keypair, KeypairUtil};
     use std;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use crate::transaction::Transaction;

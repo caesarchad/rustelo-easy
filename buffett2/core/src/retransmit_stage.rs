@@ -1,5 +1,3 @@
-//! The `retransmit_stage` retransmits blobs between validators
-
 use crate::counter::Counter;
 use crate::crdt::Crdt;
 use crate::entry::Entry;
@@ -34,14 +32,7 @@ fn retransmit(crdt: &Arc<RwLock<Crdt>>, r: &BlobReceiver, sock: &UdpSocket) -> R
     Ok(())
 }
 
-/// Service to retransmit messages from the leader to layer 1 nodes.
-/// See `crdt` for network layer definitions.
-/// # Arguments
-/// * `sock` - Socket to read from.  Read timeout is set to 1.
-/// * `exit` - Boolean to signal system exit.
-/// * `crdt` - This structure needs to be updated and populated by the bank and via gossip.
-/// * `recycler` - Blob recycler.
-/// * `r` - Receive channel for blobs to be retransmitted to all the layer 1 nodes.
+
 fn retransmitter(sock: Arc<UdpSocket>, crdt: Arc<RwLock<Crdt>>, r: BlobReceiver) -> JoinHandle<()> {
     Builder::new()
         .name("bitconch-retransmitter".to_string())
