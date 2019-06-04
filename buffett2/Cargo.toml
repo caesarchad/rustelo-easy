@@ -9,4 +9,6 @@ members = [
     "genesis",
     "keybot",
     "ledger-tool",
+    "metrics",
+    "crypto",
 ]
