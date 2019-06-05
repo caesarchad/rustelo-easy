@@ -1,9 +1,10 @@
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use log::Level;
 use crate::packet::{Packet, SharedPackets};
 use std::mem::size_of;
 use std::sync::atomic::AtomicUsize;
 use crate::transaction::{PUB_KEY_OFFSET, SIGNED_DATA_OFFSET, SIG_OFFSET};
+use buffett_metrics::sub_new_counter_info;
 
 pub const TX_OFFSET: usize = 0;
 
@@ -40,7 +41,6 @@ fn verify_packet(packet: &Packet) -> u8 {
     use ring::signature;
     use buffett_crypto::signature::Signature;
     use buffett_interface::pubkey::Pubkey;
-    use untrusted;
 
     let msg_start = TX_OFFSET + SIGNED_DATA_OFFSET;
     let sig_start = TX_OFFSET + SIG_OFFSET;
@@ -92,7 +92,7 @@ pub fn ed25519_verify_cpu(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
                 .map(verify_packet)
                 .collect()
         }).collect();
-    inc_new_counter_info!("ed25519_verify_cpu", count);
+    sub_new_counter_info!("ed25519_verify_cpu", count);
     rv
 }
 
@@ -110,7 +110,7 @@ pub fn ed25519_verify_disabled(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
                 .map(verify_packet_disabled)
                 .collect()
         }).collect();
-    inc_new_counter_info!("ed25519_verify_disabled", count);
+    sub_new_counter_info!("ed25519_verify_disabled", count);
     rv
 }
 
@@ -193,6 +193,6 @@ pub fn ed25519_verify(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
             num += 1;
         }
     }
-    inc_new_counter_info!("ed25519_verify_gpu", count);
+    sub_new_counter_info!("ed25519_verify_gpu", count);
     rvs
 }

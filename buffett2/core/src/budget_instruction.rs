@@ -1,4 +1,4 @@
-use crate::budget::Budget;
+use buffett_budget::budget::Budget;
 use chrono::prelude::{DateTime, Utc};
 
 

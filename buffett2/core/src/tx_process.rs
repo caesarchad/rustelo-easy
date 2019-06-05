@@ -1,7 +1,7 @@
 use crate::tx_vault::Bank;
 use bincode::deserialize;
 use crate::budget_transaction::BudgetTransaction;
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use crate::entry::Entry;
 use log::Level;
 use crate::packet::Packets;
@@ -20,7 +20,7 @@ use std::time::Duration;
 use std::time::Instant;
 use buffett_timing::timing;
 use crate::transaction::Transaction;
-
+use buffett_metrics::sub_new_counter_info;
 
 pub const NUM_THREADS: usize = 1;
 
@@ -198,7 +198,7 @@ impl BankingStage {
             timing::duration_in_milliseconds(&recv_start.elapsed()),
             mms.len(),
         );
-        inc_new_counter_info!("banking_stage-entries_received", mms_len);
+        sub_new_counter_info!("banking_stage-entries_received", mms_len);
         let bank_starting_tx_count = bank.transaction_count();
         let count = mms.iter().map(|x| x.1.len()).sum();
         let proc_start = Instant::now();
@@ -223,7 +223,7 @@ impl BankingStage {
             Self::process_transactions(bank, &transactions, poh)?;
         }
 
-        inc_new_counter_info!(
+        sub_new_counter_info!(
             "banking_stage-time_ms",
             timing::duration_in_milliseconds(&proc_start.elapsed()) as usize
         );
@@ -237,8 +237,8 @@ impl BankingStage {
             reqs_len,
             (reqs_len as f32) / (total_time_s)
         );
-        inc_new_counter_info!("banking_stage-process_packets", count);
-        inc_new_counter_info!(
+        sub_new_counter_info!("banking_stage-process_packets", count);
+        sub_new_counter_info!(
             "banking_stage-process_transactions",
             bank.transaction_count() - bank_starting_tx_count
         );

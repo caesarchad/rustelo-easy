@@ -3,12 +3,12 @@
 use crate::tx_vault::Bank;
 use bincode::serialize;
 use crate::budget_transaction::BudgetTransaction;
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use crate::crdt::Crdt;
 use buffett_crypto::hash::Hash;
 use influx_db_client as influxdb;
 use log::Level;
-use crate::metrics;
+use buffett_metrics::metrics;
 use crate::packet::SharedBlob;
 use crate::result::Result;
 use buffett_crypto::signature::Keypair;
@@ -19,6 +19,7 @@ use std::sync::{Arc, RwLock};
 use crate::streamer::BlobSender;
 use buffett_timing::timing;
 use crate::transaction::Transaction;
+use buffett_metrics::sub_new_counter_info;
 
 pub const VOTE_TIMEOUT_MS: u64 = 1000;
 
@@ -129,7 +130,7 @@ pub fn send_leader_vote(
 
                 *last_valid_validator_timestamp = super_majority_timestamp;
                 debug!("{} leader_sent_vote finality: {} ms", id, finality_ms);
-                inc_new_counter_info!("vote_stage-leader_sent_vote", 1);
+                sub_new_counter_info!("vote_stage-leader_sent_vote", 1);
 
                 bank.set_finality((now - *last_valid_validator_timestamp) as usize);
 
@@ -152,7 +153,7 @@ pub fn send_validator_vote(
 ) -> Result<()> {
     let last_id = bank.last_id();
     if let Ok(shared_blob) = create_new_signed_vote_blob(&last_id, keypair, crdt) {
-        inc_new_counter_info!("replicate-vote_sent", 1);
+        sub_new_counter_info!("replicate-vote_sent", 1);
 
         vote_blob_sender.send(vec![shared_blob])?;
     }

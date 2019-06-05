@@ -1,5 +1,5 @@
 use bincode::deserialize;
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use log::Level;
 use crate::packet::{to_blobs, Packets, SharedPackets};
 use rayon::prelude::*;
@@ -15,6 +15,7 @@ use std::thread::{self, Builder, JoinHandle};
 use std::time::Instant;
 use crate::streamer::{self, BlobReceiver, BlobSender};
 use buffett_timing::timing;
+use buffett_metrics::sub_new_counter_info;
 
 pub struct RequestStage {
     thread_hdl: JoinHandle<()>,
@@ -65,7 +66,7 @@ impl RequestStage {
         }
         let total_time_s = timing::duration_in_seconds(&proc_start.elapsed());
         let total_time_ms = timing::duration_in_milliseconds(&proc_start.elapsed());
-        inc_new_counter_info!("request_stage-time_ms", total_time_ms as usize);
+        sub_new_counter_info!("request_stage-time_ms", total_time_ms as usize);
         debug!(
             "@{:?} done process batches: {} time: {:?}ms reqs: {} reqs/s: {}",
             timing::timestamp(),

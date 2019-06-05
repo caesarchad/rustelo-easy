@@ -1,10 +1,10 @@
 use bincode::{deserialize, serialize};
-use crate::budget::{Budget, Condition};
-use crate::budget_instruction::{Contract, Instruction, Vote};
+use buffett_budget::budget::{Budget, Condition};
+use buffett_budget::budget_instruction::{Contract, Instruction, Vote};
 use crate::budget_program::BudgetState;
 use chrono::prelude::*;
 use buffett_crypto::hash::Hash;
-use crate::payment_plan::Payment;
+use buffett_budget::payment_plan::Payment;
 use buffett_crypto::signature::Keypair;
 use buffett_interface::pubkey::Pubkey;
 use crate::transaction::Transaction;
@@ -104,7 +104,7 @@ impl BudgetTransaction for Transaction {
         dt: DateTime<Utc>,
         last_id: Hash,
     ) -> Self {
-        let instruction = Instruction::ApplyTimestamp(dt);
+        let instruction = Instruction::ApplyDatetime(dt);
         let userdata = serialize(&instruction).unwrap();
         Self::new(
             from_keypair,

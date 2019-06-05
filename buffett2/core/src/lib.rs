@@ -1,14 +1,14 @@
 //! Module list
 
 #![cfg_attr(feature = "unstable", feature(test))]
-#[macro_use]
-pub mod counter;
+//#[macro_use]
+//pub mod counter;
 pub mod tx_vault;
 pub mod tx_process;
 pub mod socket_streamer;
 pub mod broadcast_stage;
-pub mod budget;
-pub mod budget_instruction;
+//pub mod budget;
+//pub mod budget_instruction;
 pub mod budget_transaction;
 pub mod choose_gossip_peer_strategy;
 pub mod client;
@@ -26,12 +26,12 @@ pub mod fullnode;
 //pub mod hash;
 pub mod ledger;
 pub mod logger;
-pub mod metrics;
+//pub mod metrics;
 pub mod coinery;
 pub mod ncp;
 pub mod netutil;
 pub mod packet;
-pub mod payment_plan;
+//pub mod payment_plan;
 pub mod poh;
 pub mod poh_recorder;
 pub mod recvmmsg;
@@ -110,4 +110,8 @@ extern crate influx_db_client;
 extern crate rand;
 extern crate buffett_crypto;
 extern crate buffett_timing;
+#[macro_use]
+extern crate buffett_metrics;
 pub mod asciiart; //mvp001
+
+extern crate buffett_budget;

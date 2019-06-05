@@ -1,5 +1,5 @@
 use influx_db_client as influxdb;
-use crate::metrics;
+use buffett_metrics::metrics;
 use crate::packet::{Blob, SharedBlobs, SharedPackets};
 use crate::result::{Error, Result};
 use std::net::UdpSocket;

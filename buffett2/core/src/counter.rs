@@ -1,5 +1,5 @@
 use influx_db_client as influxdb;
-use crate::metrics;
+use buffett_metrics::metrics;
 use std::env;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use buffett_timing::timing;

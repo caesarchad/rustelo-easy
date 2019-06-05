@@ -3,7 +3,7 @@
 //! stdout, and then sends the Entry to its output channel.
 
 use crate::tx_vault::Bank;
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use crate::crdt::Crdt;
 use crate::entry::Entry;
 use crate::ledger::{Block, LedgerWriter};
@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use crate::streamer::responder;
 use buffett_timing::timing::{duration_in_milliseconds, duration_in_seconds};
 use crate::vote_stage::send_leader_vote;
+use buffett_metrics::sub_new_counter_info;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum WriteStageReturnType {
@@ -122,7 +123,7 @@ impl WriteStage {
                 break;
             }
         }
-        inc_new_counter_info!("write_stage-entries_received", num_new_entries);
+        sub_new_counter_info!("write_stage-entries_received", num_new_entries);
 
         info!("{} entries written to ", num_new_entries);
 
@@ -144,7 +145,7 @@ impl WriteStage {
             // safely incement entry height
             *entry_height += entries.len() as u64;
 
-            inc_new_counter_info!("write_stage-write_entries", entries.len());
+            sub_new_counter_info!("write_stage-write_entries", entries.len());
 
             //TODO(anatoly): real stake based voting needs to change this
             //leader simply votes if the current set of validators have voted
@@ -153,15 +154,15 @@ impl WriteStage {
             trace!("New entries? {}", entries.len());
             let entries_send_start = Instant::now();
             if !entries.is_empty() {
-                inc_new_counter_info!("write_stage-recv_vote", votes.len());
-                inc_new_counter_info!("write_stage-entries_sent", entries.len());
+                sub_new_counter_info!("write_stage-recv_vote", votes.len());
+                sub_new_counter_info!("write_stage-entries_sent", entries.len());
                 trace!("broadcasting {}", entries.len());
                 entry_sender.send(entries)?;
             }
 
             entries_send_total += duration_in_milliseconds(&entries_send_start.elapsed());
         }
-        inc_new_counter_info!(
+        sub_new_counter_info!(
             "write_stage-time_ms",
             duration_in_milliseconds(&now.elapsed()) as usize
         );
@@ -243,7 +244,7 @@ impl WriteStage {
                             }
                             Error::RecvTimeoutError(RecvTimeoutError::Timeout) => (),
                             _ => {
-                                inc_new_counter_info!(
+                                sub_new_counter_info!(
                                     "write_stage-write_and_send_entries-error",
                                     1
                                 );
@@ -260,7 +261,7 @@ impl WriteStage {
                         &mut last_vote,
                         &mut last_valid_validator_timestamp,
                     ) {
-                        inc_new_counter_info!("write_stage-leader_vote-error", 1);
+                        sub_new_counter_info!("write_stage-leader_vote-error", 1);
                         error!("{:?}", e);
                     }
                 }

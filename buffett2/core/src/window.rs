@@ -1,6 +1,6 @@
 //! The `window` module defines data structure for storing the tail of the ledger.
 //!
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use crate::crdt::{Crdt, NodeInfo};
 use crate::entry::Entry;
 #[cfg(feature = "erasure")]
@@ -15,6 +15,7 @@ use std::mem;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
+use buffett_metrics::sub_new_counter_info;
 
 pub const WINDOW_SIZE: u64 = 2 * 1024;
 
@@ -124,7 +125,7 @@ impl WindowUtil for Window {
 
         drop(rcrdt);
 
-        inc_new_counter_info!("streamer-repair_window-repair", reqs.len());
+        sub_new_counter_info!("streamer-repair_window-repair", reqs.len());
 
         if log_enabled!(Level::Trace) {
             trace!(

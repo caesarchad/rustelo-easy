@@ -1,4 +1,4 @@
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use crate::crdt::Crdt;
 use crate::entry::Entry;
 use log::Level;
@@ -14,6 +14,7 @@ use std::time::Duration;
 use crate::streamer::BlobReceiver;
 use crate::window::SharedWindow;
 use window_service::{window_service, WindowServiceReturnType};
+use buffett_metrics::sub_new_counter_info;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum RetransmitStageReturnType {
@@ -44,7 +45,7 @@ fn retransmitter(sock: Arc<UdpSocket>, crdt: Arc<RwLock<Crdt>>, r: BlobReceiver)
                         Error::RecvTimeoutError(RecvTimeoutError::Disconnected) => break,
                         Error::RecvTimeoutError(RecvTimeoutError::Timeout) => (),
                         _ => {
-                            inc_new_counter_info!("streamer-retransmit-error", 1, 1);
+                            sub_new_counter_info!("streamer-retransmit-error", 1, 1);
                         }
                     }
                 }

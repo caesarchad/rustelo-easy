@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use crate::payment_plan::{Payment, Witness};
+use buffett_budget::payment_plan::{Payment, Witness};
 use buffett_interface::pubkey::Pubkey;
 use std::mem;
 

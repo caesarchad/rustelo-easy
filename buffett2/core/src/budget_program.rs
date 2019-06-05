@@ -1,8 +1,8 @@
 use bincode::{self, deserialize, serialize_into, serialized_size};
-use crate::budget::Budget;
-use crate::budget_instruction::Instruction;
+use buffett_budget::budget::Budget;
+use buffett_budget::budget_instruction::Instruction;
 use chrono::prelude::{DateTime, Utc};
-use payment_plan::Witness;
+use buffett_budget::payment_plan::Witness;
 use buffett_interface::account::Account;
 use buffett_interface::pubkey::Pubkey;
 use std::io;
@@ -143,7 +143,7 @@ impl BudgetState {
                     }
                 }
             }
-            Instruction::ApplyTimestamp(dt) => {
+            Instruction::ApplyDatetime(dt) => {
                 if let Ok(mut state) = Self::deserialize(&accounts[1].userdata) {
                     if !state.is_pending() {
                         Err(BudgetError::ContractNotPending(tx.keys[1]))

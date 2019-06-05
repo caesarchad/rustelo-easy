@@ -1,4 +1,4 @@
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use crate::crdt::{Crdt, CrdtError, NodeInfo};
 use crate::entry::Entry;
 #[cfg(feature = "erasure")]
@@ -17,6 +17,7 @@ use std::thread::{self, Builder, JoinHandle};
 use std::time::{Duration, Instant};
 use buffett_timing::timing::duration_in_milliseconds;
 use crate::window::{self, SharedWindow, WindowIndex, WindowUtil, WINDOW_SIZE};
+use buffett_metrics::sub_new_counter_info;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BroadcastStageReturnType {
@@ -46,7 +47,7 @@ fn broadcast(
         num_entries += entries.len();
         ventries.push(entries);
     }
-    inc_new_counter_info!("broadcast_stage-entries_received", num_entries);
+    sub_new_counter_info!("broadcast_stage-entries_received", num_entries);
 
     let to_blobs_start = Instant::now();
     let dq: SharedBlobs = ventries
@@ -75,7 +76,7 @@ fn broadcast(
             .expect("index blobs for initial window");
 
         
-        inc_new_counter_info!("streamer-broadcast-sent", blobs.len());
+        sub_new_counter_info!("streamer-broadcast-sent", blobs.len());
         {
             let mut win = window.write().unwrap();
             assert!(blobs.len() <= win.len());
@@ -138,7 +139,7 @@ fn broadcast(
     }
     let broadcast_elapsed = duration_in_milliseconds(&broadcast_start.elapsed());
 
-    inc_new_counter_info!(
+    sub_new_counter_info!(
         "broadcast_stage-time_ms",
         duration_in_milliseconds(&now.elapsed()) as usize
     );
@@ -224,7 +225,7 @@ impl BroadcastStage {
                     Error::RecvTimeoutError(RecvTimeoutError::Timeout) => (),
                     Error::CrdtError(CrdtError::NoPeers) => (), // TODO: Why are the unit-tests throwing hundreds of these?
                     _ => {
-                        inc_new_counter_info!("streamer-broadcaster-error", 1, 1);
+                        sub_new_counter_info!("streamer-broadcaster-error", 1, 1);
                         error!("broadcaster error: {:?}", e);
                     }
                 }

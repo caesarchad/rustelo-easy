@@ -1,5 +1,5 @@
 use crate::tx_vault::Bank;
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use crate::crdt::Crdt;
 use crate::entry::EntryReceiver;
 use crate::ledger::{Block, LedgerWriter};
@@ -17,6 +17,7 @@ use std::time::Duration;
 use std::time::Instant;
 use crate::streamer::{responder, BlobSender};
 use crate::vote_stage::send_validator_vote;
+use buffett_metrics::sub_new_counter_info;
 
 struct Finalizer {
     exit_sender: Arc<AtomicBool>,
@@ -65,7 +66,7 @@ impl ReplicateStage {
             wcrdt.insert_votes(&entries.votes());
         }
 
-        inc_new_counter_info!(
+        sub_new_counter_info!(
             "replicate-transactions",
             entries.iter().map(|x| x.transactions.len()).sum()
         );

@@ -1,7 +1,7 @@
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use influx_db_client as influxdb;
 use log::Level;
-use crate::metrics;
+use buffett_metrics::metrics;
 use crate::packet::SharedPackets;
 use rand::{thread_rng, Rng};
 use crate::result::{Error, Result};
@@ -49,7 +49,7 @@ impl SigVerifyStage {
     ) -> Result<()> {
         let (batch, len, recv_time) =
             streamer::recv_batch(&recvr.lock().expect("'recvr' lock in fn verifier"))?;
-        inc_new_counter_info!("sigverify_stage-entries_received", len);
+        sub_new_counter_info!("sigverify_stage-entries_received", len);
 
         let now = Instant::now();
         let batch_len = batch.len();
@@ -62,7 +62,7 @@ impl SigVerifyStage {
         );
 
         let verified_batch = Self::verify_batch(batch, sigverify_disabled);
-        inc_new_counter_info!(
+        sub_new_counter_info!(
             "sigverify_stage-verified_entries_send",
             verified_batch.len()
         );
@@ -78,7 +78,7 @@ impl SigVerifyStage {
 
         let total_time_ms = timing::duration_in_milliseconds(&now.elapsed());
         let total_time_s = timing::duration_in_seconds(&now.elapsed());
-        inc_new_counter_info!(
+        sub_new_counter_info!(
             "sigverify_stage-time_ms",
             (total_time_ms + recv_time) as usize
         );

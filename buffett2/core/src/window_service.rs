@@ -1,4 +1,4 @@
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use crate::crdt::{Crdt, NodeInfo};
 use crate::entry::EntrySender;
 use log::Level;
@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use crate::streamer::{BlobReceiver, BlobSender};
 use buffett_timing::timing::duration_in_milliseconds;
 use crate::window::{blob_idx_in_window, SharedWindow, WindowUtil};
+use buffett_metrics::sub_new_counter_info;
 
 pub const MAX_REPAIR_BACKOFF: usize = 128;
 
@@ -117,7 +118,7 @@ fn retransmit_all_leader_blocks(
             received,
             retransmit_queue.len(),
         );
-        inc_new_counter_info!("streamer-recv_window-retransmit", retransmit_queue.len());
+        sub_new_counter_info!("streamer-recv_window-retransmit", retransmit_queue.len());
         retransmit.send(retransmit_queue)?;
     }
     Ok(())
@@ -150,7 +151,7 @@ fn recv_window(
         dq.append(&mut nq)
     }
     let now = Instant::now();
-    inc_new_counter_info!("streamer-recv_window-recv", dq.len(), 100);
+    sub_new_counter_info!("streamer-recv_window-recv", dq.len(), 100);
     trace!(
         "{}: RECV_WINDOW {} {}: got packets {}",
         id,
@@ -221,7 +222,7 @@ fn recv_window(
         );
     }
     if !consume_queue.is_empty() {
-        inc_new_counter_info!("streamer-recv_window-consume", consume_queue.len());
+        sub_new_counter_info!("streamer-recv_window-consume", consume_queue.len());
         s.send(consume_queue)?;
     }
     Ok(())
@@ -284,7 +285,7 @@ pub fn window_service(
                         Error::RecvTimeoutError(RecvTimeoutError::Disconnected) => break,
                         Error::RecvTimeoutError(RecvTimeoutError::Timeout) => (),
                         _ => {
-                            inc_new_counter_info!("streamer-window-error", 1, 1);
+                            sub_new_counter_info!("streamer-window-error", 1, 1);
                             error!("window error: {:?}", e);
                         }
                     }

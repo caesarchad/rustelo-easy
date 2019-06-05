@@ -1,6 +1,6 @@
 use bincode::{deserialize, serialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 #[cfg(test)]
 use buffett_crypto::hash::Hash;
 #[cfg(test)]
@@ -16,6 +16,7 @@ use std::mem::size_of;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
+use buffett_metrics::sub_new_counter_info;
 
 pub type SharedPackets = Arc<RwLock<Packets>>;
 pub type SharedBlob = Arc<RwLock<Blob>>;
@@ -166,7 +167,7 @@ impl Packets {
         loop {
             match recv_mmsg(socket, &mut self.packets[i..]) {
                 Err(_) if i > 0 => {
-                    inc_new_counter_info!("packets-recv_count", i);
+                    sub_new_counter_info!("packets-recv_count", i);
                     debug!("got {:?} messages on {}", i, socket.local_addr().unwrap());
                     socket.set_nonblocking(true)?;
                     return Ok(i);
@@ -180,7 +181,7 @@ impl Packets {
                     i += npkts;
                     if npkts != NUM_RCVMMSGS {
                         socket.set_nonblocking(true)?;
-                        inc_new_counter_info!("packets-recv_count", i);
+                        sub_new_counter_info!("packets-recv_count", i);
                         return Ok(i);
                     }
                 }

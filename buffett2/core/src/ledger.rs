@@ -3,7 +3,7 @@
 //! access read to a persistent file-based ledger.
 
 use bincode::{self, deserialize, deserialize_from, serialize_into, serialized_size};
-use crate::budget_instruction::Vote;
+use buffett_budget::budget_instruction::Vote;
 use crate::budget_transaction::BudgetTransaction;
 use crate::entry::Entry;
 use buffett_crypto::hash::Hash;
@@ -558,7 +558,7 @@ pub fn genesis(name: &str, num: i64) -> (Mint, String) {
 mod tests {
     use super::*;
     use bincode::serialized_size;
-    use crate::budget_instruction::Vote;
+    use buffett_budget::budget_instruction::Vote;
     use crate::budget_transaction::BudgetTransaction;
     use chrono::prelude::*;
     use crate::entry::{next_entry, Entry};

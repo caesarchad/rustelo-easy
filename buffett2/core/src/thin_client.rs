@@ -23,7 +23,7 @@ use buffett_timing::timing;
 use crate::transaction::Transaction;
 
 use influx_db_client as influxdb;
-use crate::metrics;
+use buffett_metrics::metrics;
 
 
 pub struct ThinClient {

@@ -1,7 +1,7 @@
 use bincode::{deserialize, serialize};
-use crate::budget_instruction::Vote;
+use buffett_budget::budget_instruction::Vote;
 use choose_gossip_peer_strategy::{ChooseGossipPeerStrategy, ChooseWeightedPeerStrategy};
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use buffett_crypto::hash::Hash;
 use crate::ledger::LedgerWindow;
 use log::Level;
@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 use crate::streamer::{BlobReceiver, BlobSender};
 use buffett_timing::timing::{duration_in_milliseconds, timestamp};
 use crate::window::{SharedWindow, WindowIndex};
+use buffett_metrics::sub_new_counter_info;
 
 pub const FULLNODE_PORT_RANGE: (u16, u16) = (8000, 10_000);
 
@@ -313,7 +314,7 @@ impl Crdt {
         }
         if *pubkey == self.my_data().leader_id {
             info!("{}: LEADER_VOTED! {}", self.id, pubkey);
-            inc_new_counter_info!("crdt-insert_vote-leader_voted", 1);
+            sub_new_counter_info!("crdt-insert_vote-leader_voted", 1);
         }
 
         if v.version <= self.table[pubkey].version {
@@ -331,7 +332,7 @@ impl Crdt {
         }
     }
     pub fn insert_votes(&mut self, votes: &[(Pubkey, Vote, Hash)]) {
-        inc_new_counter_info!("crdt-vote-count", votes.len());
+        sub_new_counter_info!("crdt-vote-count", votes.len());
         if !votes.is_empty() {
             info!("{}: INSERTING VOTES {}", self.id, votes.len());
         }
@@ -346,7 +347,7 @@ impl Crdt {
             
             trace!("{}: insert v.id: {} version: {}", self.id, v.id, v.version);
             if self.table.get(&v.id).is_none() {
-                inc_new_counter_info!("crdt-insert-new_entry", 1, 1);
+                sub_new_counter_info!("crdt-insert-new_entry", 1, 1);
             }
 
             self.update_index += 1;
@@ -396,7 +397,7 @@ impl Crdt {
                 }
             }).collect();
 
-        inc_new_counter_info!("crdt-purge-count", dead_ids.len());
+        sub_new_counter_info!("crdt-purge-count", dead_ids.len());
 
         for id in &dead_ids {
             self.alive.remove(id);
@@ -410,7 +411,7 @@ impl Crdt {
             }
             if *id == leader_id {
                 info!("{}: PURGE LEADER {}", self.id, id,);
-                inc_new_counter_info!("crdt-purge-purged_leader", 1, 1);
+                sub_new_counter_info!("crdt-purge-purged_leader", 1, 1);
                 self.set_leader(Pubkey::default());
             }
         }
@@ -456,7 +457,7 @@ impl Crdt {
     ) -> Result<()> {
         if broadcast_table.is_empty() {
             warn!("{}:not enough peers in crdt table", me.id);
-            inc_new_counter_info!("crdt-broadcast-not_enough_peers_error", 1);
+            sub_new_counter_info!("crdt-broadcast-not_enough_peers_error", 1);
             Err(CrdtError::NoPeers)?;
         }
         trace!(
@@ -561,7 +562,7 @@ impl Crdt {
                 transmit_index.data += 1;
             }
         }
-        inc_new_counter_info!(
+        sub_new_counter_info!(
             "crdt-broadcast-max_idx",
             (transmit_index.data - old_transmit_index) as usize
         );
@@ -618,7 +619,7 @@ impl Crdt {
             }).collect();
         for e in errs {
             if let Err(e) = &e {
-                inc_new_counter_info!("crdt-retransmit-send_to_error", 1, 1);
+                sub_new_counter_info!("crdt-retransmit-send_to_error", 1, 1);
                 error!("retransmit result {:?}", e);
             }
             e?;
@@ -782,7 +783,7 @@ impl Crdt {
         for v in data {
             insert_total += self.insert(&v);
         }
-        inc_new_counter_info!("crdt-update-count", insert_total);
+        sub_new_counter_info!("crdt-update-count", insert_total);
 
         for (pubkey, external_remote_index) in external_liveness {
             let remote_entry = if let Some(v) = self.remote.get(pubkey) {
@@ -871,11 +872,11 @@ impl Crdt {
                     outblob.meta.set_addr(from_addr);
                     outblob.set_id(sender_id).expect("blob set_id");
                 }
-                inc_new_counter_info!("crdt-window-request-pass", 1);
+                sub_new_counter_info!("crdt-window-request-pass", 1);
 
                 return Some(out);
             } else {
-                inc_new_counter_info!("crdt-window-request-outside", 1);
+                sub_new_counter_info!("crdt-window-request-outside", 1);
                 trace!(
                     "requested ix {} != blob_ix {}, outside window!",
                     ix,
@@ -887,7 +888,7 @@ impl Crdt {
 
         if let Some(ledger_window) = ledger_window {
             if let Ok(entry) = ledger_window.get_entry(ix) {
-                inc_new_counter_info!("crdt-window-request-ledger", 1);
+                sub_new_counter_info!("crdt-window-request-ledger", 1);
 
                 let out = entry.to_blob(
                     Some(ix),
@@ -899,7 +900,7 @@ impl Crdt {
             }
         }
 
-        inc_new_counter_info!("crdt-window-request-fail", 1);
+        sub_new_counter_info!("crdt-window-request-fail", 1);
         trace!(
             "{}: failed RequestWindowIndex {} {} {}",
             me.id,
@@ -955,13 +956,13 @@ impl Crdt {
                         me.read().unwrap().id,
                         from.id
                     );
-                    inc_new_counter_info!("crdt-window-request-loopback", 1);
+                    sub_new_counter_info!("crdt-window-request-loopback", 1);
                     return None;
                 }
 
                 
                 if from.contact_info.ncp.ip().is_unspecified() {
-                    inc_new_counter_info!("crdt-window-request-updates-unspec-ncp", 1);
+                    sub_new_counter_info!("crdt-window-request-updates-unspec-ncp", 1);
                     from.contact_info.ncp = *from_addr;
                 }
 
@@ -1046,13 +1047,13 @@ impl Crdt {
                         from.id,
                         ix,
                     );
-                    inc_new_counter_info!("crdt-window-request-address-eq", 1);
+                    sub_new_counter_info!("crdt-window-request-address-eq", 1);
                     return None;
                 }
 
                 me.write().unwrap().insert(&from);
                 let me = me.read().unwrap().my_data().clone();
-                inc_new_counter_info!("crdt-window-request-recv", 1);
+                sub_new_counter_info!("crdt-window-request-recv", 1);
                 trace!("{}: received RequestWindowIndex {} {} ", me.id, from.id, ix,);
                 let res =
                     Self::run_window_request(&from, &from_addr, &window, ledger_window, &me, ix);

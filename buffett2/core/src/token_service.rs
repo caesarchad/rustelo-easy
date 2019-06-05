@@ -12,7 +12,7 @@
 use bincode::{deserialize, serialize};
 use bytes::Bytes;
 use influx_db_client as influxdb;
-use crate::metrics;
+use buffett_metrics::metrics;
 use buffett_crypto::signature::{Keypair, Signature};
 use buffett_interface::pubkey::Pubkey;
 use std::io;

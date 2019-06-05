@@ -2,7 +2,7 @@ use bincode::deserialize;
 use bincode::serialize;
 use crate::budget_program::BudgetState;
 use crate::budget_transaction::BudgetTransaction;
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use crate::dynamic_program::DynamicProgram;
 use crate::entry::Entry;
 use buffett_crypto::hash::{hash, Hash};
@@ -10,7 +10,7 @@ use itertools::Itertools;
 use crate::ledger::Block;
 use log::Level;
 use crate::coinery::Mint;
-use crate::payment_plan::Payment;
+use buffett_budget::payment_plan::Payment;
 use buffett_crypto::signature::{Keypair, Signature};
 use buffett_interface::account::{Account, KeyedAccount};
 use buffett_interface::pubkey::Pubkey;
@@ -28,7 +28,7 @@ use crate::tictactoe_program::TicTacToeProgram;
 use buffett_timing::timing::{duration_in_microseconds, timestamp};
 use crate::transaction::Transaction;
 use crate::window::WINDOW_SIZE;
-
+use buffett_metrics::sub_new_counter_info;
 
 pub const MAX_ENTRY_IDS: usize = 1024 * 16;
 
@@ -270,7 +270,7 @@ impl Bank {
                 error_counters.account_not_found_leader += 1;
             }
             if BudgetState::check_id(&tx.program_id) {
-                use crate::budget_instruction::Instruction;
+                use buffett_budget::budget_instruction::Instruction;
                 if let Some(Instruction::NewVote(_vote)) = tx.instruction() {
                     error_counters.account_not_found_vote += 1;
                 }
@@ -460,18 +460,18 @@ impl Bank {
         if err_count > 0 {
             info!("{} errors of {} txs", err_count, err_count + tx_count);
             if !self.is_leader {
-                inc_new_counter_info!("bank-process_transactions_err-validator", err_count);
-                inc_new_counter_info!(
+                sub_new_counter_info!("bank-process_transactions_err-validator", err_count);
+                sub_new_counter_info!(
                     "bank-appy_debits-account_not_found-validator",
                     error_counters.account_not_found_validator
                 );
             } else {
-                inc_new_counter_info!("bank-process_transactions_err-leader", err_count);
-                inc_new_counter_info!(
+                sub_new_counter_info!("bank-process_transactions_err-leader", err_count);
+                sub_new_counter_info!(
                     "bank-appy_debits-account_not_found-leader",
                     error_counters.account_not_found_leader
                 );
-                inc_new_counter_info!(
+                sub_new_counter_info!(
                     "bank-appy_debits-vote_account_not_found",
                     error_counters.account_not_found_vote
                 );

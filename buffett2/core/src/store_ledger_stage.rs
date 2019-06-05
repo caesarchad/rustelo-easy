@@ -1,4 +1,4 @@
-use crate::counter::Counter;
+use buffett_metrics::counter::Counter;
 use crate::entry::EntryReceiver;
 use crate::ledger::LedgerWriter;
 use log::Level;
@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::{self, Builder, JoinHandle};
 use std::time::Duration;
+use buffett_metrics::sub_new_counter_info;
 
 pub struct StoreLedgerStage {
     thread_hdls: Vec<JoinHandle<()>>,
@@ -25,7 +26,7 @@ impl StoreLedgerStage {
             entries.append(&mut more);
         }
 
-        inc_new_counter_info!(
+        sub_new_counter_info!(
             "store-transactions",
             entries.iter().map(|x| x.transactions.len()).sum()
         );
