@@ -1,8 +1,10 @@
 [package]
 name = "buffett-budget"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["Caesar Chad <BLUE.WEB.GEEK@gmail.com>"]
 edition = "2018"
+description= "Budget for bitconch:buffett"
+license = "MIT"
 
 [dependencies]
 chrono = { version = "0.4.6", features = ["serde"] }
