@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use buffett::bank::*;
 use buffett::hash::hash;
 use buffett::mint::Mint;
-use buffett::signature::{Keypair, KeypairUtil};
+use buffett::signature::{Keypair};
 use buffett::system_transaction::SystemTransaction;
 use buffett::transaction::Transaction;
 use test::Bencher;

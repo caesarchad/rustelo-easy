@@ -13,7 +13,7 @@ use reqwest::header::CONTENT_TYPE;
 use ring::rand::SystemRandom;
 use ring::signature::Ed25519KeyPair;
 use serde_json::{self, Value};
-use buffett_crypto::signature::{Keypair, KeypairUtil, Signature};
+use buffett_crypto::signature::{Keypair, KeypairUtil,Signature};
 use buffett_interface::pubkey::Pubkey;
 use std::fs::{self, File};
 use std::io::prelude::*;

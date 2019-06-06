@@ -1,12 +1,16 @@
 [workspace]
 members = [
-    "bench-tps",
-    "common",
-    "core",
+   "benchbot",
+   "interface",
+   "core",
     "tokenbot",
     "fullnode",
     "fullnode-config",
     "genesis",
     "keybot",
-    "ledger-tool",
+    "ledgerbot",
+    "budget",
+    "timing",
+    "crypto",
+    "metrics",
 ]

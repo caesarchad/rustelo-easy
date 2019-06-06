@@ -3,13 +3,14 @@ extern crate clap;
 extern crate dirs;
 extern crate serde_json;
 extern crate buffett_core;
+extern crate buffett_crypto;
 
 use clap::{App, Arg};
 use buffett_core::crdt::FULLNODE_PORT_RANGE;
 use buffett_core::fullnode::Config;
 use buffett_core::logger;
 use buffett_core::netutil::{get_ip_addr, get_public_ip_addr, parse_port_or_addr};
-use buffett_core::signature::read_pkcs8;
+use buffett_crypto::signature::read_pkcs8;
 use std::io;
 use std::net::SocketAddr;
 
@@ -67,8 +68,7 @@ fn main() {
     };
     let pkcs8 = read_pkcs8(id_path).expect("client keypair");
 
-    // we need all the receiving sockets to be bound within the expected
-    // port range that we open on aws
+    
     let config = Config::new(&bind_addr, pkcs8);
     let stdout = io::stdout();
     serde_json::to_writer(stdout, &config).expect("serialize");

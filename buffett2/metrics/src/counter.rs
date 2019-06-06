@@ -46,7 +46,7 @@ macro_rules! sub_new_counter_info {
 
 #[macro_export]
 macro_rules! sub_new_counter {($name:expr, $count:expr, $level:expr, $lograte:expr) => 
-        {{if log_enabled!($level) {static mut INC_NEW_COUNTER: Counter = create_counter!($name, $lograte);
+        {{if log_enabled!($level) {static mut INC_NEW_COUNTER: Counter = new_counter!($name, $lograte);
             sub_counter!(INC_NEW_COUNTER, $count);
         }
     }};

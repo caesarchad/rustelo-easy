@@ -10,7 +10,7 @@ use itertools::Itertools;
 use crate::ledger::Block;
 use log::Level;
 use crate::coinery::Mint;
-use buffett_budget::payment_plan::Payment;
+use buffett_budget::payment::Payment;
 use buffett_crypto::signature::{Keypair, Signature};
 use buffett_interface::account::{Account, KeyedAccount};
 use buffett_interface::pubkey::Pubkey;
@@ -138,7 +138,7 @@ impl Bank {
     pub fn new(mint: &Mint) -> Self {
         let deposit = Payment {
             to: mint.pubkey(),
-            tokens: mint.tokens,
+            balance: mint.tokens,
         };
         let bank = Self::new_from_deposit(&deposit);
         bank.register_entry_id(&mint.last_id());
@@ -147,8 +147,8 @@ impl Bank {
 
     
     fn apply_payment(payment: &Payment, account: &mut Account) {
-        trace!("apply payments {}", payment.tokens);
-        account.tokens += payment.tokens;
+        trace!("apply payments {}", payment.balance);
+        account.tokens += payment.balance;
     }
 
     
@@ -270,7 +270,7 @@ impl Bank {
                 error_counters.account_not_found_leader += 1;
             }
             if BudgetState::check_id(&tx.program_id) {
-                use buffett_budget::budget_instruction::Instruction;
+                use buffett_budget::instruction::Instruction;
                 if let Some(Instruction::NewVote(_vote)) = tx.instruction() {
                     error_counters.account_not_found_vote += 1;
                 }

@@ -6,22 +6,25 @@ extern crate rayon;
 extern crate serde_json;
 #[macro_use]
 extern crate buffett_core;
+extern crate buffett_crypto;
+extern crate buffett_metrics;
+extern crate buffett_timing;
 
 use clap::{App, Arg};
 use influx_db_client as influxdb;
 use rayon::prelude::*;
-use buffett_core::client::mk_client;
+use buffett_core::client::new_client;
 use buffett_core::crdt::{Crdt, NodeInfo};
 use buffett_core::token_service::DRONE_PORT;
-use buffett_core::hash::Hash;
+use buffett_crypto::hash::Hash;
 use buffett_core::logger;
-use buffett_core::metrics;
+use buffett_metrics::metrics;
 use buffett_core::ncp::Ncp;
 use buffett_core::service::Service;
-use buffett_core::signature::{read_keypair, GenKeys, Keypair, KeypairUtil};
+use buffett_crypto::signature::{read_keypair, GenKeys, Keypair,KeypairUtil};
 use buffett_core::system_transaction::SystemTransaction;
-use buffett_core::thin_client::{poll_gossip_for_leader, ThinClient};
-use buffett_core::timing::{duration_as_ms, duration_as_s};
+use buffett_core::thin_client::{sample_leader_by_gossip, ThinClient};
+use buffett_timing::timing::{duration_in_milliseconds, duration_in_seconds};
 use buffett_core::transaction::Transaction;
 use buffett_core::wallet::request_airdrop;
 use buffett_core::window::default_window;
@@ -34,8 +37,10 @@ use std::thread::sleep;
 use std::thread::Builder;
 use std::time::Duration;
 use std::time::Instant;
-use buffett_core::asciiart; //mvp001
-use std::io::Write; //mvp001
+
+//mvp001
+use buffett_core::asciiart;
+use std::io::Write; 
 
 //mvp001
 fn dividing_line() {
@@ -44,12 +49,12 @@ fn dividing_line() {
 //*
 
 pub struct NodeStats {
-    pub tps: f64, // Maximum TPS reported by this node
-    pub tx: u64,  // Total transactions reported by this node
+    pub tps: f64, 
+    pub tx: u64,  
 }
 
 fn metrics_submit_token_balance(token_balance: i64) {
-    //println!("Token balance: {}", token_balance);
+    
     metrics::submit(
         influxdb::Point::new("bench-tps")
             .add_tag("op", influxdb::Value::String("token_balance".to_string()))
@@ -65,7 +70,7 @@ fn sample_tx_count(
     v: &NodeInfo,
     sample_period: u64,
 ) {
-    let mut client = mk_client(&v);
+    let mut client = new_client(&v);
     let mut now = Instant::now();
     let mut initial_tx_count = client.transaction_count();
     let mut max_tps = 0.0;
@@ -97,69 +102,56 @@ fn sample_tx_count(
             total = 0;
         }
         
-        /*mvp001
-        println!(
-            "{} {:9.2} TPS, Transactions: {:6}, Total transactions: {}",
-            log_prefix, tps, sample, total
-        );
-        */
-        let mut node_role = "Node's Role";
-        //mvp002 check wether current client is leader or validator..
+        
+        let _node_role="Node's Roles";
+        
         if v.id == v.leader_id {
-            //println!("This is Leader");
-            node_role = "Leader   ";
+            let _node_role = "Leader   ";
         } else {
-            // println!("This is Validator");
-            node_role = "Validator";
+            let _node_role = "Validator";
         }
         let mut node_location = "Node Location";
-        let mut node_ip: Vec<&str> = log_prefix.split(|c| c == '.' || c == ':').collect();
-        //assert_eq!(node_ip, ["abc", "def", "ghi"]);
+        let node_ip: Vec<&str> = log_prefix.split(|c| c == '.' || c == ':').collect();
         if node_ip[0] == "192" && node_ip[1] == "168" {
             node_location = "LOCAL";
-            //println!("{:?}", node_location);
         } else if node_ip[0] == "148"
             && node_ip[1] == "153"
             && node_ip[2] == "36"
             && node_ip[3] == "220"
         {
             node_location = "US_NEW_YORK";
-            //println!("{:?}", node_location);
         } else if node_ip[0] == "148"
             && node_ip[1] == "153"
             && node_ip[2] == "50"
             && node_ip[3] == "162"
         {
             node_location = "DE_FRANKFURT";
-            //println!("{:?}", node_location);
         } else if node_ip[0] == "148"
             && node_ip[1] == "153"
             && node_ip[2] == "25"
             && node_ip[3] == "50"
         {
             node_location = "NE_ARMSTERDAM";
-            //println!("{:?}", node_location);
+
         } else if node_ip[0] == "164"
             && node_ip[1] == "52"
             && node_ip[2] == "39"
             && node_ip[3] == "162"
         {
             node_location = "SG_SINGAOPORE";
-            //println!("{:?}", node_location);
         } else if node_ip[0] == "118"
             && node_ip[1] == "186"
             && node_ip[2] == "39"
             && node_ip[3] == "238"
         {
             node_location = "CN_PEKING";
-            //println!("{:?}", node_location);
         }
         
-        //mvp002
+        
         println!(
             "| {0:13} {1:<8} {2:3}{3:20}|{4:>15}{5:>10.2} |{6:>15}{7:>13} |{8:19}{9:9}",
             node_location,
-            node_role,
+            _node_role,
             "IP:",
             log_prefix,
             "Real-Time TPS:",
@@ -186,20 +178,13 @@ fn sample_tx_count(
     }
 }
 
-/// Send loopback payment of 0 tokens and confirm the network processed it
+
 fn send_barrier_transaction(barrier_client: &mut ThinClient, last_id: &mut Hash, id: &Keypair) {
     let transfer_start = Instant::now();
 
-    let mut poll_count = 0;
+    let mut sampel_cnt = 0;
     loop {
-        if poll_count > 0 && poll_count % 8 == 0 {
-            
-            /*
-            println!(
-                "polling for barrier transaction confirmation, attempt {}",
-                poll_count
-            );
-            */
+        if sampel_cnt > 0 && sampel_cnt % 8 == 0 {
         }
 
         *last_id = barrier_client.get_last_id();
@@ -207,24 +192,23 @@ fn send_barrier_transaction(barrier_client: &mut ThinClient, last_id: &mut Hash,
             .transfer(0, &id, id.pubkey(), last_id)
             .expect("Unable to send barrier transaction");
 
-        let confirmatiom = barrier_client.poll_for_signature(&signature);
-        let duration_ms = duration_as_ms(&transfer_start.elapsed());
+        let confirmatiom = barrier_client.sample_by_signature(&signature);
+        let duration_ms = duration_in_milliseconds(&transfer_start.elapsed());
         if confirmatiom.is_ok() {
-            //println!("barrier transaction confirmed in {}ms", duration_ms);
 
             metrics::submit(
                 influxdb::Point::new("bench-tps")
                     .add_tag(
                         "op",
                         influxdb::Value::String("send_barrier_transaction".to_string()),
-                    ).add_field("poll_count", influxdb::Value::Integer(poll_count))
+                    ).add_field("sampel_cnt", influxdb::Value::Integer(sampel_cnt))
                     .add_field("duration", influxdb::Value::Integer(duration_ms as i64))
                     .to_owned(),
             );
 
-            // Sanity check that the client balance is still 1
+            
             let balance = barrier_client
-                .poll_balance_with_timeout(
+                .sample_balance_by_key_plus(
                     &id.pubkey(),
                     &Duration::from_millis(100),
                     &Duration::from_secs(10),
@@ -235,8 +219,7 @@ fn send_barrier_transaction(barrier_client: &mut ThinClient, last_id: &mut Hash,
             break;
         }
 
-        // Timeout after 3 minutes.  When running a CPU-only leader+validator+drone+bench-tps on a dev
-        // machine, some batches of transactions can take upwards of 1 minute...
+        
         if duration_ms > 1000 * 60 * 3 {
             println!("Error: Couldn't confirm barrier transaction!");
             exit(1);
@@ -244,14 +227,14 @@ fn send_barrier_transaction(barrier_client: &mut ThinClient, last_id: &mut Hash,
 
         let new_last_id = barrier_client.get_last_id();
         if new_last_id == *last_id {
-            if poll_count > 0 && poll_count % 8 == 0 {
+            if sampel_cnt > 0 && sampel_cnt % 8 == 0 {
                 println!("last_id is not advancing, still at {:?}", *last_id);
             }
         } else {
             *last_id = new_last_id;
         }
 
-        poll_count += 1;
+        sampel_cnt += 1;
     }
 }
 
@@ -264,8 +247,7 @@ fn generate_txs(
     reclaim: bool,
 ) {
     let tx_count = keypairs.len();
-    //println!("Signing transactions... {} (reclaim={})", tx_count, reclaim);
-    //mvp001
+    
     dividing_line();
     println!(
         "{0: <2}{1: <40}: {2: <10}",
@@ -276,13 +258,13 @@ fn generate_txs(
         "|", "Reclaimed Tokens", reclaim
     );
     dividing_line();
-    //println!("Signing transactions... {} (reclaim={})", tx_count, reclaim);
+    
     println!(
         "{0: <2}{1: <40}: {2: <60}",
         "|", "Status", "Signing Started"
     );
     dividing_line();
-    //*
+    
 
     let signing_start = Instant::now();
 
@@ -299,16 +281,7 @@ fn generate_txs(
     let duration = signing_start.elapsed();
     let ns = duration.as_secs() * 1_000_000_000 + u64::from(duration.subsec_nanos());
     let bsps = (tx_count) as f64 / ns as f64;
-    let nsps = ns as f64 / (tx_count) as f64;
-    /*
-    println!(
-        "Done. {:.2} thousand signatures per second, {:.2} us per signature, {} ms total time",
-        bsps * 1_000_000_f64,
-        nsps / 1_000_f64,
-        duration_as_ms(&duration),
-    );
-    */
-    //mvp001
+    
     dividing_line();
     println!(
         "{0: <2}{1: <40}: {2: <60}",
@@ -320,7 +293,7 @@ fn generate_txs(
         tx_count,
         ns/1_000_000_000_u64,
         bsps * 1_000_000_f64 * 1000_f64,
-        duration_as_ms(&duration)
+        duration_in_milliseconds(&duration)
         
     );
     dividing_line();
@@ -330,7 +303,7 @@ fn generate_txs(
             .add_tag("op", influxdb::Value::String("generate_txs".to_string()))
             .add_field(
                 "duration",
-                influxdb::Value::Integer(duration_as_ms(&duration) as i64),
+                influxdb::Value::Integer(duration_in_milliseconds(&duration) as i64),
             ).to_owned(),
     );
 
@@ -344,14 +317,14 @@ fn generate_txs(
     }
 }
 
-fn do_tx_transfers(
+fn send_transaction(
     exit_signal: &Arc<AtomicBool>,
     shared_txs: &Arc<RwLock<VecDeque<Vec<Transaction>>>>,
     leader: &NodeInfo,
     shared_tx_thread_count: &Arc<AtomicIsize>,
     total_tx_sent_count: &Arc<AtomicUsize>,
 ) {
-    let client = mk_client(&leader);
+    let client = new_client(&leader);
     println!("| Begin to sendout transactions in parrallel");
     loop {
         let txs;
@@ -361,11 +334,7 @@ fn do_tx_transfers(
         }
         if let Some(txs0) = txs {
             shared_tx_thread_count.fetch_add(1, Ordering::Relaxed);
-            /*println!(
-                "Transferring 1 unit {} times... to {}",
-                txs0.len(),
-                leader.contact_info.tpu
-            );*/
+            
             let tx_len = txs0.len();
             let transfer_start = Instant::now();
             for tx in txs0 {
@@ -374,18 +343,17 @@ fn do_tx_transfers(
             shared_tx_thread_count.fetch_add(-1, Ordering::Relaxed);
             total_tx_sent_count.fetch_add(tx_len, Ordering::Relaxed);
             println!(
-                //"Tx send done. {} ms {} tps",
                 "| > 1 MU sent, to {} in {} ms, TPS: {} ",
                 leader.contact_info.tpu,
-                duration_as_ms(&transfer_start.elapsed()),
-                tx_len as f32 / duration_as_s(&transfer_start.elapsed()),
+                duration_in_milliseconds(&transfer_start.elapsed()),
+                tx_len as f32 / duration_in_seconds(&transfer_start.elapsed()),
             );
             metrics::submit(
                 influxdb::Point::new("bench-tps")
-                    .add_tag("op", influxdb::Value::String("do_tx_transfers".to_string()))
+                    .add_tag("op", influxdb::Value::String("send_transaction".to_string()))
                     .add_field(
                         "duration",
-                        influxdb::Value::Integer(duration_as_ms(&transfer_start.elapsed()) as i64),
+                        influxdb::Value::Integer(duration_in_milliseconds(&transfer_start.elapsed()) as i64),
                     ).add_field("count", influxdb::Value::Integer(tx_len as i64))
                     .to_owned(),
             );
@@ -400,16 +368,16 @@ fn airdrop_tokens(client: &mut ThinClient, leader: &NodeInfo, id: &Keypair, tx_c
     let mut drone_addr = leader.contact_info.tpu;
     drone_addr.set_port(DRONE_PORT);
 
-    let starting_balance = client.poll_get_balance(&id.pubkey()).unwrap_or(0);
+    let starting_balance = client.sample_balance_by_key(&id.pubkey()).unwrap_or(0);
     metrics_submit_token_balance(starting_balance);
     println!("starting balance {}", starting_balance);
 
     if starting_balance < tx_count {
-        //mvp001
+        
         println!("| Begin to prepare data and send some Transactions:",);
         dividing_line();
         print_animation_arrows();
-        //*
+        
 
         let airdrop_amount = tx_count - starting_balance;
         println!(
@@ -426,25 +394,24 @@ fn airdrop_tokens(client: &mut ThinClient, leader: &NodeInfo, id: &Keypair, tx_c
             );
         }
 
-        // TODO: return airdrop Result from Drone instead of polling the
-        //       network
+    
         let mut current_balance = starting_balance;
         for _ in 0..20 {
             sleep(Duration::from_millis(500));
-            current_balance = client.poll_get_balance(&id.pubkey()).unwrap_or_else(|e| {
+            current_balance = client.sample_balance_by_key(&id.pubkey()).unwrap_or_else(|e| {
                 println!("airdrop error {}", e);
                 starting_balance
             });
             if starting_balance != current_balance {
                 break;
             }
-            //println!("current balance {}...", current_balance);
+            
             println!(
                 "Current balance of {} is {}...",
                 id.pubkey(),
                 current_balance
             );
-            //*
+            
         }
         metrics_submit_token_balance(current_balance);
         if current_balance - starting_balance != airdrop_amount {
@@ -459,13 +426,13 @@ fn airdrop_tokens(client: &mut ThinClient, leader: &NodeInfo, id: &Keypair, tx_c
     }
 }
 
-fn compute_and_report_stats(
+fn print_status_and_report(
     maxes: &Arc<RwLock<Vec<(SocketAddr, NodeStats)>>>,
-    sample_period: u64,
+    _sample_period: u64,
     tx_send_elapsed: &Duration,
-    total_tx_send_count: usize,
+    _total_tx_send_count: usize,
 ) {
-    // Compute/report stats
+    
     let mut max_of_maxes = 0.0;
     let mut max_tx_count = 0;
     let mut nodes_with_zero_tps = 0;
@@ -507,96 +474,65 @@ fn compute_and_report_stats(
         println!("| Normal TPS:{:.2}",average_max);
         println!("====================================================================================");
         
-        /*
-        println!(
-            "\nAverage max TPS: {:.2}, {} nodes had 0 TPS",
-            average_max, nodes_with_zero_tps
-        );
-        */
+       
     }
 
     println!("====================================================================================");
     println!("| Peak TPS:{:.2}",max_of_maxes);
     println!("====================================================================================");
-    /*
-    println!(
-        "\nHighest TPS: {:.2} sampling period {}s max transactions: {} clients: {} drop rate: {:.2}",
-        max_of_maxes,
-        sample_period,
-        max_tx_count,
-        maxes.read().unwrap().len(),
-        (total_tx_send_count as u64 - max_tx_count) as f64 / total_tx_send_count as f64,
-    );*/
+    
 
     println!(
         "\tAverage TPS: {}",
-        max_tx_count as f32 / duration_as_s(tx_send_elapsed)
+        max_tx_count as f32 / duration_in_seconds(tx_send_elapsed)
     );
 }
 
-// First transfer 3/4 of the tokens to the dest accounts
-// then ping-pong 1/4 of the tokens back to the other account
-// this leaves 1/4 token buffer in each account
+
 fn should_switch_directions(num_tokens_per_account: i64, i: i64) -> bool {
     i % (num_tokens_per_account / 4) == 0 && (i >= (3 * num_tokens_per_account) / 4)
 }
 
-//mvp001
-// mvp006
 fn print_animation_arrows(){
     print!("|\n|");
     for _ in 0..5 {
         print!(".");
         sleep(Duration::from_millis(300));
-        std::io::stdout().flush().ok().expect("some error message");
+        std::io::stdout().flush().expect("some error message");
     }
     print!("\n|\n");
     
 }
-// Node selections process
-// Showcase the leader node selection process
+
 fn leader_node_selection(){
     dividing_line();
-    println!("| {}","Selecting Transaction Validator Nodes from the Predefined High-Reputation Nodes List.");
+    println!("| {:?}","Selecting Transaction Validator Nodes from the Predefined High-Reputation Nodes List.");
     sleep(Duration::from_millis(100));
-    std::io::stdout().flush().ok().expect("some error message");
-    println!("| {}","HRNL is populated with hundreds, even thousands of candidate nodes.");
+    std::io::stdout().flush().expect("some error message");
+    println!("| {:?}","HRNL is populated with hundreds, even thousands of candidate nodes.");
     sleep(Duration::from_millis(100));
-    std::io::stdout().flush().ok().expect("some error message");
-    println!("| {}","An random process is evoked to select up to 21 nodes from this list.");
+    std::io::stdout().flush().expect("some error message");
+    println!("| {:?}","An random process is evoked to select up to 21 nodes from this list.");
     sleep(Duration::from_millis(100));
-    std::io::stdout().flush().ok().expect("some error message");
-    println!("| {}","These 21 nodes are responsible for validating transactions on the DLT network.");
+    std::io::stdout().flush().expect("some error message");
+    println!("| {:?}","These 21 nodes are responsible for validating transactions on the DLT network.");
     sleep(Duration::from_millis(100));
-    std::io::stdout().flush().ok().expect("some error message");
-    println!("| {}","They are further grouped into one leader node and 20 voting nodes.");
+    std::io::stdout().flush().expect("some error message");
+    println!("| {:?}","They are further grouped into one leader node and 20 voting nodes.");
     sleep(Duration::from_millis(100));
-    std::io::stdout().flush().ok().expect("some error message");
-    println!("| {}","For MVP demo, we only use 5 nodes from 5 different countries.");
+    std::io::stdout().flush().expect("some error message");
+    println!("| {:?}","For MVP demo, we only use 5 nodes from 5 different countries.");
     sleep(Duration::from_millis(100));
-    std::io::stdout().flush().ok().expect("some error message");
+    std::io::stdout().flush().expect("some error message");
     dividing_line();
     sleep(Duration::from_millis(100));
-    std::io::stdout().flush().ok().expect("some error message");
-
+    std::io::stdout().flush().expect("some error message");
     print_animation_arrows();
+    dividing_line();
+    println!("| {:?}","Transaction Validator Nodes Selection Process Complete!!");
+    dividing_line();
+}
 
-    
-    let mut json_input="/path/path/path.ext";
-    let mut leader_node = randome_select_from(json_input);
-    dividing_line();
-    println!("| {}","Transaction Validator Nodes Selection Process Complete!!");
-    dividing_line();
-    
-}
-// mvp001
-fn randome_select_from(path: &str)-> String{
-    //do some selection 
-    let mut node = String::new();
-    node = "node1_addr_in_pubkey_form".to_string();
-    node 
-}
-//*
 
 fn main() {
     logger::setup();
@@ -706,24 +642,23 @@ fn main() {
 
     let sustained = matches.is_present("sustained");
 
-    asciiart::welcome();//mvp001
-    dividing_line();//mvp001
-    leader_node_selection();//mvp001
+    asciiart::welcome();
+    dividing_line();
+    leader_node_selection();
 
-    //println!("Looking for leader at {:?}", network);
-    //mvp001
+    
     println!(
         "{0: <2}{1: <40}: {2: <60}",
         "|", "Search for Leader Node On Network", network
     );
     dividing_line();
     print_animation_arrows();
-    //*
 
-    let leader = poll_gossip_for_leader(network, None).expect("unable to find leader on network");
+
+    let leader = sample_leader_by_gossip(network, None).expect("unable to find leader on network");
 
     let exit_signal = Arc::new(AtomicBool::new(false));
-    //mvp001
+    
     dividing_line();
     println!(
         "| Leader Node is found!, ID: {:?}",
@@ -731,7 +666,7 @@ fn main() {
     );
     dividing_line();
     sleep(Duration::from_millis(100));
-    //*
+    
     let (nodes, leader, ncp) = converge(&leader, &exit_signal, num_nodes);
 
     if nodes.len() < num_nodes {
@@ -774,8 +709,8 @@ fn main() {
     //*
     //println!("leader is at {} {}", leader.contact_info.rpu, leader.id);
     
-    let mut client = mk_client(&leader);
-    let mut barrier_client = mk_client(&leader);
+    let mut client = new_client(&leader);
+    let mut barrier_client = new_client(&leader);
 
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&id.public_key_bytes()[..32]);
@@ -809,7 +744,7 @@ fn main() {
 
     // Sample the first keypair, see if it has tokens, if so then resume
     // to avoid token loss
-    let keypair0_balance = client.poll_get_balance(&keypairs[0].pubkey()).unwrap_or(0);
+    let keypair0_balance = client.sample_balance_by_key(&keypairs[0].pubkey()).unwrap_or(0);
 
     if num_tokens_per_account > keypair0_balance {
         airdrop_tokens(
@@ -821,17 +756,16 @@ fn main() {
     }
     airdrop_tokens(&mut barrier_client, &leader, &barrier_id, 1);
 
-    //println!("Get last ID...");
+    
     let mut last_id = client.get_last_id();
-    //println!("Got last ID {:?}", last_id);
+    
 
     let first_tx_count = client.transaction_count();
     println!("Initial transaction count {}", first_tx_count);
 
-    // Setup a thread per validator to sample every period
-    // collect the max transaction rate and total tx count seen
+    
     let maxes = Arc::new(RwLock::new(Vec::new()));
-    let sample_period = 1; // in seconds
+    let sample_period = 1; 
     println!("Sampling TPS every {} second...", sample_period);
     let v_threads: Vec<_> = nodes
         .into_iter()
@@ -861,7 +795,7 @@ fn main() {
             Builder::new()
                 .name("bitconch-client-sender".to_string())
                 .spawn(move || {
-                    do_tx_transfers(
+                    send_transaction(
                         &exit_signal,
                         &shared_txs,
                         &leader,
@@ -871,17 +805,13 @@ fn main() {
                 }).unwrap()
         }).collect();
 
-    // generate and send transactions for the specified duration
+    
     let start = Instant::now();
     let mut reclaim_tokens_back_to_source_account = false;
     let mut i = keypair0_balance;
     while start.elapsed() < duration {
-        let balance = client.poll_get_balance(&id.pubkey()).unwrap_or(-1);
+        let balance = client.sample_balance_by_key(&id.pubkey()).unwrap_or(-1);
         metrics_submit_token_balance(balance);
-
-        // ping-pong between source and destination accounts for each loop iteration
-        // this seems to be faster than trying to determine the balance of individual
-        // accounts
         generate_txs(
             &shared_txs,
             &id,
@@ -890,17 +820,11 @@ fn main() {
             threads,
             reclaim_tokens_back_to_source_account,
         );
-        // In sustained mode overlap the transfers with generation
-        // this has higher average performance but lower peak performance
-        // in tested environments.
         if !sustained {
             while shared_tx_active_thread_count.load(Ordering::Relaxed) > 0 {
                 sleep(Duration::from_millis(100));
             }
         }
-        // It's not feasible (would take too much time) to confirm each of the `tx_count / 2`
-        // transactions sent by `generate_txs()` so instead send and confirm a single transaction
-        // to validate the network is still functional.
         send_barrier_transaction(&mut barrier_client, &mut last_id, &barrier_id);
 
         i += 1;
@@ -909,7 +833,6 @@ fn main() {
         }
     }
 
-    // Stop the sampling threads so it will collect the stats
     exit_signal.store(true, Ordering::Relaxed);
 
     dividing_line(); //mvp001
@@ -929,10 +852,10 @@ fn main() {
         }
     }
 
-    let balance = client.poll_get_balance(&id.pubkey()).unwrap_or(-1);
+    let balance = client.sample_balance_by_key(&id.pubkey()).unwrap_or(-1);
     metrics_submit_token_balance(balance);
 
-    compute_and_report_stats(
+    print_status_and_report(
         &maxes,
         sample_period,
         &start.elapsed(),

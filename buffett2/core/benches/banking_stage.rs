@@ -13,7 +13,7 @@ use buffett::banking_stage::{BankingStage, NUM_THREADS};
 use buffett::entry::Entry;
 use buffett::mint::Mint;
 use buffett::packet::to_packets_chunked;
-use buffett::signature::{KeypairUtil, Signature};
+use buffett::signature::{Signature};
 use buffett::system_transaction::SystemTransaction;
 use buffett::transaction::Transaction;
 use buffett_interface::pubkey::Pubkey;

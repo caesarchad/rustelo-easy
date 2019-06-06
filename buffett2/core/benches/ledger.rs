@@ -4,7 +4,7 @@ extern crate test;
 
 use buffett::hash::{hash, Hash};
 use buffett::ledger::{next_entries, reconstruct_entries_from_blobs, Block};
-use buffett::signature::{Keypair, KeypairUtil};
+use buffett::signature::{Keypair};
 use buffett::system_transaction::SystemTransaction;
 use buffett::transaction::Transaction;
 use test::Bencher;

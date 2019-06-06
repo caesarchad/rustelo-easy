@@ -1,5 +1,5 @@
 use bincode::{deserialize, serialize};
-use buffett_budget::budget_instruction::Vote;
+use buffett_budget::instruction::Vote;
 use choose_gossip_peer_strategy::{ChooseGossipPeerStrategy, ChooseWeightedPeerStrategy};
 use buffett_metrics::counter::Counter;
 use buffett_crypto::hash::Hash;

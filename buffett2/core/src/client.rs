@@ -3,7 +3,7 @@ use netutil::bind_in_range;
 use std::time::Duration;
 use crate::thin_client::ThinClient;
 
-pub fn mk_client(r: &NodeInfo) -> ThinClient {
+pub fn new_client(r: &NodeInfo) -> ThinClient {
     let (_, requests_socket) = bind_in_range(FULLNODE_PORT_RANGE).unwrap();
     let (_, transactions_socket) = bind_in_range(FULLNODE_PORT_RANGE).unwrap();
 

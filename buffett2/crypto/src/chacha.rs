@@ -18,7 +18,7 @@ extern "C" {
     );
 }
 
-pub fn chacha_cbc_encrypt(input: &[u8], output: &mut [u8], key: &[u8], ivec: &mut [u8]) {
+pub fn chacha_encrypt_str(input: &[u8], output: &mut [u8], key: &[u8], ivec: &mut [u8]) {
     unsafe {
         chacha20_cbc_encrypt(
             input.as_ptr(),
@@ -30,7 +30,7 @@ pub fn chacha_cbc_encrypt(input: &[u8], output: &mut [u8], key: &[u8], ivec: &mu
     }
 }
 
-pub fn chacha_cbc_encrypt_files(in_path: &Path, out_path: &Path, key: String) -> io::Result<()> {
+pub fn chacha_encrypt_files(in_path: &Path, out_path: &Path, key: String) -> io::Result<()> {
     let mut in_file = BufReader::new(File::open(in_path).expect("Can't open ledger data file"));
     let mut out_file =
         BufWriter::new(File::create(out_path).expect("Can't open ledger encrypted data file"));
@@ -43,7 +43,7 @@ pub fn chacha_cbc_encrypt_files(in_path: &Path, out_path: &Path, key: String) ->
         if size == 0 {
             break;
         }
-        chacha_cbc_encrypt(
+        chacha_encrypt_str(
             &buffer[..size],
             &mut encrypted_buffer[..size],
             key.as_bytes(),

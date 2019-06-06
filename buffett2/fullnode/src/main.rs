@@ -6,16 +6,18 @@ extern crate log;
 extern crate serde_json;
 #[macro_use]
 extern crate buffett_core;
+extern crate buffett_metrics;
+extern crate buffett_crypto;
 
 use clap::{App, Arg};
-use buffett_core::client::mk_client;
+use buffett_core::client::new_client;
 use buffett_core::crdt::Node;
 use buffett_core::token_service::DRONE_PORT;
 use buffett_core::fullnode::{Config, Fullnode, FullnodeReturnType};
 use buffett_core::logger;
-use buffett_core::metrics::set_panic_hook;
-use buffett_core::signature::{Keypair, KeypairUtil};
-use buffett_core::thin_client::poll_gossip_for_leader;
+use buffett_metrics::metrics::set_panic_hook;
+use buffett_crypto::signature::{Keypair,KeypairUtil};
+use buffett_core::thin_client::sample_leader_by_gossip;
 use buffett_core::wallet::request_airdrop;
 use std::fs::File;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -49,7 +51,7 @@ fn main() -> () {
                 .value_name("DIR")
                 .takes_value(true)
                 .required(true)
-                .help("use DIR as persistent ledger location"),
+                .help("use DIR as a dedicated ledgerbook path"),
         ).get_matches();
 
     let (keypair, ncp) = if let Some(i) = matches.value_of("identity") {
@@ -72,37 +74,37 @@ fn main() -> () {
 
     let ledger_path = matches.value_of("ledger").unwrap();
 
-    // socketaddr that is initial pointer into the network's gossip (ncp)
+    
     let network = matches
         .value_of("network")
         .map(|network| network.parse().expect("failed to parse network address"));
 
     let node = Node::new_with_external_ip(keypair.pubkey(), &ncp);
 
-    // save off some stuff for airdrop
+    
     let node_info = node.info.clone();
     let pubkey = keypair.pubkey();
 
     let mut fullnode = Fullnode::new(node, ledger_path, keypair, network, false, None);
 
-    // airdrop stuff, probably goes away at some point
+    
     let leader = match network {
         Some(network) => {
-            poll_gossip_for_leader(network, None).expect("can't find leader on network")
+            sample_leader_by_gossip(network, None).expect("can't find leader on network")
         }
         None => node_info,
     };
 
-    let mut client = mk_client(&leader);
+    let mut client = new_client(&leader);
 
-    // TODO: maybe have the drone put itself in gossip somewhere instead of hardcoding?
+    
     let drone_addr = match network {
         Some(network) => SocketAddr::new(network.ip(), DRONE_PORT),
         None => SocketAddr::new(ncp.ip(), DRONE_PORT),
     };
 
     loop {
-        let balance = client.poll_get_balance(&pubkey).unwrap_or(0);
+        let balance = client.sample_balance_by_key(&pubkey).unwrap_or(0);
         info!("Balance value {}", balance);
 
         if balance >= 50 {
@@ -128,8 +130,6 @@ fn main() -> () {
         match status {
             Ok(Some(FullnodeReturnType::LeaderRotation)) => (),
             _ => {
-                // Fullnode tpu/tvu exited for some unexpected
-                // reason, so exit
                 exit(1);
             }
         }

@@ -3,7 +3,7 @@
 //! access read to a persistent file-based ledger.
 
 use bincode::{self, deserialize, deserialize_from, serialize_into, serialized_size};
-use buffett_budget::budget_instruction::Vote;
+use buffett_budget::instruction::Vote;
 use crate::budget_transaction::BudgetTransaction;
 use crate::entry::Entry;
 use buffett_crypto::hash::Hash;
@@ -14,7 +14,7 @@ use crate::packet::{SharedBlob, BLOB_DATA_SIZE};
 use rayon::prelude::*;
 use crate::result::{Error, Result};
 #[cfg(test)]
-use buffett_crypto::signature::{Keypair, KeypairUtil};
+use buffett_crypto::signature::{Keypair};
 use buffett_interface::pubkey::Pubkey;
 use std::fs::{create_dir_all, remove_dir_all, File, OpenOptions};
 use std::io::prelude::*;
@@ -558,13 +558,13 @@ pub fn genesis(name: &str, num: i64) -> (Mint, String) {
 mod tests {
     use super::*;
     use bincode::serialized_size;
-    use buffett_budget::budget_instruction::Vote;
+    use buffett_budget::instruction::Vote;
     use crate::budget_transaction::BudgetTransaction;
     use chrono::prelude::*;
     use crate::entry::{next_entry, Entry};
     use buffett_crypto::hash::hash;
     use crate::packet::{to_blobs, BLOB_DATA_SIZE, PACKET_DATA_SIZE};
-    use buffett_crypto::signature::{Keypair, KeypairUtil};
+    use buffett_crypto::signature::{Keypair};
     use std;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use crate::transaction::Transaction;

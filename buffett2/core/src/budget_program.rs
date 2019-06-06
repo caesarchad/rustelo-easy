@@ -1,8 +1,8 @@
 use bincode::{self, deserialize, serialize_into, serialized_size};
 use buffett_budget::budget::Budget;
-use buffett_budget::budget_instruction::Instruction;
+use buffett_budget::instruction::Instruction;
 use chrono::prelude::{DateTime, Utc};
-use buffett_budget::payment_plan::Witness;
+use buffett_budget::seal::Seal;
 use buffett_interface::account::Account;
 use buffett_interface::pubkey::Pubkey;
 use std::io;
@@ -49,7 +49,7 @@ impl BudgetState {
     ) -> Result<(), BudgetError> {
         let mut final_payment = None;
         if let Some(ref mut budget) = self.pending_budget {
-            budget.apply_witness(&Witness::Signature, &keys[0]);
+            budget.apply_seal(&Seal::Signature, &keys[0]);
             final_payment = budget.final_payment();
         }
 
@@ -59,8 +59,8 @@ impl BudgetState {
                 return Err(BudgetError::DestinationMissing(payment.to));
             }
             self.pending_budget = None;
-            account[1].tokens -= payment.tokens;
-            account[2].tokens += payment.tokens;
+            account[1].tokens -= payment.balance;
+            account[2].tokens += payment.balance;
         }
         Ok(())
     }
@@ -74,7 +74,7 @@ impl BudgetState {
         let mut final_payment = None;
 
         if let Some(ref mut budget) = self.pending_budget {
-            budget.apply_witness(&Witness::Timestamp(dt), &keys[0]);
+            budget.apply_seal(&Seal::Timestamp(dt), &keys[0]);
             final_payment = budget.final_payment();
         }
 
@@ -84,8 +84,8 @@ impl BudgetState {
                 return Err(BudgetError::DestinationMissing(payment.to));
             }
             self.pending_budget = None;
-            accounts[1].tokens -= payment.tokens;
-            accounts[2].tokens += payment.tokens;
+            accounts[1].tokens -= payment.balance;
+            accounts[2].tokens += payment.balance;
         }
         Ok(())
     }
@@ -127,7 +127,7 @@ impl BudgetState {
             Instruction::NewContract(contract) => {
                 let budget = contract.budget.clone();
                 if let Some(payment) = budget.final_payment() {
-                    accounts[1].tokens += payment.tokens;
+                    accounts[1].tokens += payment.balance;
                     Ok(())
                 } else {
                     let existing = Self::deserialize(&accounts[1].userdata).ok();

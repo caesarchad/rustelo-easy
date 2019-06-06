@@ -1,10 +1,11 @@
 use bincode::{deserialize, serialize};
-use buffett_budget::budget::{Budget, Condition};
-use buffett_budget::budget_instruction::{Contract, Instruction, Vote};
+use buffett_budget::budget::{Budget};
+use buffett_budget::condition::{Condition};
+use buffett_budget::instruction::{Contract, Instruction, Vote};
+use buffett_budget::payment::Payment;
 use crate::budget_program::BudgetState;
 use chrono::prelude::*;
 use buffett_crypto::hash::Hash;
-use buffett_budget::payment_plan::Payment;
 use buffett_crypto::signature::Keypair;
 use buffett_interface::pubkey::Pubkey;
 use crate::transaction::Transaction;
@@ -75,7 +76,7 @@ impl BudgetTransaction for Transaction {
         last_id: Hash,
     ) -> Self {
         let payment = Payment {
-            tokens: tokens - fee,
+            balance: tokens - fee,
             to,
         };
         let budget = Budget::Pay(payment);
@@ -154,11 +155,11 @@ impl BudgetTransaction for Transaction {
     ) -> Self {
         let budget = if let Some(from) = cancelable {
             Budget::Or(
-                (Condition::Timestamp(dt, dt_pubkey), Payment { tokens, to }),
-                (Condition::Signature(from), Payment { tokens, to: from }),
+                (Condition::Timestamp(dt, dt_pubkey), Payment { balance:tokens, to }),
+                (Condition::Signature(from), Payment { balance:tokens, to: from }),
             )
         } else {
-            Budget::After(Condition::Timestamp(dt, dt_pubkey), Payment { tokens, to })
+            Budget::After(Condition::Timestamp(dt, dt_pubkey), Payment { balance:tokens, to })
         };
         let instruction = Instruction::NewContract(Contract { budget, tokens });
         let userdata = serialize(&instruction).expect("serialize instruction");
@@ -183,11 +184,11 @@ impl BudgetTransaction for Transaction {
     ) -> Self {
         let budget = if let Some(from) = cancelable {
             Budget::Or(
-                (Condition::Signature(witness), Payment { tokens, to }),
-                (Condition::Signature(from), Payment { tokens, to: from }),
+                (Condition::Signature(witness), Payment { balance:tokens, to }),
+                (Condition::Signature(from), Payment { balance:tokens, to: from }),
             )
         } else {
-            Budget::After(Condition::Signature(witness), Payment { tokens, to })
+            Budget::After(Condition::Signature(witness), Payment { balance:tokens, to })
         };
         let instruction = Instruction::NewContract(Contract { budget, tokens });
         let userdata = serialize(&instruction).expect("serialize instruction");

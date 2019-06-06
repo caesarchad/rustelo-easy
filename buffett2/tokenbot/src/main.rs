@@ -5,6 +5,8 @@ extern crate clap;
 extern crate log;
 extern crate serde_json;
 extern crate buffett_core;
+extern crate buffett_metrics;
+extern crate buffett_crypto;
 extern crate tokio;
 extern crate tokio_codec;
 
@@ -13,8 +15,8 @@ use bytes::Bytes;
 use clap::{App, Arg};
 use buffett_core::token_service::{Drone, DroneRequest, DRONE_PORT};
 use buffett_core::logger;
-use buffett_core::metrics::set_panic_hook;
-use buffett_core::signature::read_keypair;
+use buffett_metrics::metrics::set_panic_hook;
+use buffett_crypto::signature::read_keypair;
 use std::error;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -113,7 +115,7 @@ fn main() -> Result<(), Box<error::Error>> {
     });
 
     let socket = TcpListener::bind(&drone_addr).unwrap();
-    println!("Drone started. Listening on: {}", drone_addr);
+    println!("Tokenbot started. Listening on: {}", drone_addr);
     let done = socket
         .incoming()
         .map_err(|e| println!("failed to accept socket; error = {:?}", e))
@@ -153,7 +155,7 @@ fn main() -> Result<(), Box<error::Error>> {
                 .send_all(processor.or_else(|err| {
                     Err(io::Error::new(
                         io::ErrorKind::Other,
-                        format!("Drone response: {:?}", err),
+                        format!("Tokenbot response: {:?}", err),
                     ))
                 })).then(|_| Ok(()));
             tokio::spawn(server)

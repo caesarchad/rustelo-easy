@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use crate::system_transaction::SystemTransaction;
-use crate::thin_client::{poll_gossip_for_leader, ThinClient};
+use crate::thin_client::{sample_leader_by_gossip, ThinClient};
 use tokio;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
@@ -112,7 +112,7 @@ impl Drone {
         let requests_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
         let transactions_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
 
-        let leader = poll_gossip_for_leader(self.network_addr, Some(10))
+        let leader = sample_leader_by_gossip(self.network_addr, Some(10))
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
         let mut client = ThinClient::new(
@@ -235,7 +235,7 @@ mod tests {
     use crate::logger;
     use crate::coinery::Mint;
     use netutil::get_ip_addr;
-    use buffett_crypto::signature::{Keypair, KeypairUtil};
+    use buffett_crypto::signature::{Keypair};
     use std::fs::remove_dir_all;
     use std::net::{SocketAddr, UdpSocket};
     use std::time::Duration;
@@ -373,7 +373,7 @@ mod tests {
             client_pubkey: bob_pubkey,
         };
         let bob_sig = drone.send_airdrop(bob_req).unwrap();
-        assert!(client.poll_for_signature(&bob_sig).is_ok());
+        assert!(client.sample_by_signature(&bob_sig).is_ok());
         server.close().unwrap();
 
         let leader_keypair = Keypair::new();
@@ -398,7 +398,7 @@ mod tests {
         };
 
         let carlos_sig = drone.send_airdrop(carlos_req).unwrap();
-        assert!(client.poll_for_signature(&carlos_sig).is_ok());
+        assert!(client.sample_by_signature(&carlos_sig).is_ok());
 
         let bob_balance = client.get_balance(&bob_pubkey);
         info!("Small request balance: {:?}", bob_balance);

@@ -46,7 +46,7 @@ pnet_datalink = "0.21.0"
 rand = "0.5.1"
 rayon = "1.0.0"
 reqwest = "0.9.0"
-ring = "0.13.2"
+ring = "0.13.5"
 sha2 = "0.7.0"
 serde = "1.0.27"
 serde_cbor = "0.9.0"
@@ -61,7 +61,7 @@ untrusted = "0.6.2"
 buffett-crypto="0.1.1"
 buffett-timing="0.1.0"
 buffett-metrics="0.1.3"
-buffett-budget="0.1.1"
+buffett-budget="0.1.2"
 [dev-dependencies]
 
 

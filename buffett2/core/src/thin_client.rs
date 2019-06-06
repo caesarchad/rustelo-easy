@@ -129,7 +129,7 @@ impl ThinClient {
         for x in 0..tries {
             self.transactions_socket
                 .send_to(&data, &self.transactions_addr)?;
-            if self.poll_for_signature(&tx.signature).is_ok() {
+            if self.sample_by_signature(&tx.signature).is_ok() {
                 return Ok(tx.signature);
             }
             info!("{} tries failed transfer to {}", x, self.transactions_addr);
@@ -260,7 +260,7 @@ impl ThinClient {
         self.last_id.expect("some last_id")
     }
 
-    pub fn submit_poll_balance_metrics(elapsed: &Duration) {
+    pub fn submit_sample_balance(elapsed: &Duration) {
         metrics::submit(
             influxdb::Point::new("thinclient")
                 .add_tag("op", influxdb::Value::String("get_balance".to_string()))
@@ -271,7 +271,7 @@ impl ThinClient {
         );
     }
 
-    pub fn poll_balance_with_timeout(
+    pub fn sample_balance_by_key_plus(
         &mut self,
         pubkey: &Pubkey,
         polling_frequency: &Duration,
@@ -281,13 +281,13 @@ impl ThinClient {
         loop {
             match self.get_balance(&pubkey) {
                 Ok(bal) => {
-                    ThinClient::submit_poll_balance_metrics(&now.elapsed());
+                    ThinClient::submit_sample_balance(&now.elapsed());
                     return Ok(bal);
                 }
                 Err(e) => {
                     sleep(*polling_frequency);
                     if now.elapsed() > *timeout {
-                        ThinClient::submit_poll_balance_metrics(&now.elapsed());
+                        ThinClient::submit_sample_balance(&now.elapsed());
                         return Err(e);
                     }
                 }
@@ -295,11 +295,11 @@ impl ThinClient {
         }
     }
 
-    pub fn poll_get_balance(&mut self, pubkey: &Pubkey) -> io::Result<i64> {
-        self.poll_balance_with_timeout(pubkey, &Duration::from_millis(100), &Duration::from_secs(1))
+    pub fn sample_balance_by_key(&mut self, pubkey: &Pubkey) -> io::Result<i64> {
+        self.sample_balance_by_key_plus(pubkey, &Duration::from_millis(100), &Duration::from_secs(1))
     }
 
-    pub fn poll_for_signature(&mut self, signature: &Signature) -> io::Result<()> {
+    pub fn sample_by_signature(&mut self, signature: &Signature) -> io::Result<()> {
         let now = Instant::now();
         while !self.check_signature(signature) {
             if now.elapsed().as_secs() > 1 {
@@ -350,7 +350,7 @@ impl Drop for ThinClient {
     }
 }
 
-pub fn poll_gossip_for_leader(leader_ncp: SocketAddr, timeout: Option<u64>) -> Result<NodeInfo> {
+pub fn sample_leader_by_gossip(leader_ncp: SocketAddr, timeout: Option<u64>) -> Result<NodeInfo> {
     let exit = Arc::new(AtomicBool::new(false));
     let (node, gossip_socket) = Crdt::spy_node();
     let my_addr = gossip_socket.local_addr().unwrap();

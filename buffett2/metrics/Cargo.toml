@@ -1,6 +1,6 @@
 [package]
 name = "buffett-metrics"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Caesar Chad <BLUE.WEB.GEEK@gmail.com>"]
 edition = "2018"
 description= "Dashboard for bitconch:buffett"
