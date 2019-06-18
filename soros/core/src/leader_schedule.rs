@@ -5,7 +5,7 @@ use soros_sdk::pubkey::Pubkey;
 use std::ops::Index;
 
 /// Stake-weighted leader schedule for one epoch.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct LeaderSchedule {
     slot_leaders: Vec<Pubkey>,
 }
@@ -42,12 +42,11 @@ impl Index<u64> for LeaderSchedule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soros_sdk::signature::{Keypair, KeypairUtil};
 
     #[test]
     fn test_leader_schedule_index() {
-        let pubkey0 = Keypair::new().pubkey();
-        let pubkey1 = Keypair::new().pubkey();
+        let pubkey0 = Pubkey::new_rand();
+        let pubkey1 = Pubkey::new_rand();
         let leader_schedule = LeaderSchedule {
             slot_leaders: vec![pubkey0, pubkey1],
         };
@@ -59,11 +58,9 @@ mod tests {
     #[test]
     fn test_leader_schedule_basic() {
         let num_keys = 10;
-        let stakes: Vec<_> = (0..num_keys)
-            .map(|i| (Keypair::new().pubkey(), i))
-            .collect();
+        let stakes: Vec<_> = (0..num_keys).map(|i| (Pubkey::new_rand(), i)).collect();
 
-        let seed = Keypair::new().pubkey();
+        let seed = Pubkey::new_rand();
         let mut seed_bytes = [0u8; 32];
         seed_bytes.copy_from_slice(seed.as_ref());
         let len = num_keys * 10;
@@ -77,11 +74,9 @@ mod tests {
     #[test]
     fn test_repeated_leader_schedule() {
         let num_keys = 10;
-        let stakes: Vec<_> = (0..num_keys)
-            .map(|i| (Keypair::new().pubkey(), i))
-            .collect();
+        let stakes: Vec<_> = (0..num_keys).map(|i| (Pubkey::new_rand(), i)).collect();
 
-        let seed = Keypair::new().pubkey();
+        let seed = Pubkey::new_rand();
         let mut seed_bytes = [0u8; 32];
         seed_bytes.copy_from_slice(seed.as_ref());
         let len = num_keys * 10;
@@ -100,8 +95,8 @@ mod tests {
 
     #[test]
     fn test_repeated_leader_schedule_specific() {
-        let alice_pubkey = Keypair::new().pubkey();
-        let bob_pubkey = Keypair::new().pubkey();
+        let alice_pubkey = Pubkey::new_rand();
+        let bob_pubkey = Pubkey::new_rand();
         let stakes = vec![(alice_pubkey, 2), (bob_pubkey, 1)];
 
         let seed = Pubkey::default();

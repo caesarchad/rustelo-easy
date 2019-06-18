@@ -1,9 +1,12 @@
 //! The `bank_forks` module implments BankForks a DAG of checkpointed Banks
 
 use hashbrown::{HashMap, HashSet};
+use soros_metrics::counter::Counter;
 use soros_runtime::bank::Bank;
+use soros_sdk::timing;
 use std::ops::Index;
 use std::sync::Arc;
+use std::time::Instant;
 
 pub struct BankForks {
     banks: HashMap<u64, Arc<Bank>>,
@@ -32,7 +35,8 @@ impl BankForks {
     pub fn ancestors(&self) -> HashMap<u64, HashSet<u64>> {
         let mut ancestors = HashMap::new();
         for bank in self.banks.values() {
-            let set = bank.parents().into_iter().map(|b| b.slot()).collect();
+            let mut set: HashSet<u64> = bank.ancestors.keys().cloned().collect();
+            set.remove(&bank.slot());
             ancestors.insert(bank.slot(), set);
         }
         ancestors
@@ -43,9 +47,11 @@ impl BankForks {
         let mut descendants = HashMap::new();
         for bank in self.banks.values() {
             let _ = descendants.entry(bank.slot()).or_insert(HashSet::new());
-            for parent in bank.parents() {
+            let mut set: HashSet<u64> = bank.ancestors.keys().cloned().collect();
+            set.remove(&bank.slot());
+            for parent in set {
                 descendants
-                    .entry(parent.slot())
+                    .entry(parent)
                     .or_insert(HashSet::new())
                     .insert(bank.slot());
             }
@@ -99,17 +105,23 @@ impl BankForks {
     }
 
     pub fn set_root(&mut self, root: u64) {
+        let set_root_start = Instant::now();
         let root_bank = self
             .banks
             .get(&root)
             .expect("root bank didn't exist in bank_forks");
         root_bank.squash();
         self.prune_non_root(root);
+        inc_new_counter_info!(
+            "bank-forks_set_root_ms",
+            timing::duration_as_ms(&set_root_start.elapsed()) as usize
+        );
     }
 
     fn prune_non_root(&mut self, root: u64) {
+        let descendants = self.descendants();
         self.banks
-            .retain(|slot, bank| *slot >= root || bank.is_in_subtree_of(root))
+            .retain(|slot, _| descendants[&root].contains(slot))
     }
 }
 

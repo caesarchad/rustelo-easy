@@ -14,40 +14,8 @@ if [[ $1 = -h ]]; then
   fullnode_usage "$@"
 fi
 
-extra_fullnode_args=()
-setup_stakes=true
-
-while [[ ${1:0:1} = - ]]; do
-  if [[ $1 = --blockstream ]]; then
-    extra_fullnode_args+=("$1" "$2")
-    shift 2
-  elif [[ $1 = --enable-rpc-exit ]]; then
-    extra_fullnode_args+=("$1")
-    shift
-  elif [[ $1 = --init-complete-file ]]; then
-    extra_fullnode_args+=("$1" "$2")
-    shift 2
-  elif [[ $1 = --only-bootstrap-stake ]]; then
-    setup_stakes=false
-    shift
-  elif [[ $1 = --public-address ]]; then
-    extra_fullnode_args+=("$1")
-    shift
-  elif [[ $1 = --no-signer ]]; then
-    extra_fullnode_args+=("$1")
-    shift
-  elif [[ $1 = --rpc-port ]]; then
-    extra_fullnode_args+=("$1" "$2")
-    shift 2
-  else
-    echo "Unknown argument: $1"
-    exit 1
-  fi
-done
-
-if [[ -n $3 ]]; then
-  fullnode_usage "$@"
-fi
+# shellcheck source=multinode-demo/extra-fullnode-args.sh
+source "$here"/extra-fullnode-args.sh
 
 
 [[ -f "$SOROS_CONFIG_DIR"/bootstrap-leader-id.json ]] || {
@@ -68,25 +36,23 @@ tune_system
 $soros_ledger_tool --ledger "$SOROS_CONFIG_DIR"/bootstrap-leader-ledger verify
 
 bootstrap_leader_id_path="$SOROS_CONFIG_DIR"/bootstrap-leader-id.json
-bootstrap_leader_staker_id_path="$SOROS_CONFIG_DIR"/bootstrap-leader-staker-id.json
-bootstrap_leader_staker_id=$($soros_wallet --keypair "$bootstrap_leader_staker_id_path" address)
+bootstrap_leader_vote_id_path="$SOROS_CONFIG_DIR"/bootstrap-leader-vote-id.json
+bootstrap_leader_vote_id=$($soros_keygen pubkey "$bootstrap_leader_vote_id_path")
 
 trap 'kill "$pid" && wait "$pid"' INT TERM ERR
-$program \
-  --identity "$bootstrap_leader_id_path" \
-  --voting-keypair "$bootstrap_leader_staker_id_path" \
-  --staking-account  "$bootstrap_leader_staker_id" \
-  --ledger "$SOROS_CONFIG_DIR"/bootstrap-leader-ledger \
-  --accounts "$SOROS_CONFIG_DIR"/bootstrap-leader-accounts \
-  --rpc-port 8899 \
-  --rpc-drone-address 127.0.0.1:9900 \
-  "${extra_fullnode_args[@]}" \
-  > >($bootstrap_leader_logger) 2>&1 &
+
+default_fullnode_arg --identity "$bootstrap_leader_id_path"
+default_fullnode_arg --voting-keypair "$bootstrap_leader_vote_id_path"
+default_fullnode_arg --vote-account  "$bootstrap_leader_vote_id"
+default_fullnode_arg --ledger "$SOROS_CONFIG_DIR"/bootstrap-leader-ledger
+default_fullnode_arg --accounts "$SOROS_CONFIG_DIR"/bootstrap-leader-accounts
+default_fullnode_arg --rpc-port 8899
+default_fullnode_arg --rpc-drone-address 127.0.0.1:9900
+default_fullnode_arg --gossip-port 8001
+default_fullnode_arg --blockstream /tmp/bitconch-blockstream.sock # Default to location used by the block explorer
+echo "$PS4 $program ${extra_fullnode_args[*]}"
+$program "${extra_fullnode_args[@]}" > >($bootstrap_leader_logger) 2>&1 &
 pid=$!
 oom_score_adj "$pid" 1000
-
-if [[ $setup_stakes = true ]] ; then
-  setup_fullnode_staking 127.0.0.1 "$bootstrap_leader_id_path" "$bootstrap_leader_staker_id_path"
-fi
 
 wait "$pid"

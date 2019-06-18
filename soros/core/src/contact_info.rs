@@ -1,10 +1,13 @@
-use crate::rpc_service::RPC_PORT;
 use bincode::serialize;
 use soros_sdk::pubkey::Pubkey;
-use soros_sdk::signature::{Keypair, KeypairUtil, Signable, Signature};
+#[cfg(test)]
+use soros_sdk::rpc_port;
+#[cfg(test)]
+use soros_sdk::signature::{Keypair, KeypairUtil};
+use soros_sdk::signature::{Signable, Signature};
 use soros_sdk::timing::timestamp;
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 
 /// Structure representing a node on the network
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -53,7 +56,7 @@ impl Eq for ContactInfo {}
 #[macro_export]
 macro_rules! socketaddr {
     ($ip:expr, $port:expr) => {
-        std::net::SocketAddr::from((Ipv4Addr::from($ip), $port))
+        std::net::SocketAddr::from((std::net::Ipv4Addr::from($ip), $port))
     };
     ($str:expr) => {{
         let a: std::net::SocketAddr = $str.parse().unwrap();
@@ -130,7 +133,7 @@ impl ContactInfo {
         let addr = socketaddr!("224.0.1.255:1000");
         assert!(addr.ip().is_multicast());
         Self::new(
-            &Keypair::new().pubkey(),
+            &Pubkey::new_rand(),
             addr,
             addr,
             addr,
@@ -141,18 +144,21 @@ impl ContactInfo {
             0,
         )
     }
-    fn next_port(addr: &SocketAddr, nxt: u16) -> SocketAddr {
-        let mut nxt_addr = *addr;
-        nxt_addr.set_port(addr.port() + nxt);
-        nxt_addr
-    }
+
+    #[cfg(test)]
     fn new_with_pubkey_socketaddr(pubkey: &Pubkey, bind_addr: &SocketAddr) -> Self {
+        fn next_port(addr: &SocketAddr, nxt: u16) -> SocketAddr {
+            let mut nxt_addr = *addr;
+            nxt_addr.set_port(addr.port() + nxt);
+            nxt_addr
+        }
+
         let tpu_addr = *bind_addr;
-        let gossip_addr = Self::next_port(&bind_addr, 1);
-        let tvu_addr = Self::next_port(&bind_addr, 2);
-        let tpu_via_blobs_addr = Self::next_port(&bind_addr, 3);
-        let rpc_addr = SocketAddr::new(bind_addr.ip(), RPC_PORT);
-        let rpc_pubsub_addr = SocketAddr::new(bind_addr.ip(), RPC_PORT + 1);
+        let gossip_addr = next_port(&bind_addr, 1);
+        let tvu_addr = next_port(&bind_addr, 2);
+        let tpu_via_blobs_addr = next_port(&bind_addr, 3);
+        let rpc_addr = SocketAddr::new(bind_addr.ip(), rpc_port::DEFAULT_RPC_PORT);
+        let rpc_pubsub_addr = SocketAddr::new(bind_addr.ip(), rpc_port::DEFAULT_RPC_PUBSUB_PORT);
         Self::new(
             pubkey,
             gossip_addr,
@@ -165,7 +171,9 @@ impl ContactInfo {
             timestamp(),
         )
     }
-    pub fn new_with_socketaddr(bind_addr: &SocketAddr) -> Self {
+
+    #[cfg(test)]
+    pub(crate) fn new_with_socketaddr(bind_addr: &SocketAddr) -> Self {
         let keypair = Keypair::new();
         Self::new_with_pubkey_socketaddr(&keypair.pubkey(), bind_addr)
     }
@@ -185,11 +193,13 @@ impl ContactInfo {
             timestamp(),
         )
     }
+
     fn is_valid_ip(addr: IpAddr) -> bool {
         !(addr.is_unspecified() || addr.is_multicast())
         // || (addr.is_loopback() && !cfg_test))
         // TODO: boot loopback in production networks
     }
+
     /// port must not be 0
     /// ip must be specified and not mulitcast
     /// loopback ip is only allowed in tests
@@ -214,6 +224,7 @@ impl Signable for ContactInfo {
             gossip: SocketAddr,
             tvu: SocketAddr,
             tpu: SocketAddr,
+            tpu_via_blobs: SocketAddr,
             storage_addr: SocketAddr,
             rpc: SocketAddr,
             rpc_pubsub: SocketAddr,
@@ -227,6 +238,7 @@ impl Signable for ContactInfo {
             tvu: me.tvu,
             tpu: me.tpu,
             storage_addr: me.storage_addr,
+            tpu_via_blobs: me.tpu_via_blobs,
             rpc: me.rpc,
             rpc_pubsub: me.rpc_pubsub,
             wallclock: me.wallclock,

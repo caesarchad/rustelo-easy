@@ -1,21 +1,17 @@
-use clap::{crate_version, App, Arg};
-use log::*;
-use soros_drone::drone::{Drone, DRONE_PORT};
+use clap::{crate_description, crate_name, crate_version, App, Arg};
+use soros_drone::drone::{run_drone, Drone, DRONE_PORT};
 use soros_drone::socketaddr;
 use soros_sdk::signature::read_keypair;
 use std::error;
-use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use tokio::net::TcpListener;
-use tokio::prelude::{Future, Sink, Stream};
-use tokio_codec::{BytesCodec, Decoder};
 
 fn main() -> Result<(), Box<error::Error>> {
     soros_logger::setup();
     soros_metrics::set_panic_hook("drone");
-    let matches = App::new("drone")
+    let matches = App::new(crate_name!())
+        .about(crate_description!())
         .version(crate_version!())
         .arg(
             Arg::with_name("keypair")
@@ -73,34 +69,6 @@ fn main() -> Result<(), Box<error::Error>> {
         drone1.lock().unwrap().clear_request_count();
     });
 
-    let socket = TcpListener::bind(&drone_addr).unwrap();
-    info!("Drone started. Listening on: {}", drone_addr);
-    let done = socket
-        .incoming()
-        .map_err(|e| warn!("failed to accept socket; error = {:?}", e))
-        .for_each(move |socket| {
-            let drone2 = drone.clone();
-            let framed = BytesCodec::new().framed(socket);
-            let (writer, reader) = framed.split();
-
-            let processor = reader.and_then(move |bytes| {
-                let response_bytes = drone2
-                    .lock()
-                    .unwrap()
-                    .process_drone_request(&bytes)
-                    .unwrap();
-                Ok(response_bytes)
-            });
-            let server = writer
-                .send_all(processor.or_else(|err| {
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("Drone response: {:?}", err),
-                    ))
-                }))
-                .then(|_| Ok(()));
-            tokio::spawn(server)
-        });
-    tokio::run(done);
+    run_drone(drone, drone_addr, None);
     Ok(())
 }

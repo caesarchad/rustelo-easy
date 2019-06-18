@@ -2,13 +2,11 @@
 
 use crate::blocktree;
 use crate::cluster_info;
-#[cfg(feature = "erasure")]
-use crate::erasure;
 use crate::packet;
 use crate::poh_recorder;
 use bincode;
 use serde_json;
-use soros_runtime::bank;
+use soros_sdk::transaction;
 use std;
 use std::any::Any;
 
@@ -22,11 +20,10 @@ pub enum Error {
     RecvTimeoutError(std::sync::mpsc::RecvTimeoutError),
     TryRecvError(std::sync::mpsc::TryRecvError),
     Serialize(std::boxed::Box<bincode::ErrorKind>),
-    BankError(bank::BankError),
+    TransactionError(transaction::TransactionError),
     ClusterInfoError(cluster_info::ClusterInfoError),
     BlobError(packet::BlobError),
-    #[cfg(feature = "erasure")]
-    ErasureError(erasure::ErasureError),
+    ErasureError(reed_solomon_erasure::Error),
     SendError,
     PohRecorderError(poh_recorder::PohRecorderError),
     BlocktreeError(blocktree::BlocktreeError),
@@ -57,9 +54,9 @@ impl std::convert::From<std::sync::mpsc::RecvTimeoutError> for Error {
         Error::RecvTimeoutError(e)
     }
 }
-impl std::convert::From<bank::BankError> for Error {
-    fn from(e: bank::BankError) -> Error {
-        Error::BankError(e)
+impl std::convert::From<transaction::TransactionError> for Error {
+    fn from(e: transaction::TransactionError) -> Error {
+        Error::TransactionError(e)
     }
 }
 impl std::convert::From<cluster_info::ClusterInfoError> for Error {
@@ -67,9 +64,8 @@ impl std::convert::From<cluster_info::ClusterInfoError> for Error {
         Error::ClusterInfoError(e)
     }
 }
-#[cfg(feature = "erasure")]
-impl std::convert::From<erasure::ErasureError> for Error {
-    fn from(e: erasure::ErasureError) -> Error {
+impl std::convert::From<reed_solomon_erasure::Error> for Error {
+    fn from(e: reed_solomon_erasure::Error) -> Error {
         Error::ErasureError(e)
     }
 }

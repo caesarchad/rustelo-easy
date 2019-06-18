@@ -1,4 +1,4 @@
-Bitconch Coding Guidelines
+Soros Coding Guidelines
 ===
 
 The goal of these guidelines is to improve developer productivity by allowing developers to
@@ -27,13 +27,13 @@ $ git pull --rebase upstream master
 
 If there are no functional changes, PRs can be very large and that's no problem. If,
 however, your changes are making meaningful changes or additions, then about 1,000 lines of
-changes is about the most you should ask a Bitconch maintainer to review.
+changes is about the most you should ask a Soros maintainer to review.
 
 ### Should I send small PRs as I develop large, new components?
 
 Add only code to the codebase that is ready to be deployed. If you are building a large
 library, consider developing it in a separate git repository. When it is ready to be
-integrated, the Bitconch maintainers will work with you to decide on a path forward. Smaller
+integrated, the Soros maintainers will work with you to decide on a path forward. Smaller
 libraries may be copied in whereas very large ones may be pulled in with a package manager.
 
 ### When will my PR be reviewed?
@@ -46,10 +46,17 @@ and longer descriptions detailing what problem it solves and how it solves it.
 Draft Pull Requests
 ---
 
-If you want early feedback on your PR, use GitHub's "Draft Pull Request" mechanism. Draft
-PRs are a convenient way to collaborate with the Bitconch maintainers without triggering
-notifications as you make changes. When you feel your PR is ready for a broader audience,
-you can transition your draft PR to a standard PR with the click of a button.
+If you want early feedback on your PR, use GitHub's "Draft Pull Request"
+mechanism. Draft PRs are a convenient way to collaborate with the Soros
+maintainers without triggering notifications as you make changes. When you feel
+your PR is ready for a broader audience, you can transition your draft PR to a
+standard PR with the click of a button.
+
+Do not add reviewers to draft PRs.  GitHub doesn't automatically clear approvals
+when you click "Ready for Review", so a review that meant "I approve of the
+direction" suddenly has the appearance of "I approve of these changes." Instead,
+add a comment that mentions the usernames that you would like a review from. Ask
+explicitly what you would like feedback on.
 
 Rust coding conventions
 ---
@@ -89,24 +96,23 @@ understood. Avoid introducing new 3-letter terms, which can be confused with 3-l
 [Terms currently in use](book/src/terminology.md)
 
 
-Proposing architectural changes
+Design Proposals
 ---
 
-Bitconch's architecture is described by a book generated from markdown files in
+Soros's architecture is described by a book generated from markdown files in
 the `book/src/` directory, maintained by an *editor* (currently @garious). To
-change the architecture, you'll need to at least propose a change the content
-under the [Proposed
-Changes](https://bitconch.github.io/book-edge/proposals.html) chapter. Here's
-the full process:
+add a design proposal, you'll need to at least propose a change the content
+under the [Accepted Design
+Proposals](https://soros-labs.github.io/book-edge/proposals.html) chapter.
+Here's the full process:
 
-1. Propose to a change to the architecture by creating a PR that adds a
-   markdown document to the directory `book/src/` and references it from the
-   [table of contents](book/src/SUMMARY.md). Add the editor and any relevant
-   *maintainers* to the PR review.
+1. Propose a design by creating a PR that adds a markdown document to the
+   directory `book/src/` and references it from the [table of
+   contents](book/src/SUMMARY.md). Add any relevant *maintainers* to the PR review.
 2. The PR being merged indicates your proposed change was accepted and that the
-   editor and maintainers support your plan of attack.
+   maintainers support your plan of attack.
 3. Submit PRs that implement the proposal. When the implementation reveals the
-   need for tweaks to the architecture, be sure to update the proposal and have
+   need for tweaks to the proposal, be sure to update the proposal and have
    that change reviewed by the same people as in step 1.
-4. Once the implementation is complete, the editor will then work to integrate
-   the document into the book.
+4. Once the implementation is complete, submit a PR that moves the link from
+   the Accepted Proposals to the Implemented Proposals section.

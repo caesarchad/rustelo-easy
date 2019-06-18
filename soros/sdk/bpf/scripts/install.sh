@@ -41,11 +41,11 @@ if [[ ! -f llvm-native-$machine-$version.md ]]; then
     rm -rf llvm-native*
     mkdir -p llvm-native
     cd llvm-native
-    wget --progress=dot:giga https://github.com/bitconch/llvm-builder/releases/download/$version/$filename
+    wget --progress=dot:giga https://github.com/soros-labs/llvm-builder/releases/download/$version/$filename
     tar -jxf $filename
     rm -rf $filename
 
-    echo "https://github.com/bitconch/llvm-builder/releases/tag/$version" > ../llvm-native-$machine-$version.md
+    echo "https://github.com/soros-labs/llvm-builder/releases/tag/$version" > ../llvm-native-$machine-$version.md
   )
   exitcode=$?
   if [[ $exitcode -ne 0 ]]; then
@@ -65,7 +65,7 @@ if [[ ! -f rust-bpf-$machine-$version.md ]]; then
     rm -rf rust-bpf-$machine-*
     mkdir -p rust-bpf
     pushd rust-bpf
-    wget --progress=dot:giga https://github.com/bitconch/rust-bpf-builder/releases/download/$version/$filename
+    wget --progress=dot:giga https://github.com/soros-labs/rust-bpf-builder/releases/download/$version/$filename
     tar -jxf $filename
     rm -rf $filename
     popd
@@ -78,7 +78,7 @@ if [[ ! -f rust-bpf-$machine-$version.md ]]; then
     set -e
     rustup toolchain link bpf rust-bpf
 
-    echo "https://github.com/bitconch/rust-bpf-builder/releases/tag/$version" > rust-bpf-$machine-$version.md
+    echo "https://github.com/soros-labs/rust-bpf-builder/releases/tag/$version" > rust-bpf-$machine-$version.md
   )
   exitcode=$?
   if [[ $exitcode -ne 0 ]]; then
@@ -99,13 +99,13 @@ if [[ ! -f rust-bpf-sysroot-$version.md ]]; then
     cd rust-bpf-sysroot
 
     git init
-    git remote add origin https://github.com/bitconch/rust-bpf-sysroot.git
+    git remote add origin https://github.com/soros-labs/rust-bpf-sysroot.git
     git pull origin master
     git checkout "$version"
     git submodule init
     git submodule update
 
-    echo "https://github.com/bitconch/rust-bpf-sysroot/releases/tag/$version" > ../rust-bpf-sysroot-$version.md
+    echo "https://github.com/soros-labs/rust-bpf-sysroot/releases/tag/$version" > ../rust-bpf-sysroot-$version.md
   )
   exitcode=$?
   if [[ $exitcode -ne 0 ]]; then

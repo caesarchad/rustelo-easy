@@ -29,11 +29,14 @@ SECONDS=0
 )
 
 BIN_CRATES=(
+  bench-exchange
   bench-streamer
   bench-tps
   drone
   fullnode
   genesis
+  gossip
+  install
   keygen
   ledger-tool
   wallet
@@ -48,7 +51,7 @@ for crate in "${BIN_CRATES[@]}"; do
 done
 
 for dir in programs/*; do
-  for program in echo target/release/deps/lib{,soros_}"$(basename "$dir")"{,_program}.{so,dylib,dll}; do
+  for program in echo target/release/deps/libsoros_"$(basename "$dir")".{so,dylib,dll}; do
     if [[ -f $program ]]; then
       mkdir -p "$installDir/bin/deps"
       rm -f "$installDir/bin/deps/$(basename "$program")"

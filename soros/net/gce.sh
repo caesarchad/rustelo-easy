@@ -12,23 +12,35 @@ gce)
   # shellcheck source=net/scripts/gce-provider.sh
   source "$here"/scripts/gce-provider.sh
 
-  cpuBootstrapLeaderMachineType=n1-standard-16
+  cpuBootstrapLeaderMachineType="--machine-type n1-standard-16"
   gpuBootstrapLeaderMachineType="$cpuBootstrapLeaderMachineType --accelerator count=4,type=nvidia-tesla-k80"
   bootstrapLeaderMachineType=$cpuBootstrapLeaderMachineType
   fullNodeMachineType=$cpuBootstrapLeaderMachineType
-  clientMachineType=n1-standard-16
-  blockstreamerMachineType=n1-standard-8
+  clientMachineType="--custom-cpu 16 --custom-memory 20GB"
+  blockstreamerMachineType="--machine-type n1-standard-8"
   ;;
 ec2)
   # shellcheck source=net/scripts/ec2-provider.sh
   source "$here"/scripts/ec2-provider.sh
 
-  cpuBootstrapLeaderMachineType=m4.4xlarge
+  cpuBootstrapLeaderMachineType=m4.2xlarge
   gpuBootstrapLeaderMachineType=p2.xlarge
   bootstrapLeaderMachineType=$cpuBootstrapLeaderMachineType
-  fullNodeMachineType=m4.2xlarge
+  fullNodeMachineType=$cpuBootstrapLeaderMachineType
   clientMachineType=m4.2xlarge
   blockstreamerMachineType=m4.2xlarge
+  ;;
+azure)
+  # shellcheck source=net/scripts/azure-provider.sh
+  source "$here"/scripts/azure-provider.sh
+
+  # TODO: Dial in machine types for Azure
+  cpuBootstrapLeaderMachineType=Standard_D16s_v3
+  gpuBootstrapLeaderMachineType=Standard_NC12
+  bootstrapLeaderMachineType=$cpuBootstrapLeaderMachineType
+  fullNodeMachineType=$cpuBootstrapLeaderMachineType
+  clientMachineType=Standard_D16s_v3
+  blockstreamerMachineType=Standard_D16s_v3
   ;;
 *)
   echo "Error: Unknown cloud provider: $cloudProvider"
@@ -42,11 +54,21 @@ clientNodeCount=1
 blockstreamer=false
 fullNodeBootDiskSizeInGb=1000
 clientBootDiskSizeInGb=75
+externalNodes=false
+failOnValidatorBootupFailure=true
 
 publicNetwork=false
 enableGpu=false
 customAddress=
 leaderRotation=true
+zones=()
+
+containsZone() {
+  local e match="$1"
+  shift
+  for e; do [[ "$e" == "$match" ]] && return 0; done
+  return 1
+}
 
 usage() {
   exitcode=0
@@ -67,7 +89,14 @@ Manage testnet instances
  common options:
    -p [prefix]      - Optional common prefix for instance names to avoid
                       collisions (default: $prefix)
-   -z [zone]        - Zone for the nodes (default: $zone)
+   -z [zone]        - Zone(s) for the nodes (default: $(cloud_DefaultZone))
+                      If specified multiple times, the fullnodes will be evenly
+                      distributed over all specified zones and
+                      client/blockstreamer nodes will be created in the first
+                      zone
+   -x               - append to the existing configuration instead of creating a
+                      new configuration
+   -f               - Discard validator nodes that didn't bootup successfully
 
  create-specific options:
    -n [number]      - Number of additional fullnodes (default: $additionalFullNodeCount)
@@ -76,7 +105,7 @@ Manage testnet instances
    -P               - Use public network IP addresses (default: $publicNetwork)
    -g               - Enable GPU (default: $enableGpu)
    -G               - Enable GPU, and set count/type of GPUs to use
-                      (e.g $cpuBootstrapLeaderMachineType --accelerator count=4,type=nvidia-tesla-k80)
+                      (e.g $gpuBootstrapLeaderMachineType)
    -a [address]     - Address to be be assigned to the Blockstreamer if present,
                       otherwise the bootstrap fullnode.
                       * For GCE, [address] is the "name" of the desired External
@@ -106,7 +135,7 @@ shift
 [[ $command = create || $command = config || $command = info || $command = delete ]] ||
   usage "Invalid command: $command"
 
-while getopts "h?p:Pn:c:z:gG:a:d:bu" opt; do
+while getopts "h?p:Pn:c:z:gG:a:d:buxf" opt; do
   case $opt in
   h | \?)
     usage
@@ -125,7 +154,7 @@ while getopts "h?p:Pn:c:z:gG:a:d:bu" opt; do
     clientNodeCount=$OPTARG
     ;;
   z)
-    cloud_SetZone "$OPTARG"
+    containsZone "$OPTARG" "${zones[@]}" || zones+=("$OPTARG")
     ;;
   b)
     leaderRotation=false
@@ -134,11 +163,13 @@ while getopts "h?p:Pn:c:z:gG:a:d:bu" opt; do
     enableGpu=true
     bootstrapLeaderMachineType=$gpuBootstrapLeaderMachineType
     fullNodeMachineType=$bootstrapLeaderMachineType
+    blockstreamerMachineType=$bootstrapLeaderMachineType
     ;;
   G)
     enableGpu=true
     bootstrapLeaderMachineType="$OPTARG"
     fullNodeMachineType=$bootstrapLeaderMachineType
+    blockstreamerMachineType=$bootstrapLeaderMachineType
     ;;
   a)
     customAddress=$OPTARG
@@ -149,12 +180,20 @@ while getopts "h?p:Pn:c:z:gG:a:d:bu" opt; do
   u)
     blockstreamer=true
     ;;
+  x)
+    externalNodes=true
+    ;;
+  f)
+    failOnValidatorBootupFailure=false
+    ;;
   *)
     usage "unhandled option: $opt"
     ;;
   esac
 done
 shift $((OPTIND - 1))
+
+[[ ${#zones[@]} -gt 0 ]] || zones+=("$(cloud_DefaultZone)")
 
 [[ -z $1 ]] || usage "Unexpected argument: $1"
 if [[ $cloudProvider = ec2 ]]; then
@@ -168,59 +207,10 @@ fi
 
 case $cloudProvider in
 gce)
-  if $enableGpu; then
-    # Custom Ubuntu 18.04 LTS image with CUDA 9.2 and CUDA 10.0 installed
-    #
-    # TODO: Unfortunately this image is not public.  When this becomes an issue,
-    # use the stock Ubuntu 18.04 image and programmatically install CUDA after the
-    # instance boots
-    #
-    imageName="ubuntu-1804-bionic-v20181029-with-cuda-10-and-cuda-9-2"
-  else
-    # Upstream Ubuntu 18.04 LTS image
-    imageName="ubuntu-1804-bionic-v20181029 --image-project ubuntu-os-cloud"
-  fi
   ;;
 ec2)
-  if $enableGpu; then
-    #
-    # Custom Ubuntu 18.04 LTS image with CUDA 9.2 and CUDA 10.0 installed
-    #
-    # TODO: Unfortunately these AMIs are not public.  When this becomes an issue,
-    # use the stock Ubuntu 18.04 image and programmatically install CUDA after the
-    # instance boots
-    #
-    case $region in
-    us-east-1)
-      imageName="ami-0a8bd6fb204473f78"
-      ;;
-    us-west-1)
-      imageName="ami-07011f0795513c59d"
-      ;;
-    us-west-2)
-      imageName="ami-0a11ef42b62b82b68"
-      ;;
-    *)
-      usage "Unsupported region: $region"
-      ;;
-    esac
-  else
-    # Select an upstream Ubuntu 18.04 AMI from https://cloud-images.ubuntu.com/locator/ec2/
-    case $region in
-    us-east-1)
-      imageName="ami-0a313d6098716f372"
-      ;;
-    us-west-1)
-      imageName="ami-06397100adf427136"
-      ;;
-    us-west-2)
-      imageName="ami-0dc34f4b016c9ce49"
-      ;;
-    *)
-      usage "Unsupported region: $region"
-      ;;
-    esac
-  fi
+  ;;
+azure)
   ;;
 *)
   echo "Error: Unknown cloud provider: $cloudProvider"
@@ -233,10 +223,11 @@ esac
 #
 #   cmd   - The command to execute on each instance
 #           The command will receive arguments followed by any
-#           additionl arguments supplied to cloud_ForEachInstance:
+#           additional arguments supplied to cloud_ForEachInstance:
 #               name     - name of the instance
 #               publicIp - The public IP address of this instance
-#               privateIp - The priate IP address of this instance
+#               privateIp - The private IP address of this instance
+#               zone     - Zone of this instance
 #               count    - Monotonically increasing count for each
 #                          invocation of cmd, starting at 1
 #               ...      - Extra args to cmd..
@@ -250,23 +241,89 @@ cloud_ForEachInstance() {
   declare count=1
   for info in "${instances[@]}"; do
     declare name publicIp privateIp
-    IFS=: read -r name publicIp privateIp < <(echo "$info")
+    IFS=: read -r name publicIp privateIp zone < <(echo "$info")
 
-    eval "$cmd" "$name" "$publicIp" "$privateIp" "$count" "$@"
+    eval "$cmd" "$name" "$publicIp" "$privateIp" "$zone" "$count" "$@"
     count=$((count + 1))
   done
+}
+
+# Given a cloud provider zone, return an approximate lat,long location for the
+# data center.  Normal geoip lookups for cloud provider IP addresses are
+# sometimes widely inaccurate.
+zoneLocation() {
+  declare zone="$1"
+  case "$zone" in
+  us-west1*)
+    echo "[45.5946, -121.1787]"
+    ;;
+  us-central1*)
+    echo "[41.2619, -95.8608]"
+    ;;
+  us-east1*)
+    echo "[33.1960, -80.0131]"
+    ;;
+  asia-east2*)
+    echo "[22.3193, 114.1694]"
+    ;;
+  asia-northeast1*)
+    echo "[35.6762, 139.6503]"
+    ;;
+  asia-northeast2*)
+    echo "[34.6937, 135.5023]"
+    ;;
+  asia-south1*)
+    echo "[19.0760, 72.8777]"
+    ;;
+  asia-southeast1*)
+    echo "[1.3404, 103.7090]"
+    ;;
+  australia-southeast1*)
+    echo "[-33.8688, 151.2093]"
+    ;;
+  europe-north1*)
+    echo "[60.5693, 27.1878]"
+    ;;
+  europe-west2*)
+    echo "[51.5074, -0.1278]"
+    ;;
+  europe-west3*)
+    echo "[50.1109, 8.6821]"
+    ;;
+  europe-west4*)
+    echo "[53.4386, 6.8355]"
+    ;;
+  europe-west6*)
+    echo "[47.3769, 8.5417]"
+    ;;
+  northamerica-northeast1*)
+    echo "[45.5017, -73.5673]"
+    ;;
+  southamerica-east1*)
+    echo "[-23.5505, -46.6333]"
+    ;;
+  *)
+    ;;
+  esac
 }
 
 prepareInstancesAndWriteConfigFile() {
   $metricsWriteDatapoint "testnet-deploy net-config-begin=1"
 
-  cat >> "$configFile" <<EOF
+  if $externalNodes; then
+    echo "Appending to existing config file"
+    echo "externalNodeSshKey=$sshPrivateKey" >> "$configFile"
+  else
+    rm -f "$geoipConfigFile"
+    cat >> "$configFile" <<EOF
 # autogenerated at $(date)
 netBasename=$prefix
 publicNetwork=$publicNetwork
 sshPrivateKey=$sshPrivateKey
 leaderRotation=$leaderRotation
 EOF
+  fi
+  touch "$geoipConfigFile"
 
   buildSshOptions
 
@@ -274,24 +331,30 @@ EOF
     declare name="$1"
     declare publicIp="$2"
     declare privateIp="$3"
+    declare zone="$4"
+    #declare index="$5"
 
-    declare arrayName="$5"
+    declare failOnFailure="$6"
+    declare arrayName="$7"
 
-    echo "$arrayName+=($publicIp)  # $name" >> "$configFile"
-    echo "${arrayName}Private+=($privateIp)  # $name" >> "$configFile"
-  }
+    # This check should eventually be moved to cloud provider specific script
+    if [ "$publicIp" = "TERMINATED" ] || [ "$privateIp" = "TERMINATED" ]; then
+      if $failOnFailure; then
+        exit 1
+      else
+        return 0
+      fi
+    fi
 
-  waitForStartupComplete() {
-    declare name="$1"
-    declare publicIp="$2"
-
+    ok=true
     echo "Waiting for $name to finish booting..."
     (
       set -x +e
       for i in $(seq 1 60); do
-        timeout 20s ssh "${sshOptions[@]}" "$publicIp" "ls -l /.instance-startup-complete"
+        timeout --preserve-status --foreground 20s ssh "${sshOptions[@]}" "$publicIp" "ls -l /.instance-startup-complete"
         ret=$?
         if [[ $ret -eq 0 ]]; then
+          echo "$name has booted."
           exit 0
         fi
         sleep 2
@@ -299,75 +362,117 @@ EOF
       done
       echo "$name failed to boot."
       exit 1
-    )
-    echo "$name has booted."
-  }
+    ) || ok=false
 
-  echo "Looking for bootstrap leader instance..."
-  cloud_FindInstance "$prefix-bootstrap-leader"
-  [[ ${#instances[@]} -eq 1 ]] || {
-    echo "Unable to find bootstrap leader"
-    exit 1
-  }
+    if ! $ok; then
+      if $failOnFailure; then
+        exit 1
+      fi
+    else
+      {
+        echo "$arrayName+=($publicIp)  # $name"
+        echo "${arrayName}Private+=($privateIp)  # $name"
+        echo "${arrayName}Zone+=($zone)  # $name"
+      } >> "$configFile"
 
-  (
-    declare nodeName
-    declare nodeIp
-    IFS=: read -r nodeName nodeIp _ < <(echo "${instances[0]}")
-
-    # Try to ping the machine first.
-    timeout 90s bash -c "set -o pipefail; until ping -c 3 $nodeIp | tr - _; do echo .; done"
-
-    if [[ ! -r $sshPrivateKey ]]; then
-      echo "Fetching $sshPrivateKey from $nodeName"
-
-      # Try to scp in a couple times, sshd may not yet be up even though the
-      # machine can be pinged...
-      set -x -o pipefail
-      for i in $(seq 1 30); do
-        if cloud_FetchFile "$nodeName" "$nodeIp" /soros-id_ecdsa "$sshPrivateKey"; then
-          break
-        fi
-
-        sleep 1
-        echo "Retry $i..."
-      done
-
-      chmod 400 "$sshPrivateKey"
-      ls -l "$sshPrivateKey"
+      declare latlng=
+      latlng=$(zoneLocation "$zone")
+      if [[ -n $latlng ]]; then
+        echo "$publicIp: $latlng" >> "$geoipConfigFile"
+      fi
     fi
-  )
-
-  echo "fullnodeIpList=()" >> "$configFile"
-  echo "fullnodeIpListPrivate=()" >> "$configFile"
-  cloud_ForEachInstance recordInstanceIp fullnodeIpList
-  cloud_ForEachInstance waitForStartupComplete
-
-  echo "Looking for additional fullnode instances..."
-  cloud_FindInstances "$prefix-fullnode"
-  [[ ${#instances[@]} -gt 0 ]] || {
-    echo "Unable to find additional fullnodes"
-    exit 1
   }
-  cloud_ForEachInstance recordInstanceIp fullnodeIpList
-  cloud_ForEachInstance waitForStartupComplete
 
-  echo "clientIpList=()" >> "$configFile"
-  echo "clientIpListPrivate=()" >> "$configFile"
+  fetchPrivateKey() {
+    (
+      declare nodeName
+      declare nodeIp
+      declare nodeZone
+      IFS=: read -r nodeName nodeIp _ nodeZone < <(echo "${instances[0]}")
+
+      # Make sure the machine is alive or pingable
+      timeout_sec=90
+      cloud_WaitForInstanceReady "$nodeName" "$nodeIp" "$nodeZone" "$timeout_sec"
+
+      if [[ ! -r $sshPrivateKey ]]; then
+        echo "Fetching $sshPrivateKey from $nodeName"
+
+        # Try to scp in a couple times, sshd may not yet be up even though the
+        # machine can be pinged...
+        set -x -o pipefail
+        for i in $(seq 1 30); do
+          if cloud_FetchFile "$nodeName" "$nodeIp" /soros-id_ecdsa "$sshPrivateKey" "$nodeZone"; then
+            if cloud_FetchFile "$nodeName" "$nodeIp" /soros-id_ecdsa.pub "$sshPrivateKey.pub" "$nodeZone"; then
+              break
+            fi
+          fi
+
+          sleep 1
+          echo "Retry $i..."
+        done
+
+        chmod 400 "$sshPrivateKey"
+        ls -l "$sshPrivateKey"
+      fi
+    )
+
+  }
+
+  if $externalNodes; then
+    echo "Bootstrap leader is already configured"
+  else
+    echo "Looking for bootstrap leader instance..."
+    cloud_FindInstance "$prefix-bootstrap-leader"
+    [[ ${#instances[@]} -eq 1 ]] || {
+      echo "Unable to find bootstrap leader"
+      exit 1
+    }
+
+    fetchPrivateKey
+
+    echo "fullnodeIpList=()" >> "$configFile"
+    echo "fullnodeIpListPrivate=()" >> "$configFile"
+    cloud_ForEachInstance recordInstanceIp true fullnodeIpList
+  fi
+
+  if [[ $additionalFullNodeCount -gt 0 ]]; then
+    for zone in "${zones[@]}"; do
+      echo "Looking for additional fullnode instances in $zone ..."
+      cloud_FindInstances "$prefix-$zone-fullnode"
+      if [[ ${#instances[@]} -gt 0 ]]; then
+        fetchPrivateKey
+        cloud_ForEachInstance recordInstanceIp "$failOnValidatorBootupFailure" fullnodeIpList
+      else
+        echo "Unable to find additional fullnodes"
+        if $failOnValidatorBootupFailure; then
+          exit 1
+        fi
+      fi
+    done
+  fi
+
+  if $externalNodes; then
+    echo "Let's not reset the current client configuration"
+  else
+    echo "clientIpList=()" >> "$configFile"
+    echo "clientIpListPrivate=()" >> "$configFile"
+  fi
   echo "Looking for client bencher instances..."
   cloud_FindInstances "$prefix-client"
   [[ ${#instances[@]} -eq 0 ]] || {
-    cloud_ForEachInstance recordInstanceIp clientIpList
-    cloud_ForEachInstance waitForStartupComplete
+    cloud_ForEachInstance recordInstanceIp true clientIpList
   }
 
-  echo "blockstreamerIpList=()" >> "$configFile"
-  echo "blockstreamerIpListPrivate=()" >> "$configFile"
+  if $externalNodes; then
+    echo "Let's not reset the current blockstream configuration"
+  else
+    echo "blockstreamerIpList=()" >> "$configFile"
+    echo "blockstreamerIpListPrivate=()" >> "$configFile"
+  fi
   echo "Looking for blockstreamer instances..."
   cloud_FindInstances "$prefix-blockstreamer"
   [[ ${#instances[@]} -eq 0 ]] || {
-    cloud_ForEachInstance recordInstanceIp blockstreamerIpList
-    cloud_ForEachInstance waitForStartupComplete
+    cloud_ForEachInstance recordInstanceIp true blockstreamerIpList
   }
 
   echo "Wrote $configFile"
@@ -381,17 +486,31 @@ delete() {
   # during shutdown (only applicable when leader rotation is disabled).
   # TODO: It would be better to fully cut-off metrics reporting before any
   # instances are deleted.
-  for filter in "$prefix-bootstrap-leader" "$prefix-"; do
+  filters=("$prefix-bootstrap-leader")
+  for zone in "${zones[@]}"; do
+    filters+=("$prefix-$zone")
+  done
+  # Filter for all other nodes (client, blockstreamer)
+  filters+=("$prefix-")
+
+  for filter in  "${filters[@]}"; do
     echo "Searching for instances: $filter"
     cloud_FindInstances "$filter"
 
     if [[ ${#instances[@]} -eq 0 ]]; then
       echo "No instances found matching '$filter'"
     else
-      cloud_DeleteInstances true
+      cloud_DeleteInstances true &
     fi
   done
-  rm -f "$configFile"
+
+  wait
+
+  if $externalNodes; then
+    echo "Let's not delete the current configuration file"
+  else
+    rm -f "$configFile"
+  fi
 
   $metricsWriteDatapoint "testnet-deploy net-delete-complete=1"
 
@@ -404,9 +523,6 @@ delete)
 
 create)
   [[ -n $additionalFullNodeCount ]] || usage "Need number of nodes"
-  if [[ $additionalFullNodeCount -le 0 ]]; then
-    usage "One or more additional fullnodes are required"
-  fi
 
   delete
 
@@ -501,25 +617,44 @@ EOF
     bootstrapLeaderAddress=$customAddress
   fi
 
-  cloud_Initialize "$prefix"
+  for zone in "${zones[@]}"; do
+    cloud_Initialize "$prefix" "$zone"
+  done
 
-  cloud_CreateInstances "$prefix" "$prefix-bootstrap-leader" 1 \
-    "$imageName" "$bootstrapLeaderMachineType" "$fullNodeBootDiskSizeInGb" \
-    "$startupScript" "$bootstrapLeaderAddress" "$bootDiskType"
+  if $externalNodes; then
+    echo "Bootstrap leader is already configured"
+  else
+    cloud_CreateInstances "$prefix" "$prefix-bootstrap-leader" 1 \
+      "$enableGpu" "$bootstrapLeaderMachineType" "${zones[0]}" "$fullNodeBootDiskSizeInGb" \
+      "$startupScript" "$bootstrapLeaderAddress" "$bootDiskType"
+  fi
 
-  cloud_CreateInstances "$prefix" "$prefix-fullnode" "$additionalFullNodeCount" \
-    "$imageName" "$fullNodeMachineType" "$fullNodeBootDiskSizeInGb" \
-    "$startupScript" "" "$bootDiskType"
+  if [[ $additionalFullNodeCount -gt 0 ]]; then
+    num_zones=${#zones[@]}
+    numNodesPerZone=$((additionalFullNodeCount / num_zones))
+    numLeftOverNodes=$((additionalFullNodeCount % num_zones))
+    for ((i=0; i < "$num_zones"; i++)); do
+      zone=${zones[i]}
+      if [[ $i -eq $((num_zones - 1)) ]]; then
+        numNodesPerZone=$((numNodesPerZone + numLeftOverNodes))
+      fi
+      cloud_CreateInstances "$prefix" "$prefix-$zone-fullnode" "$numNodesPerZone" \
+        "$enableGpu" "$fullNodeMachineType" "$zone" "$fullNodeBootDiskSizeInGb" \
+        "$startupScript" "" "$bootDiskType" &
+    done
+
+    wait
+  fi
 
   if [[ $clientNodeCount -gt 0 ]]; then
     cloud_CreateInstances "$prefix" "$prefix-client" "$clientNodeCount" \
-      "$imageName" "$clientMachineType" "$clientBootDiskSizeInGb" \
+      "$enableGpu" "$clientMachineType" "${zones[0]}" "$clientBootDiskSizeInGb" \
       "$startupScript" "" "$bootDiskType"
   fi
 
   if $blockstreamer; then
     cloud_CreateInstances "$prefix" "$prefix-blockstreamer" "1" \
-      "$imageName" "$blockstreamerMachineType" "$fullNodeBootDiskSizeInGb" \
+      "$enableGpu" "$blockstreamerMachineType" "${zones[0]}" "$fullNodeBootDiskSizeInGb" \
       "$startupScript" "$blockstreamerAddress" "$bootDiskType"
   fi
 
@@ -537,29 +672,33 @@ info)
     declare nodeType=$1
     declare ip=$2
     declare ipPrivate=$3
-    printf "  %-16s | %-15s | %-15s\n" "$nodeType" "$ip" "$ipPrivate"
+    declare zone=$4
+    printf "  %-16s | %-15s | %-15s | %s\n" "$nodeType" "$ip" "$ipPrivate" "$zone"
   }
 
-  printNode "Node Type" "Public IP" "Private IP"
-  echo "-------------------+-----------------+-----------------"
+  printNode "Node Type" "Public IP" "Private IP" "Zone"
+  echo "-------------------+-----------------+-----------------+--------------"
   nodeType=bootstrap-leader
   for i in $(seq 0 $(( ${#fullnodeIpList[@]} - 1)) ); do
     ipAddress=${fullnodeIpList[$i]}
     ipAddressPrivate=${fullnodeIpListPrivate[$i]}
-    printNode $nodeType "$ipAddress" "$ipAddressPrivate"
+    zone=${fullnodeIpListZone[$i]}
+    printNode $nodeType "$ipAddress" "$ipAddressPrivate" "$zone"
     nodeType=fullnode
   done
 
   for i in $(seq 0 $(( ${#clientIpList[@]} - 1)) ); do
     ipAddress=${clientIpList[$i]}
     ipAddressPrivate=${clientIpListPrivate[$i]}
-    printNode bench-tps "$ipAddress" "$ipAddressPrivate"
+    zone=${clientIpListZone[$i]}
+    printNode bench-tps "$ipAddress" "$ipAddressPrivate" "$zone"
   done
 
   for i in $(seq 0 $(( ${#blockstreamerIpList[@]} - 1)) ); do
     ipAddress=${blockstreamerIpList[$i]}
     ipAddressPrivate=${blockstreamerIpListPrivate[$i]}
-    printNode blockstreamer "$ipAddress" "$ipAddressPrivate"
+    zone=${blockstreamerIpListZone[$i]}
+    printNode blockstreamer "$ipAddress" "$ipAddressPrivate" "$zone"
   done
   ;;
 *)

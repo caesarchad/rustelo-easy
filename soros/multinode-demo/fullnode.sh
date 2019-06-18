@@ -9,61 +9,9 @@ source "$here"/common.sh
 # shellcheck source=scripts/oom-score-adj.sh
 source "$here"/../scripts/oom-score-adj.sh
 
-if [[ $1 = -h ]]; then
-  fullnode_usage "$@"
-fi
 
-gossip_port=9000
-extra_fullnode_args=()
-self_setup=0
-setup_stakes=1
-poll_for_new_genesis_block=0
-
-while [[ ${1:0:1} = - ]]; do
-  if [[ $1 = -X ]]; then
-    self_setup=1
-    self_setup_label=$2
-    shift 2
-  elif [[ $1 = -x ]]; then
-    self_setup=1
-    self_setup_label=$$
-    shift
-  elif [[ $1 = --poll-for-new-genesis-block ]]; then
-    poll_for_new_genesis_block=1
-    shift
-  elif [[ $1 = --blockstream ]]; then
-    extra_fullnode_args+=("$1" "$2")
-    shift 2
-  elif [[ $1 = --enable-rpc-exit ]]; then
-    extra_fullnode_args+=("$1")
-    shift
-  elif [[ $1 = --init-complete-file ]]; then
-    extra_fullnode_args+=("$1" "$2")
-    shift 2
-  elif [[ $1 = --only-bootstrap-stake ]]; then
-    setup_stakes=0
-    shift
-  elif [[ $1 = --public-address ]]; then
-    extra_fullnode_args+=("$1")
-    shift
-  elif [[ $1 = --no-voting ]]; then
-    extra_fullnode_args+=("$1")
-    shift
-  elif [[ $1 = --gossip-port ]]; then
-    gossip_port=$2
-    shift 2
-  elif [[ $1 = --rpc-port ]]; then
-    extra_fullnode_args+=("$1" "$2")
-    shift 2
-  else
-    echo "Unknown argument: $1"
-    exit 1
-  fi
-done
-
-if [[ -n $3 ]]; then
-  fullnode_usage "$@"
-fi
+# shellcheck source=multinode-demo/extra-fullnode-args.sh
+source "$here"/extra-fullnode-args.sh
 
 find_leader() {
   declare leader leader_address
@@ -74,19 +22,7 @@ find_leader() {
     leader_address=127.0.0.1:8001 # Default to local leader
   elif [[ -z $2 ]]; then
     leader=$1
-
-    declare leader_ip
-    if [[ $leader =~ ^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$ ]]; then
-      leader_ip=$leader
-    else
-      leader_ip=$(dig +short "${leader%:*}" | head -n1)
-
-      if [[ -z $leader_ip ]]; then
-          usage "Error: unable to resolve IP address for $leader"
-      fi
-    fi
-
-    leader_address=$leader_ip:8001
+    leader_address=$leader:8001
     shift=1
   else
     leader=$1
@@ -106,49 +42,26 @@ else
   program=$soros_fullnode
 fi
 
-if ((!self_setup)); then
-  [[ -f $SOROS_CONFIG_DIR/fullnode-id.json ]] || {
-    echo "$SOROS_CONFIG_DIR/fullnode-id.json not found, create it by running:"
-    echo
-    echo "  ${here}/setup.sh"
-    exit 1
-  }
-  fullnode_id_path=$SOROS_CONFIG_DIR/fullnode-id.json
-  fullnode_staker_id_path=$SOROS_CONFIG_DIR/fullnode-staker-id.json
-  ledger_config_dir=$SOROS_CONFIG_DIR/fullnode-ledger
-  accounts_config_dir=$SOROS_CONFIG_DIR/fullnode-accounts
-else
-  mkdir -p "$SOROS_CONFIG_DIR"
-  fullnode_id_path=$SOROS_CONFIG_DIR/fullnode-id-x$self_setup_label.json
-  fullnode_staker_id_path=$SOROS_CONFIG_DIR/fullnode-staker-id-x$self_setup_label.json
+: "${fullnode_id_path:=$SOROS_CONFIG_DIR/fullnode-keypair$label.json}"
+fullnode_vote_id_path=$SOROS_CONFIG_DIR/fullnode-vote-keypair$label.json
+ledger_config_dir=$SOROS_CONFIG_DIR/fullnode-ledger$label
+accounts_config_dir=$SOROS_CONFIG_DIR/fullnode-accounts$label
 
-  [[ -f "$fullnode_id_path" ]] || $soros_keygen -o "$fullnode_id_path"
-  [[ -f "$fullnode_staker_id_path" ]] || $soros_keygen -o "$fullnode_staker_id_path"
+mkdir -p "$SOROS_CONFIG_DIR"
+[[ -r "$fullnode_id_path" ]] || $soros_keygen -o "$fullnode_id_path"
+[[ -r "$fullnode_vote_id_path" ]] || $soros_keygen -o "$fullnode_vote_id_path"
 
-  echo "Finding a port.."
-  # Find an available port in the range 9100-9899
-  (( gossip_port = 9100 + ($$ % 800) ))
-  while true; do
-    (( gossip_port = gossip_port >= 9900 ? 9100 : ++gossip_port ))
-    echo "Testing $gossip_port"
-    if ! nc -w 10 -z 127.0.0.1 $gossip_port; then
-      echo "Selected gossip_port $gossip_port"
-      break;
-    fi
-    echo "Port $gossip_port is in use"
-  done
-  ledger_config_dir=$SOROS_CONFIG_DIR/fullnode-ledger-x$self_setup_label
-  accounts_config_dir=$SOROS_CONFIG_DIR/fullnode-accounts-x$self_setup_label
-fi
+fullnode_id=$($soros_keygen pubkey "$fullnode_id_path")
+fullnode_vote_id=$($soros_keygen pubkey "$fullnode_vote_id_path")
 
-fullnode_id=$($soros_wallet --keypair "$fullnode_id_path" address)
-fullnode_staker_id=$($soros_wallet --keypair "$fullnode_staker_id_path" address)
-
-
-[[ -r $fullnode_id_path ]] || {
-  echo "$fullnode_id_path does not exist"
-  exit 1
-}
+cat <<EOF
+======================[ Fullnode configuration ]======================
+node pubkey: $fullnode_id
+vote pubkey: $fullnode_vote_id
+ledger: $ledger_config_dir
+accounts: $accounts_config_dir
+======================================================================
+EOF
 
 tune_system
 
@@ -171,10 +84,65 @@ rsync_url() { # adds the 'rsync://` prefix to URLs that need it
   echo "rsync://$url"
 }
 
+airdrop() {
+  declare keypair_file=$1
+  declare host=$2
+  declare amount=$3
 
-rsync_leader_url=$(rsync_url "$leader")
+  declare address
+  address=$($soros_wallet --keypair "$keypair_file" address)
+
+  # TODO: Until https://github.com/soros-labs/soros/issues/2355 is resolved
+  # a fullnode needs N lamports as its vote account gets re-created on every
+  # node restart, costing it lamports
+  declare retries=5
+
+  while ! $soros_wallet --keypair "$keypair_file" --host "$host" airdrop "$amount"; do
+
+    # TODO: Consider moving this retry logic into `soros-wallet airdrop`
+    #   itself, currently it does not retry on "Connection refused" errors.
+    ((retries--))
+    if [[ $retries -le 0 ]]; then
+        echo "Airdrop to $address failed."
+        return 1
+    fi
+    echo "Airdrop to $address failed. Remaining retries: $retries"
+    sleep 1
+  done
+
+  return 0
+}
+
+setup_vote_account() {
+  declare drone_address=$1
+  declare node_id_path=$2
+  declare vote_id_path=$3
+  declare stake=$4
+
+  declare node_id
+  node_id=$($soros_wallet --keypair "$node_id_path" address)
+
+  declare vote_id
+  vote_id=$($soros_wallet --keypair "$vote_id_path" address)
+
+  if [[ -f "$vote_id_path".configured ]]; then
+    echo "Vote account has already been configured"
+  else
+    airdrop "$node_id_path" "$drone_address" "$stake" || return $?
+
+    # Fund the vote account from the node, with the node as the node_id
+    $soros_wallet --keypair "$node_id_path" --host "$drone_address" \
+      create-vote-account "$vote_id" "$node_id" $((stake - 1)) || return $?
+
+    touch "$vote_id_path".configured
+  fi
+
+  $soros_wallet --keypair "$node_id_path" --host "$drone_address" show-vote-account "$vote_id"
+  return 0
+}
+
 set -e
-
+rsync_leader_url=$(rsync_url "$leader")
 secs_to_next_genesis_poll=0
 PS4="$(basename "$0"): "
 while true; do
@@ -188,47 +156,46 @@ while true; do
     $soros_ledger_tool --ledger "$ledger_config_dir" verify
   fi
 
-  trap 'kill "$pid" && wait "$pid"' INT TERM ERR
-  $program \
-    --gossip-port "$gossip_port" \
-    --identity "$fullnode_id_path" \
-    --voting-keypair "$fullnode_staker_id_path" \
-    --staking-account "$fullnode_staker_id" \
-    --network "$leader_address" \
-    --ledger "$ledger_config_dir" \
-    --accounts "$accounts_config_dir" \
-    --rpc-drone-address "${leader_address%:*}:9900" \
-    "${extra_fullnode_args[@]}" \
-    > >($fullnode_logger) 2>&1 &
-  pid=$!
-  oom_score_adj "$pid" 1000
+  trap '[[ -n $pid ]] && kill "$pid" >/dev/null 2>&1 && wait "$pid"' INT TERM ERR
 
-  if ((setup_stakes)); then
-    setup_fullnode_staking "${leader_address%:*}" "$fullnode_id_path" "$fullnode_staker_id_path"
+  if ((stake)); then
+    setup_vote_account "${leader_address%:*}" "$fullnode_id_path" "$fullnode_vote_id_path" "$stake"
   fi
   set +x
+
+  default_fullnode_arg --identity "$fullnode_id_path"
+  default_fullnode_arg --voting-keypair "$fullnode_vote_id_path"
+  default_fullnode_arg --vote-account "$fullnode_vote_id"
+  default_fullnode_arg --network "$leader_address"
+  default_fullnode_arg --ledger "$ledger_config_dir"
+  default_fullnode_arg --accounts "$accounts_config_dir"
+  default_fullnode_arg --rpc-drone-address "${leader_address%:*}:9900"
+  echo "$PS4 $program ${extra_fullnode_args[*]}"
+  $program "${extra_fullnode_args[@]}" > >($fullnode_logger) 2>&1 &
+  pid=$!
+  oom_score_adj "$pid" 1000
 
   while true; do
     if ! kill -0 "$pid"; then
       wait "$pid"
       exit 0
     fi
+
     sleep 1
 
-    if ((poll_for_new_genesis_block)); then
-      if ((!secs_to_next_genesis_poll)); then
-        secs_to_next_genesis_poll=60
+    ((poll_for_new_genesis_block)) || continue
+    ((secs_to_next_genesis_poll--)) && continue
 
-        $rsync -r "$rsync_leader_url"/config/ledger "$SOROS_RSYNC_CONFIG_DIR" || true
-        if [[ -n $(diff "$SOROS_RSYNC_CONFIG_DIR"/ledger/genesis.json "$ledger_config_dir"/genesis.json 2>&1) ]]; then
-          echo "############## New genesis detected, restarting fullnode ##############"
-          rm -rf "$ledger_config_dir"
-          kill "$pid" || true
-          wait "$pid" || true
-          break
-        fi
-      fi
-      ((secs_to_next_genesis_poll--))
-    fi
+    $rsync -r "$rsync_leader_url"/config/ledger "$SOROS_RSYNC_CONFIG_DIR" || true
+    diff -q "$SOROS_RSYNC_CONFIG_DIR"/ledger/genesis.json "$ledger_config_dir"/genesis.json >/dev/null 2>&1 || break
+    secs_to_next_genesis_poll=60
+
   done
+
+  echo "############## New genesis detected, restarting fullnode ##############"
+  kill "$pid" || true
+  wait "$pid" || true
+  rm -rf "$ledger_config_dir" "$accounts_config_dir" "$fullnode_vote_id_path".configured
+  sleep 60 # give the network time to come back up
+
 done

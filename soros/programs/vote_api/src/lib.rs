@@ -1,12 +1,11 @@
 pub mod vote_instruction;
 pub mod vote_state;
-pub mod vote_transaction;
 
 use soros_sdk::pubkey::Pubkey;
 
 const VOTE_PROGRAM_ID: [u8; 32] = [
-    132, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0,
+    7, 97, 72, 29, 53, 116, 116, 187, 124, 77, 118, 36, 235, 211, 189, 179, 216, 53, 94, 115, 209,
+    16, 67, 252, 13, 163, 83, 128, 0, 0, 0, 0,
 ];
 
 pub fn check_id(program_id: &Pubkey) -> bool {

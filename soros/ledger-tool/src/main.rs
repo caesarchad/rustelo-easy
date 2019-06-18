@@ -1,4 +1,4 @@
-use clap::{crate_version, App, Arg, SubCommand};
+use clap::{crate_description, crate_name, crate_version, App, Arg, SubCommand};
 use soros::blocktree::Blocktree;
 use soros::blocktree_processor::process_blocktree;
 use soros_sdk::genesis_block::GenesisBlock;
@@ -7,7 +7,7 @@ use std::process::exit;
 
 fn main() {
     soros_logger::setup();
-    let matches = App::new("ledger-tool")
+    let matches = App::new(crate_name!()).about(crate_description!())
         .version(crate_version!())
         .arg(
             Arg::with_name("ledger")
@@ -112,7 +112,7 @@ fn main() {
             stdout().write_all(b"\n]}\n").expect("close array");
         }
         ("verify", _) => match process_blocktree(&genesis_block, &blocktree, None) {
-            Ok((_bank_forks, bank_forks_info)) => {
+            Ok((_bank_forks, bank_forks_info, _)) => {
                 println!("{:?}", bank_forks_info);
             }
             Err(err) => {

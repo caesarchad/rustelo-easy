@@ -1,42 +1,59 @@
-use crate::bank::Bank;
-use soros_sdk::loader_transaction::LoaderTransaction;
+use crate::bank_client::BankClient;
+use serde::Serialize;
+use soros_sdk::client::SyncClient;
+use soros_sdk::instruction::{AccountMeta, Instruction};
+use soros_sdk::loader_instruction;
 use soros_sdk::pubkey::Pubkey;
 use soros_sdk::signature::{Keypair, KeypairUtil};
-use soros_sdk::system_transaction::SystemTransaction;
 
-pub fn load_program(bank: &Bank, from: &Keypair, loader_id: &Pubkey, program: Vec<u8>) -> Pubkey {
-    let program_account = Keypair::new();
+use soros_sdk::system_instruction;
 
-    let tx = SystemTransaction::new_program_account(
-        from,
-        &program_account.pubkey(),
-        bank.last_blockhash(),
+pub fn load_program(
+    bank_client: &BankClient,
+    from_keypair: &Keypair,
+    loader_id: &Pubkey,
+    program: Vec<u8>,
+) -> Pubkey {
+    let program_keypair = Keypair::new();
+    let program_pubkey = program_keypair.pubkey();
+
+    let instruction = system_instruction::create_account(
+        &from_keypair.pubkey(),
+        &program_pubkey,
         1,
         program.len() as u64,
         loader_id,
-        0,
     );
-    bank.process_transaction(&tx).unwrap();
-    assert_eq!(bank.get_signature_status(&tx.signatures[0]), Some(Ok(())));
+    bank_client
+        .send_instruction(&from_keypair, instruction)
+        .unwrap();
 
     let chunk_size = 256; // Size of chunk just needs to fit into tx
     let mut offset = 0;
     for chunk in program.chunks(chunk_size) {
-        let tx = LoaderTransaction::new_write(
-            &program_account,
-            loader_id,
-            offset,
-            chunk.to_vec(),
-            bank.last_blockhash(),
-            0,
-        );
-        bank.process_transaction(&tx).unwrap();
+        let instruction =
+            loader_instruction::write(&program_pubkey, loader_id, offset, chunk.to_vec());
+        bank_client
+            .send_instruction(&program_keypair, instruction)
+            .unwrap();
         offset += chunk_size as u32;
     }
 
-    let tx = LoaderTransaction::new_finalize(&program_account, loader_id, bank.last_blockhash(), 0);
-    bank.process_transaction(&tx).unwrap();
-    assert_eq!(bank.get_signature_status(&tx.signatures[0]), Some(Ok(())));
+    let instruction = loader_instruction::finalize(&program_pubkey, loader_id);
+    bank_client
+        .send_instruction(&program_keypair, instruction)
+        .unwrap();
 
-    program_account.pubkey()
+    program_pubkey
+}
+
+// Return an Instruction that invokes `program_id` with `data` and required
+// a signature from `from_pubkey`.
+pub fn create_invoke_instruction<T: Serialize>(
+    from_pubkey: Pubkey,
+    program_id: Pubkey,
+    data: &T,
+) -> Instruction {
+    let account_metas = vec![AccountMeta::new(from_pubkey, true)];
+    Instruction::new(program_id, data, account_metas)
 }

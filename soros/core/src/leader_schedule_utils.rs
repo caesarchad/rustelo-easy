@@ -5,7 +5,7 @@ use soros_sdk::pubkey::Pubkey;
 use soros_sdk::timing::NUM_CONSECUTIVE_LEADER_SLOTS;
 
 /// Return the leader schedule for the given epoch.
-fn leader_schedule(epoch_height: u64, bank: &Bank) -> Option<LeaderSchedule> {
+pub fn leader_schedule(epoch_height: u64, bank: &Bank) -> Option<LeaderSchedule> {
     staking_utils::delegated_stakes_at_epoch(bank, epoch_height).map(|stakes| {
         let mut seed = [0u8; 32];
         seed[0..8].copy_from_slice(&epoch_height.to_le_bytes());
@@ -18,6 +18,23 @@ fn leader_schedule(epoch_height: u64, bank: &Bank) -> Option<LeaderSchedule> {
             NUM_CONSECUTIVE_LEADER_SLOTS,
         )
     })
+}
+
+/// Return the leader for the given slot.
+pub fn slot_leader_at(slot: u64, bank: &Bank) -> Option<Pubkey> {
+    let (epoch, slot_index) = bank.get_epoch_and_slot_index(slot);
+
+    leader_schedule(epoch, bank).map(|leader_schedule| leader_schedule[slot_index])
+}
+
+// Returns the number of ticks remaining from the specified tick_height to the end of the
+// slot implied by the tick_height
+pub fn num_ticks_left_in_slot(bank: &Bank, tick_height: u64) -> u64 {
+    bank.ticks_per_slot() - tick_height % bank.ticks_per_slot() - 1
+}
+
+pub fn tick_height_to_slot(ticks_per_slot: u64, tick_height: u64) -> u64 {
+    tick_height / ticks_per_slot
 }
 
 fn sort_stakes(stakes: &mut Vec<(Pubkey, u64)>) {
@@ -36,93 +53,15 @@ fn sort_stakes(stakes: &mut Vec<(Pubkey, u64)>) {
     stakes.dedup();
 }
 
-/// Return the leader for the given slot.
-pub fn slot_leader_at(slot: u64, bank: &Bank) -> Option<Pubkey> {
-    let (epoch, slot_index) = bank.get_epoch_and_slot_index(slot);
-
-    leader_schedule(epoch, bank).map(|leader_schedule| leader_schedule[slot_index])
-}
-
-/// Return the next slot after the given current_slot that the given node will be leader
-pub fn next_leader_slot(pubkey: &Pubkey, mut current_slot: u64, bank: &Bank) -> Option<u64> {
-    let (mut epoch, mut start_index) = bank.get_epoch_and_slot_index(current_slot + 1);
-    while let Some(leader_schedule) = leader_schedule(epoch, bank) {
-        // clippy thinks I should do this:
-        //  for (i, <item>) in leader_schedule
-        //                           .iter()
-        //                           .enumerate()
-        //                           .take(bank.get_slots_in_epoch(epoch))
-        //                           .skip(from_slot_index + 1) {
-        //
-        //  but leader_schedule doesn't implement Iter...
-        #[allow(clippy::needless_range_loop)]
-        for i in start_index..bank.get_slots_in_epoch(epoch) {
-            current_slot += 1;
-            if *pubkey == leader_schedule[i] {
-                return Some(current_slot);
-            }
-        }
-
-        epoch += 1;
-        start_index = 0;
-    }
-    None
-}
-
-// Returns the number of ticks remaining from the specified tick_height to the end of the
-// slot implied by the tick_height
-pub fn num_ticks_left_in_slot(bank: &Bank, tick_height: u64) -> u64 {
-    bank.ticks_per_slot() - tick_height % bank.ticks_per_slot() - 1
-}
-
-pub fn tick_height_to_slot(ticks_per_slot: u64, tick_height: u64) -> u64 {
-    tick_height / ticks_per_slot
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::staking_utils;
     use soros_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_LAMPORTS};
-    use soros_sdk::signature::{Keypair, KeypairUtil};
-
-    #[test]
-    fn test_next_leader_slot() {
-        let pubkey = Keypair::new().pubkey();
-        let mut genesis_block = GenesisBlock::new_with_leader(
-            BOOTSTRAP_LEADER_LAMPORTS,
-            &pubkey,
-            BOOTSTRAP_LEADER_LAMPORTS,
-        )
-        .0;
-        genesis_block.epoch_warmup = false;
-
-        let bank = Bank::new(&genesis_block);
-        assert_eq!(slot_leader_at(bank.slot(), &bank).unwrap(), pubkey);
-        assert_eq!(next_leader_slot(&pubkey, 0, &bank), Some(1));
-        assert_eq!(next_leader_slot(&pubkey, 1, &bank), Some(2));
-        assert_eq!(
-            next_leader_slot(
-                &pubkey,
-                2 * genesis_block.slots_per_epoch - 1, // no schedule generated for epoch 2
-                &bank
-            ),
-            None
-        );
-
-        assert_eq!(
-            next_leader_slot(
-                &Keypair::new().pubkey(), // not in leader_schedule
-                0,
-                &bank
-            ),
-            None
-        );
-    }
 
     #[test]
     fn test_leader_schedule_via_bank() {
-        let pubkey = Keypair::new().pubkey();
+        let pubkey = Pubkey::new_rand();
         let (genesis_block, _mint_keypair) = GenesisBlock::new_with_leader(
             BOOTSTRAP_LEADER_LAMPORTS,
             &pubkey,
@@ -146,7 +85,7 @@ mod tests {
 
     #[test]
     fn test_leader_scheduler1_basic() {
-        let pubkey = Keypair::new().pubkey();
+        let pubkey = Pubkey::new_rand();
         let genesis_block = GenesisBlock::new_with_leader(
             BOOTSTRAP_LEADER_LAMPORTS,
             &pubkey,
@@ -159,8 +98,8 @@ mod tests {
 
     #[test]
     fn test_sort_stakes_basic() {
-        let pubkey0 = Keypair::new().pubkey();
-        let pubkey1 = Keypair::new().pubkey();
+        let pubkey0 = Pubkey::new_rand();
+        let pubkey1 = Pubkey::new_rand();
         let mut stakes = vec![(pubkey0, 1), (pubkey1, 2)];
         sort_stakes(&mut stakes);
         assert_eq!(stakes, vec![(pubkey1, 2), (pubkey0, 1)]);
@@ -168,8 +107,8 @@ mod tests {
 
     #[test]
     fn test_sort_stakes_with_dup() {
-        let pubkey0 = Keypair::new().pubkey();
-        let pubkey1 = Keypair::new().pubkey();
+        let pubkey0 = Pubkey::new_rand();
+        let pubkey1 = Pubkey::new_rand();
         let mut stakes = vec![(pubkey0, 1), (pubkey1, 2), (pubkey0, 1)];
         sort_stakes(&mut stakes);
         assert_eq!(stakes, vec![(pubkey1, 2), (pubkey0, 1)]);
@@ -178,7 +117,7 @@ mod tests {
     #[test]
     fn test_sort_stakes_with_equal_stakes() {
         let pubkey0 = Pubkey::default();
-        let pubkey1 = Keypair::new().pubkey();
+        let pubkey1 = Pubkey::new_rand();
         let mut stakes = vec![(pubkey0, 1), (pubkey1, 1)];
         sort_stakes(&mut stakes);
         assert_eq!(stakes, vec![(pubkey1, 1), (pubkey0, 1)]);

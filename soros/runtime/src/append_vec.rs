@@ -1,358 +1,358 @@
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use memmap::{Mmap, MmapMut};
+use memmap::MmapMut;
 use soros_sdk::account::Account;
 use soros_sdk::pubkey::Pubkey;
-use std::fs::{File, OpenOptions};
-use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
+use std::fs::OpenOptions;
+use std::io::{Seek, SeekFrom, Write};
 use std::mem;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-const SIZEOF_U64: usize = mem::size_of::<u64>();
-
+//Data is aligned at the next 64 byte offset. Without alignment loading the memory may
+//crash on some architectures.
 macro_rules! align_up {
     ($addr: expr, $align: expr) => {
         ($addr + ($align - 1)) & !($align - 1)
     };
 }
 
-pub struct AppendVec<T> {
-    data: File,
-    mmap: Mmap,
-    current_offset: AtomicUsize,
-    mmap_mut: Mutex<MmapMut>,
+/// StorageMeta contains enough context to recover the index from storage itself
+#[derive(Clone, PartialEq, Debug)]
+pub struct StorageMeta {
+    /// global write version
+    pub write_version: u64,
+    /// key for the account
+    pub pubkey: Pubkey,
+    pub data_len: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default, Eq, PartialEq)]
+pub struct AccountBalance {
+    /// lamports in the account
+    pub lamports: u64,
+    /// the program that owns this account. If executable, the program that loads this account.
+    pub owner: Pubkey,
+    /// this account's data contains a loaded program (and is now read-only)
+    pub executable: bool,
+}
+
+/// References to Memory Mapped memory
+/// The Account is stored separately from its data, so getting the actual account requires a clone
+pub struct StoredAccount<'a> {
+    pub meta: &'a StorageMeta,
+    /// account data
+    pub balance: &'a AccountBalance,
+    pub data: &'a [u8],
+}
+
+impl<'a> StoredAccount<'a> {
+    pub fn clone_account(&self) -> Account {
+        Account {
+            lamports: self.balance.lamports,
+            owner: self.balance.owner,
+            executable: self.balance.executable,
+            data: self.data.to_vec(),
+        }
+    }
+}
+
+pub struct AppendVec {
+    map: MmapMut,
+    // This mutex forces append to be single threaded, but concurrent with reads
+    append_offset: Mutex<usize>,
+    current_len: AtomicUsize,
     file_size: u64,
-    inc_size: u64,
-    phantom: PhantomData<T>,
 }
 
-fn get_account_size_static() -> usize {
-    mem::size_of::<Account>() - mem::size_of::<Vec<u8>>()
-}
-
-pub fn get_serialized_size(account: &Account) -> usize {
-    get_account_size_static() + account.data.len()
-}
-
-pub fn serialize_account(dst_slice: &mut [u8], account: &Account, len: usize) {
-    let mut at = 0;
-
-    write_u64(&mut at, dst_slice, len as u64);
-    write_u64(&mut at, dst_slice, account.lamports);
-    write_bytes(&mut at, dst_slice, &account.data);
-    write_bytes(&mut at, dst_slice, account.owner.as_ref());
-    write_bytes(&mut at, dst_slice, &[account.executable as u8]);
-}
-
-fn read_bytes(at: &mut usize, dst_slice: &mut [u8], src_slice: &[u8], len: usize) {
-    let data = &src_slice[*at..*at + len];
-    (&data[..]).read_exact(&mut dst_slice[..]).unwrap();
-    *at += len;
-}
-
-fn write_bytes(at: &mut usize, dst_slice: &mut [u8], src_slice: &[u8]) {
-    let data = &mut dst_slice[*at..*at + src_slice.len()];
-    (&mut data[..]).write_all(&src_slice).unwrap();
-    *at += src_slice.len();
-}
-
-fn read_u64(at: &mut usize, src_slice: &[u8]) -> u64 {
-    let data = &src_slice[*at..*at + mem::size_of::<u64>()];
-    *at += mem::size_of::<u64>();
-    (&data[..]).read_u64::<LittleEndian>().unwrap()
-}
-
-fn write_u64(at: &mut usize, dst_slice: &mut [u8], value: u64) {
-    let data = &mut dst_slice[*at..*at + mem::size_of::<u64>()];
-    (&mut data[..]).write_u64::<LittleEndian>(value).unwrap();
-    *at += mem::size_of::<u64>();
-}
-
-pub fn deserialize_account(
-    src_slice: &[u8],
-    index: usize,
-    current_offset: usize,
-) -> Result<Account> {
-    let mut at = index;
-
-    let size = read_u64(&mut at, &src_slice);
-    let len = size as usize;
-    assert!(current_offset >= at + len);
-
-    let lamports = read_u64(&mut at, &src_slice);
-
-    let data_len = len - get_account_size_static();
-    let mut data = vec![0; data_len];
-    read_bytes(&mut at, &mut data, &src_slice, data_len);
-
-    let mut pubkey = vec![0; mem::size_of::<Pubkey>()];
-    read_bytes(&mut at, &mut pubkey, &src_slice, mem::size_of::<Pubkey>());
-    let owner = Pubkey::new(&pubkey);
-
-    let mut exec = vec![0; mem::size_of::<bool>()];
-    read_bytes(&mut at, &mut exec, &src_slice, mem::size_of::<bool>());
-    let executable: bool = exec[0] != 0;
-
-    Ok(Account {
-        lamports,
-        data,
-        owner,
-        executable,
-    })
-}
-
-impl<T> AppendVec<T>
-where
-    T: Default,
-{
-    pub fn new(path: &Path, create: bool, size: u64, inc: u64) -> Self {
+impl AppendVec {
+    #[allow(clippy::mutex_atomic)]
+    pub fn new(file: &Path, create: bool, size: usize) -> Self {
         let mut data = OpenOptions::new()
             .read(true)
             .write(true)
             .create(create)
-            .open(path)
+            .open(file)
             .expect("Unable to open data file");
 
-        data.seek(SeekFrom::Start(size)).unwrap();
+        data.seek(SeekFrom::Start((size - 1) as u64)).unwrap();
         data.write_all(&[0]).unwrap();
         data.seek(SeekFrom::Start(0)).unwrap();
         data.flush().unwrap();
-        let mmap = unsafe { Mmap::map(&data).expect("failed to map the data file") };
-        let mmap_mut = unsafe { MmapMut::map_mut(&data).expect("failed to map the data file") };
+        //UNSAFE: Required to create a Mmap
+        let map = unsafe { MmapMut::map_mut(&data).expect("failed to map the data file") };
 
         AppendVec {
-            data,
-            mmap,
-            current_offset: AtomicUsize::new(0),
-            mmap_mut: Mutex::new(mmap_mut),
-            file_size: size,
-            inc_size: inc,
-            phantom: PhantomData,
+            map,
+            // This mutex forces append to be single threaded, but concurrent with reads
+            // See UNSAFE usage in `append_ptr`
+            append_offset: Mutex::new(0),
+            current_len: AtomicUsize::new(0),
+            file_size: size as u64,
         }
     }
 
-    pub fn reset(&mut self) {
-        let _mmap_mut = self.mmap_mut.lock().unwrap();
-        self.current_offset.store(0, Ordering::Relaxed);
+    #[allow(clippy::mutex_atomic)]
+    pub fn reset(&self) {
+        // This mutex forces append to be single threaded, but concurrent with reads
+        // See UNSAFE usage in `append_ptr`
+        let mut offset = self.append_offset.lock().unwrap();
+        self.current_len.store(0, Ordering::Relaxed);
+        *offset = 0;
     }
 
-    #[allow(dead_code)]
-    pub fn get(&self, index: u64) -> &T {
-        let offset = self.current_offset.load(Ordering::Relaxed);
-        let at = index as usize;
-        assert!(offset >= at + mem::size_of::<T>());
-        let data = &self.mmap[at..at + mem::size_of::<T>()];
-        let ptr = data.as_ptr() as *const T;
-        let x: Option<&T> = unsafe { ptr.as_ref() };
-        x.unwrap()
+    pub fn len(&self) -> usize {
+        self.current_len.load(Ordering::Relaxed)
     }
 
-    #[allow(dead_code)]
-    pub fn grow_file(&mut self) -> Result<()> {
-        if self.inc_size == 0 {
-            return Err(Error::new(ErrorKind::WriteZero, "Grow not supported"));
-        }
-        let mut mmap_mut = self.mmap_mut.lock().unwrap();
-        let index = self.current_offset.load(Ordering::Relaxed) + mem::size_of::<T>();
-        if index as u64 + self.inc_size < self.file_size {
-            // grow was already called
-            return Ok(());
-        }
-        let end = self.file_size + self.inc_size;
-        drop(mmap_mut.to_owned());
-        drop(self.mmap.to_owned());
-        self.data.seek(SeekFrom::Start(end))?;
-        self.data.write_all(&[0])?;
-        self.mmap = unsafe { Mmap::map(&self.data)? };
-        *mmap_mut = unsafe { MmapMut::map_mut(&self.data)? };
-        self.file_size = end;
-        Ok(())
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
-    #[allow(dead_code)]
-    pub fn append(&self, val: T) -> Option<u64> {
-        let mmap_mut = self.mmap_mut.lock().unwrap();
-        let index = self.current_offset.load(Ordering::Relaxed);
+    pub fn capacity(&self) -> u64 {
+        self.file_size
+    }
 
-        if (self.file_size as usize) < index + mem::size_of::<T>() {
+    fn get_slice(&self, offset: usize, size: usize) -> Option<(&[u8], usize)> {
+        let len = self.len();
+        if len < offset + size {
             return None;
         }
+        let data = &self.map[offset..offset + size];
+        //Data is aligned at the next 64 byte offset. Without alignment loading the memory may
+        //crash on some architectures.
+        let next = align_up!(offset + size, mem::size_of::<u64>());
+        Some((
+            //UNSAFE: This unsafe creates a slice that represents a chunk of self.map memory
+            //The lifetime of this slice is tied to &self, since it points to self.map memory
+            unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, size) },
+            next,
+        ))
+    }
 
-        let data = &mmap_mut[index..(index + mem::size_of::<T>())];
+    fn append_ptr(&self, offset: &mut usize, src: *const u8, len: usize) {
+        //Data is aligned at the next 64 byte offset. Without alignment loading the memory may
+        //crash on some architectures.
+        let pos = align_up!(*offset as usize, mem::size_of::<u64>());
+        let data = &self.map[pos..(pos + len)];
+        //UNSAFE: This mut append is safe because only 1 thread can append at a time
+        //Mutex<append_offset> guarantees exclusive write access to the memory occupied in
+        //the range.
         unsafe {
-            let ptr = data.as_ptr() as *mut T;
-            std::ptr::write(ptr, val)
+            let dst = data.as_ptr() as *mut u8;
+            std::ptr::copy(src, dst, len);
         };
-        self.current_offset
-            .fetch_add(mem::size_of::<T>(), Ordering::Relaxed);
-        Some(index as u64)
+        *offset = pos + len;
     }
 
-    pub fn get_account(&self, index: u64) -> Result<Account> {
-        let index = index as usize;
-        deserialize_account(
-            &self.mmap[..],
-            index,
-            self.current_offset.load(Ordering::Relaxed),
-        )
-    }
+    fn append_ptrs_locked(&self, offset: &mut usize, vals: &[(*const u8, usize)]) -> Option<usize> {
+        let mut end = *offset;
+        for val in vals {
+            //Data is aligned at the next 64 byte offset. Without alignment loading the memory may
+            //crash on some architectures.
+            end = align_up!(end, mem::size_of::<u64>());
+            end += val.1;
+        }
 
-    pub fn append_account(&self, account: &Account) -> Option<u64> {
-        let mut mmap_mut = self.mmap_mut.lock().unwrap();
-        let data_at = align_up!(
-            self.current_offset.load(Ordering::Relaxed),
-            mem::size_of::<u64>()
-        );
-        let len = get_serialized_size(account);
-
-        if (self.file_size as usize) < data_at + len + SIZEOF_U64 {
+        if (self.file_size as usize) < end {
             return None;
         }
 
-        serialize_account(
-            &mut mmap_mut[data_at..data_at + len + SIZEOF_U64],
-            &account,
-            len,
-        );
+        //Data is aligned at the next 64 byte offset. Without alignment loading the memory may
+        //crash on some architectures.
+        let pos = align_up!(*offset, mem::size_of::<u64>());
+        for val in vals {
+            self.append_ptr(offset, val.0, val.1)
+        }
+        self.current_len.store(*offset, Ordering::Relaxed);
+        Some(pos)
+    }
 
-        self.current_offset
-            .store(data_at + len + SIZEOF_U64, Ordering::Relaxed);
-        Some(data_at as u64)
+    fn get_type<'a, T>(&self, offset: usize) -> Option<(&'a T, usize)> {
+        let (data, next) = self.get_slice(offset, mem::size_of::<T>())?;
+        let ptr: *const T = data.as_ptr() as *const T;
+        //UNSAFE: The cast is safe because the slice is aligned and fits into the memory
+        //and the lifetime of he &T is tied to self, which holds the underlying memory map
+        Some((unsafe { &*ptr }, next))
+    }
+
+    pub fn get_account<'a>(&'a self, offset: usize) -> Option<(StoredAccount<'a>, usize)> {
+        let (meta, next): (&'a StorageMeta, _) = self.get_type(offset)?;
+        let (balance, next): (&'a AccountBalance, _) = self.get_type(next)?;
+        let (data, next) = self.get_slice(next, meta.data_len as usize)?;
+        Some((
+            StoredAccount {
+                meta,
+                balance,
+                data,
+            },
+            next,
+        ))
+    }
+    pub fn get_account_test(&self, offset: usize) -> Option<(StorageMeta, Account)> {
+        let stored = self.get_account(offset)?;
+        let meta = stored.0.meta.clone();
+        Some((meta, stored.0.clone_account()))
+    }
+
+    pub fn accounts<'a>(&'a self, mut start: usize) -> Vec<StoredAccount<'a>> {
+        let mut accounts = vec![];
+        while let Some((account, next)) = self.get_account(start) {
+            accounts.push(account);
+            start = next;
+        }
+        accounts
+    }
+
+    #[allow(clippy::mutex_atomic)]
+    pub fn append_accounts(&self, accounts: &[(StorageMeta, &Account)]) -> Vec<usize> {
+        let mut offset = self.append_offset.lock().unwrap();
+        let mut rv = vec![];
+        for (storage_meta, account) in accounts {
+            let meta_ptr = storage_meta as *const StorageMeta;
+            let balance = AccountBalance {
+                lamports: account.lamports,
+                owner: account.owner,
+                executable: account.executable,
+            };
+            let balance_ptr = &balance as *const AccountBalance;
+            let data_len = storage_meta.data_len as usize;
+            let data_ptr = account.data.as_ptr();
+            let ptrs = [
+                (meta_ptr as *const u8, mem::size_of::<StorageMeta>()),
+                (balance_ptr as *const u8, mem::size_of::<AccountBalance>()),
+                (data_ptr, data_len),
+            ];
+            if let Some(res) = self.append_ptrs_locked(&mut offset, &ptrs) {
+                rv.push(res)
+            } else {
+                break;
+            }
+        }
+        rv
+    }
+
+    pub fn append_account(&self, storage_meta: StorageMeta, account: &Account) -> Option<usize> {
+        self.append_accounts(&[(storage_meta, account)])
+            .first()
+            .cloned()
+    }
+
+    pub fn append_account_test(&self, data: &(StorageMeta, Account)) -> Option<usize> {
+        self.append_account(data.0.clone(), &data.1)
+    }
+}
+
+pub mod test_utils {
+    use super::StorageMeta;
+    use rand::distributions::Alphanumeric;
+    use rand::{thread_rng, Rng};
+    use soros_sdk::account::Account;
+    use soros_sdk::pubkey::Pubkey;
+    use std::fs::create_dir_all;
+    use std::path::PathBuf;
+
+    pub struct TempFile {
+        pub path: PathBuf,
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let mut path = PathBuf::new();
+            std::mem::swap(&mut path, &mut self.path);
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    pub fn get_append_vec_path(path: &str) -> TempFile {
+        let out_dir =
+            std::env::var("OUT_DIR").unwrap_or_else(|_| "/tmp/append_vec_tests".to_string());
+        let mut buf = PathBuf::new();
+        let rand_string: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
+        buf.push(&format!("{}/{}{}", out_dir, path, rand_string));
+        create_dir_all(out_dir).expect("Create directory failed");
+        TempFile { path: buf }
+    }
+
+    pub fn create_test_account(sample: usize) -> (StorageMeta, Account) {
+        let data_len = sample % 256;
+        let mut account = Account::new(sample as u64, 0, &Pubkey::default());
+        account.data = (0..data_len).map(|_| data_len as u8).collect();
+        let storage_meta = StorageMeta {
+            write_version: 0,
+            pubkey: Pubkey::default(),
+            data_len: data_len as u64,
+        };
+        (storage_meta, account)
     }
 }
 
 #[cfg(test)]
 pub mod tests {
+    use super::test_utils::*;
     use super::*;
     use log::*;
     use rand::{thread_rng, Rng};
-    use soros_sdk::timing::{duration_as_ms, duration_as_s};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use soros_sdk::timing::duration_as_ms;
     use std::time::Instant;
 
-    const START_SIZE: u64 = 4 * 1024 * 1024;
-    const INC_SIZE: u64 = 1 * 1024 * 1024;
-
     #[test]
-    fn test_append_vec() {
-        let path = Path::new("append_vec");
-        let av = AppendVec::new(path, true, START_SIZE, INC_SIZE);
-        let val: u64 = 5;
-        let index = av.append(val).unwrap();
-        assert_eq!(*av.get(index), val);
-        let val1 = val + 1;
-        let index1 = av.append(val1).unwrap();
-        assert_eq!(*av.get(index), val);
-        assert_eq!(*av.get(index1), val1);
-        std::fs::remove_file(path).unwrap();
+    fn test_append_vec_one() {
+        let path = get_append_vec_path("test_append");
+        let av = AppendVec::new(&path.path, true, 1024 * 1024);
+        let account = create_test_account(0);
+        let index = av.append_account_test(&account).unwrap();
+        assert_eq!(av.get_account_test(index).unwrap(), account);
     }
 
     #[test]
-    fn test_append_vec_account() {
-        let path = Path::new("append_vec_account");
-        let av: AppendVec<Account> = AppendVec::new(path, true, START_SIZE, INC_SIZE);
-        let v1 = vec![1u8; 32];
-        let mut account1 = Account {
-            lamports: 1,
-            data: v1,
-            owner: Pubkey::default(),
-            executable: false,
-        };
-        let index1 = av.append_account(&account1).unwrap();
-        assert_eq!(index1, 0);
-        assert_eq!(av.get_account(index1).unwrap(), account1);
-
-        let v2 = vec![4u8; 32];
-        let mut account2 = Account {
-            lamports: 1,
-            data: v2,
-            owner: Pubkey::default(),
-            executable: false,
-        };
-        let index2 = av.append_account(&account2).unwrap();
-        let mut len = get_serialized_size(&account1) + SIZEOF_U64 as usize;
-        assert_eq!(index2, len as u64);
-        assert_eq!(av.get_account(index2).unwrap(), account2);
-        assert_eq!(av.get_account(index1).unwrap(), account1);
-
-        account2.data.iter_mut().for_each(|e| *e *= 2);
-        let index3 = av.append_account(&account2).unwrap();
-        len += get_serialized_size(&account2) + SIZEOF_U64 as usize;
-        assert_eq!(index3, len as u64);
-        assert_eq!(av.get_account(index3).unwrap(), account2);
-
-        account1.data.extend([1, 2, 3, 4, 5, 6].iter().cloned());
-        let index4 = av.append_account(&account1).unwrap();
-        len += get_serialized_size(&account2) + SIZEOF_U64 as usize;
-        assert_eq!(index4, len as u64);
-        assert_eq!(av.get_account(index4).unwrap(), account1);
-        std::fs::remove_file(path).unwrap();
+    fn test_append_vec_data() {
+        let path = get_append_vec_path("test_append_data");
+        let av = AppendVec::new(&path.path, true, 1024 * 1024);
+        let account = create_test_account(5);
+        let index = av.append_account_test(&account).unwrap();
+        assert_eq!(av.get_account_test(index).unwrap(), account);
+        let account1 = create_test_account(6);
+        let index1 = av.append_account_test(&account1).unwrap();
+        assert_eq!(av.get_account_test(index).unwrap(), account);
+        assert_eq!(av.get_account_test(index1).unwrap(), account1);
     }
 
     #[test]
-    fn test_grow_append_vec() {
-        let path = Path::new("grow");
-        let mut av = AppendVec::new(path, true, START_SIZE, INC_SIZE);
-        let mut val = [5u64; 32];
-        let size = 100_000;
-        let mut offsets = vec![0; size];
+    fn test_append_vec_append_many() {
+        let path = get_append_vec_path("test_append_many");
+        let av = AppendVec::new(&path.path, true, 1024 * 1024);
+        let size = 1000;
+        let mut indexes = vec![];
+        let now = Instant::now();
+        for sample in 0..size {
+            let account = create_test_account(sample);
+            let pos = av.append_account_test(&account).unwrap();
+            assert_eq!(av.get_account_test(pos).unwrap(), account);
+            indexes.push(pos)
+        }
+        trace!("append time: {} ms", duration_as_ms(&now.elapsed()),);
 
         let now = Instant::now();
-        for index in 0..size {
-            if let Some(offset) = av.append(val) {
-                offsets[index] = offset;
-            } else {
-                assert!(av.grow_file().is_ok());
-                if let Some(offset) = av.append(val) {
-                    offsets[index] = offset;
-                } else {
-                    assert!(false);
-                }
-            }
-            val[0] += 1;
+        for _ in 0..size {
+            let sample = thread_rng().gen_range(0, indexes.len());
+            let account = create_test_account(sample);
+            assert_eq!(av.get_account_test(indexes[sample]).unwrap(), account);
         }
-        info!(
-            "time: {} ms {} / s",
-            duration_as_ms(&now.elapsed()),
-            ((mem::size_of::<[u64; 32]>() * size) as f32) / duration_as_s(&now.elapsed()),
-        );
+        trace!("random read time: {} ms", duration_as_ms(&now.elapsed()),);
 
         let now = Instant::now();
-        let num_reads = 100_000;
-        for _ in 0..num_reads {
-            let index = thread_rng().gen_range(0, size);
-            assert_eq!(av.get(offsets[index])[0], (index + 5) as u64);
+        assert_eq!(indexes.len(), size);
+        assert_eq!(indexes[0], 0);
+        let mut accounts = av.accounts(indexes[0]);
+        assert_eq!(accounts.len(), size);
+        for (sample, v) in accounts.iter_mut().enumerate() {
+            let account = create_test_account(sample);
+            let recovered = v.clone_account();
+            assert_eq!(recovered, account.1)
         }
-        info!(
-            "time: {} ms {} / s",
+        trace!(
+            "sequential read time: {} ms",
             duration_as_ms(&now.elapsed()),
-            (num_reads as f32) / duration_as_s(&now.elapsed()),
         );
-        std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn random_atomic_change() {
-        let path = Path::new("random");
-        let mut vec = AppendVec::<AtomicUsize>::new(path, true, START_SIZE, INC_SIZE);
-        let size = 1_000;
-        for k in 0..size {
-            if vec.append(AtomicUsize::new(k)).is_none() {
-                assert!(vec.grow_file().is_ok());
-                assert!(vec.append(AtomicUsize::new(0)).is_some());
-            }
-        }
-        let index = thread_rng().gen_range(0, size as u64);
-        let atomic1 = vec.get(index * mem::size_of::<AtomicUsize>() as u64);
-        let current1 = atomic1.load(Ordering::Relaxed);
-        assert_eq!(current1, index as usize);
-        let next = current1 + 1;
-        let index = vec.append(AtomicUsize::new(next)).unwrap();
-        let atomic2 = vec.get(index);
-        let current2 = atomic2.load(Ordering::Relaxed);
-        assert_eq!(current2, next);
-        std::fs::remove_file(path).unwrap();
     }
 }

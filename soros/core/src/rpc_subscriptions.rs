@@ -1,15 +1,15 @@
 //! The `pubsub` module implements a threaded subscription service on client RPC request
 
-use crate::rpc_status::RpcSignatureStatus;
 use bs58;
 use core::hash::Hash;
 use jsonrpc_core::futures::Future;
 use jsonrpc_pubsub::typed::Sink;
 use jsonrpc_pubsub::SubscriptionId;
-use soros_runtime::bank::{self, Bank, BankError};
+use soros_runtime::bank::Bank;
 use soros_sdk::account::Account;
 use soros_sdk::pubkey::Pubkey;
 use soros_sdk::signature::Signature;
+use soros_sdk::transaction;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
@@ -17,7 +17,7 @@ type RpcAccountSubscriptions = RwLock<HashMap<Pubkey, HashMap<SubscriptionId, Si
 type RpcProgramSubscriptions =
     RwLock<HashMap<Pubkey, HashMap<SubscriptionId, Sink<(String, Account)>>>>;
 type RpcSignatureSubscriptions =
-    RwLock<HashMap<Signature, HashMap<SubscriptionId, Sink<RpcSignatureStatus>>>>;
+    RwLock<HashMap<Signature, HashMap<SubscriptionId, Sink<Option<transaction::Result<()>>>>>>;
 
 fn add_subscription<K, S>(
     subscriptions: &mut HashMap<K, HashMap<SubscriptionId, Sink<S>>>,
@@ -95,18 +95,11 @@ impl RpcSubscriptions {
         }
     }
 
-    pub fn check_signature(&self, signature: &Signature, bank_error: &bank::Result<()>) {
-        let status = match bank_error {
-            Ok(_) => RpcSignatureStatus::Confirmed,
-            Err(BankError::AccountInUse) => RpcSignatureStatus::AccountInUse,
-            Err(BankError::ProgramError(_, _)) => RpcSignatureStatus::ProgramRuntimeError,
-            Err(_) => RpcSignatureStatus::GenericFailure,
-        };
-
+    pub fn check_signature(&self, signature: &Signature, bank_error: &transaction::Result<()>) {
         let mut subscriptions = self.signature_subscriptions.write().unwrap();
         if let Some(hashmap) = subscriptions.get(signature) {
             for (_bank_sub_id, sink) in hashmap.iter() {
-                sink.notify(Ok(status)).wait().unwrap();
+                sink.notify(Ok(Some(bank_error.clone()))).wait().unwrap();
             }
         }
         subscriptions.remove(&signature);
@@ -146,7 +139,7 @@ impl RpcSubscriptions {
         &self,
         signature: &Signature,
         sub_id: &SubscriptionId,
-        sink: &Sink<RpcSignatureStatus>,
+        sink: &Sink<Option<transaction::Result<()>>>,
     ) {
         let mut subscriptions = self.signature_subscriptions.write().unwrap();
         add_subscription(&mut subscriptions, signature, sub_id, sink);
@@ -199,7 +192,7 @@ mod tests {
     use soros_budget_api;
     use soros_sdk::genesis_block::GenesisBlock;
     use soros_sdk::signature::{Keypair, KeypairUtil};
-    use soros_sdk::system_transaction::SystemTransaction;
+    use soros_sdk::system_transaction;
     use tokio::prelude::{Async, Stream};
 
     #[test]
@@ -208,7 +201,7 @@ mod tests {
         let bank = Bank::new(&genesis_block);
         let alice = Keypair::new();
         let blockhash = bank.last_blockhash();
-        let tx = SystemTransaction::new_program_account(
+        let tx = system_transaction::create_account(
             &mint_keypair,
             &alice.pubkey(),
             blockhash,
@@ -236,7 +229,7 @@ mod tests {
         subscriptions.check_account(&alice.pubkey(), &account);
         let string = transport_receiver.poll();
         if let Async::Ready(Some(response)) = string.unwrap() {
-            let expected = format!(r#"{{"jsonrpc":"2.0","method":"accountNotification","params":{{"result":{{"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"executable":false,"lamports":1,"owner":[129,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}},"subscription":0}}}}"#);
+            let expected = format!(r#"{{"jsonrpc":"2.0","method":"accountNotification","params":{{"result":{{"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"executable":false,"lamports":1,"owner":[2,203,81,223,225,24,34,35,203,214,138,130,144,208,35,77,63,16,87,51,47,198,115,123,98,188,19,160,0,0,0,0]}},"subscription":0}}}}"#);
             assert_eq!(expected, response);
         }
 
@@ -254,7 +247,7 @@ mod tests {
         let bank = Bank::new(&genesis_block);
         let alice = Keypair::new();
         let blockhash = bank.last_blockhash();
-        let tx = SystemTransaction::new_program_account(
+        let tx = system_transaction::create_account(
             &mint_keypair,
             &alice.pubkey(),
             blockhash,
@@ -282,7 +275,7 @@ mod tests {
         subscriptions.check_program(&soros_budget_api::id(), &alice.pubkey(), &account);
         let string = transport_receiver.poll();
         if let Async::Ready(Some(response)) = string.unwrap() {
-            let expected = format!(r#"{{"jsonrpc":"2.0","method":"programNotification","params":{{"result":["{:?}",{{"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"executable":false,"lamports":1,"owner":[129,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}}],"subscription":0}}}}"#, alice.pubkey());
+            let expected = format!(r#"{{"jsonrpc":"2.0","method":"programNotification","params":{{"result":["{:?}",{{"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"executable":false,"lamports":1,"owner":[2,203,81,223,225,24,34,35,203,214,138,130,144,208,35,77,63,16,87,51,47,198,115,123,98,188,19,160,0,0,0,0]}}],"subscription":0}}}}"#, alice.pubkey());
             assert_eq!(expected, response);
         }
 
@@ -299,7 +292,7 @@ mod tests {
         let bank = Bank::new(&genesis_block);
         let alice = Keypair::new();
         let blockhash = bank.last_blockhash();
-        let tx = SystemTransaction::new_move(&mint_keypair, &alice.pubkey(), 20, blockhash, 0);
+        let tx = system_transaction::transfer(&mint_keypair, &alice.pubkey(), 20, blockhash, 0);
         let signature = tx.signatures[0];
         bank.process_transaction(&tx).unwrap();
 
@@ -319,7 +312,10 @@ mod tests {
         subscriptions.check_signature(&signature, &Ok(()));
         let string = transport_receiver.poll();
         if let Async::Ready(Some(response)) = string.unwrap() {
-            let expected = format!(r#"{{"jsonrpc":"2.0","method":"signatureNotification","params":{{"result":"Confirmed","subscription":0}}}}"#);
+            let expected_res: Option<transaction::Result<()>> = Some(Ok(()));
+            let expected_res_str =
+                serde_json::to_string(&serde_json::to_value(expected_res).unwrap()).unwrap();
+            let expected = format!(r#"{{"jsonrpc":"2.0","method":"signatureNotification","params":{{"result":{},"subscription":0}}}}"#, expected_res_str);
             assert_eq!(expected, response);
         }
 

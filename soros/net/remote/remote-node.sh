@@ -6,14 +6,22 @@ cd "$(dirname "$0")"/../..
 set -x
 deployMethod="$1"
 nodeType="$2"
-publicNetwork="$3"
-entrypointIp="$4"
-numNodes="$5"
-RUST_LOG="$6"
-skipSetup="$7"
-leaderRotation="$8"
+entrypointIp="$3"
+numNodes="$4"
+RUST_LOG="$5"
+skipSetup="$6"
+leaderRotation="$7"
+failOnValidatorBootupFailure="$8"
 set +x
-export RUST_LOG=${RUST_LOG:-soros=warn} # if RUST_LOG is unset, default to warn
+export RUST_LOG
+
+# Use a very large stake (relative to the default multinode-demo/ stake of 43)
+# for the testnet fullnodes setup by net/.  This make it less likely that
+# low-staked ephemeral validator a random user may attach to testnet will cause
+# trouble
+#
+# Ref: https://github.com/soros-labs/soros/issues/3798
+stake=424243
 
 missing() {
   echo "Error: $1 not specified"
@@ -22,17 +30,18 @@ missing() {
 
 [[ -n $deployMethod ]]  || missing deployMethod
 [[ -n $nodeType ]]      || missing nodeType
-[[ -n $publicNetwork ]] || missing publicNetwork
 [[ -n $entrypointIp ]]  || missing entrypointIp
 [[ -n $numNodes ]]      || missing numNodes
 [[ -n $skipSetup ]]     || missing skipSetup
 [[ -n $leaderRotation ]] || missing leaderRotation
+[[ -n $failOnValidatorBootupFailure ]] || missing failOnValidatorBootupFailure
 
 cat > deployConfig <<EOF
 deployMethod="$deployMethod"
 entrypointIp="$entrypointIp"
 numNodes="$numNodes"
 leaderRotation=$leaderRotation
+failOnValidatorBootupFailure=$failOnValidatorBootupFailure
 EOF
 
 source net/common.sh
@@ -42,7 +51,6 @@ case $deployMethod in
 local|tar)
   PATH="$HOME"/.cargo/bin:"$PATH"
   export USE_INSTALL=1
-  export RUST_LOG
   export SOROS_METRICS_DISPLAY_HOSTNAME=1
 
   # Setup `/var/snap/soros/current` symlink so rsyncing the genesis
@@ -70,20 +78,16 @@ local|tar)
     fi
     set -x
     if [[ $skipSetup != true ]]; then
-      ./multinode-demo/setup.sh -t bootstrap-leader
+      ./multinode-demo/setup.sh -b $stake
     fi
     ./multinode-demo/drone.sh > drone.log 2>&1 &
 
-    maybeNoLeaderRotation=
-    if ! $leaderRotation; then
-      maybeNoLeaderRotation="--only-bootstrap-stake"
-    fi
-    maybePublicAddress=
-    if $publicNetwork; then
-      maybePublicAddress="--public-address"
-    fi
+    args=(
+      --enable-rpc-exit
+      --gossip-port "$entrypointIp":8001
+    )
 
-    ./multinode-demo/bootstrap-leader.sh $maybeNoLeaderRotation $maybePublicAddress > bootstrap-leader.log 2>&1 &
+    ./multinode-demo/bootstrap-leader.sh "${args[@]}" > bootstrap-leader.log 2>&1 &
     ln -sTf bootstrap-leader.log fullnode.log
     ;;
   fullnode|blockstreamer)
@@ -95,17 +99,19 @@ local|tar)
     fi
 
     args=()
-    if ! $leaderRotation; then
-      args+=("--only-bootstrap-stake")
-    fi
-    if $publicNetwork; then
-      args+=("--public-address")
-    fi
     if [[ $nodeType = blockstreamer ]]; then
       args+=(
         --blockstream /tmp/soros-blockstream.sock
         --no-voting
+        --stake 0
       )
+    else
+      if $leaderRotation; then
+        args+=("--stake" "$stake")
+      else
+        args+=("--stake" 0)
+      fi
+      args+=(--enable-rpc-exit)
     fi
 
     args+=(
@@ -115,7 +121,7 @@ local|tar)
 
     set -x
     if [[ $skipSetup != true ]]; then
-      ./multinode-demo/setup.sh -t fullnode
+      ./multinode-demo/clear-fullnode-config.sh
     fi
 
     if [[ $nodeType = blockstreamer ]]; then
@@ -126,8 +132,9 @@ local|tar)
       scp "$entrypointIp":~/soros/config-local/mint-id.json config-local/
       ./multinode-demo/drone.sh > drone.log 2>&1 &
 
-      npm install @bitconch/bus-explorer@1
-      npx bus-explorer > blockexplorer.log 2>&1 &
+      export BLOCKEXPLORER_GEOIP_WHITELIST=$PWD/net/config/geoip.yml
+      npm install @soros/blockexplorer@1.8.9
+      npx soros-blockexplorer > blockexplorer.log 2>&1 &
 
       # Confirm the blockexplorer is accessible
       curl --head --retry 3 --retry-connrefused http://localhost:5000/
@@ -140,7 +147,9 @@ local|tar)
       # Confirm the blockexplorer is now globally accessible
       curl --head "$(curl ifconfig.io)"
     fi
-    ./multinode-demo/fullnode.sh "${args[@]}" "$entrypointIp":~/soros "$entrypointIp:8001" > fullnode.log 2>&1 &
+
+    args+=("$entrypointIp":~/soros "$entrypointIp:8001")
+    ./multinode-demo/fullnode.sh "${args[@]}" > fullnode.log 2>&1 &
     ;;
   *)
     echo "Error: unknown node type: $nodeType"

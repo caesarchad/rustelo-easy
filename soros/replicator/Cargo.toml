@@ -1,18 +1,18 @@
 [package]
-authors = ["Bitconch Dev Team"]
+authors = ["Soros Maintainers <maintainers@soros.com>"]
 edition = "2018"
 name = "soros-replicator"
-version = "0.12.3"
-repository = "https://github.com/bitconch/bus"
+version = "0.14.2"
+repository = "https://github.com/soros-labs/soros"
 license = "Apache-2.0"
-homepage = "https://bitconch.io"
+homepage = "https://soros.com/"
 
 [dependencies]
-clap = "2.32.0"
-soros = { path = "../core", version = "0.12.3" }
-soros-logger = { path = "../logger", version = "0.12.3" }
-soros-netutil = { path = "../netutil", version = "0.12.3" }
-soros-sdk = { path = "../sdk", version = "0.12.3" }
+clap = "2.33.0"
+soros = { path = "../core", version = "0.14.2"   }
+soros-logger = { path = "../logger", version = "0.14.2"   }
+soros-netutil = { path = "../netutil", version = "0.14.2"   }
+soros-sdk = { path = "../sdk", version = "0.14.2"   }
 
 [features]
 chacha = ["soros/chacha"]

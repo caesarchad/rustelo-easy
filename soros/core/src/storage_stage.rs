@@ -2,25 +2,28 @@
 // for storage mining. Replicators submit storage proofs, validator then bundles them
 // to submit its proof for mining to be rewarded.
 
+use crate::bank_forks::BankForks;
 use crate::blocktree::Blocktree;
 #[cfg(all(feature = "chacha", feature = "cuda"))]
 use crate::chacha_cuda::chacha_cbc_encrypt_file_many_keys;
-use crate::cluster_info::{ClusterInfo, FULLNODE_PORT_RANGE};
+use crate::cluster_info::ClusterInfo;
 use crate::entry::{Entry, EntryReceiver};
 use crate::result::{Error, Result};
 use crate::service::Service;
 use bincode::deserialize;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
-use soros_client::client::create_client_with_timeout;
 use soros_sdk::hash::Hash;
+use soros_sdk::instruction::Instruction;
 use soros_sdk::pubkey::Pubkey;
-use soros_sdk::signature::{Keypair, Signature};
+use soros_sdk::signature::{Keypair, KeypairUtil, Signature};
+use soros_sdk::system_instruction;
 use soros_sdk::transaction::Transaction;
-use soros_storage_api::{self, StorageProgram, StorageTransaction};
+use soros_storage_api::storage_instruction::{self, StorageInstruction};
 use std::collections::HashSet;
 use std::io;
 use std::mem::size_of;
+use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::sync::{Arc, RwLock};
@@ -65,7 +68,7 @@ pub const NUM_STORAGE_SAMPLES: usize = 4;
 pub const ENTRIES_PER_SEGMENT: u64 = 16;
 const KEY_SIZE: usize = 64;
 
-type TransactionSender = Sender<Transaction>;
+type InstructionSender = Sender<Instruction>;
 
 pub fn get_segment_from_entry(entry_height: u64) -> u64 {
     entry_height / ENTRIES_PER_SEGMENT
@@ -136,13 +139,16 @@ impl StorageState {
 }
 
 impl StorageStage {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         storage_state: &StorageState,
         storage_entry_receiver: EntryReceiver,
         blocktree: Option<Arc<Blocktree>>,
         keypair: &Arc<Keypair>,
+        storage_keypair: &Arc<Keypair>,
         exit: &Arc<AtomicBool>,
         entry_height: u64,
+        bank_forks: &Arc<RwLock<BankForks>>,
         storage_rotate_count: u64,
         cluster_info: &Arc<RwLock<ClusterInfo>>,
     ) -> Self {
@@ -150,9 +156,9 @@ impl StorageStage {
         storage_state.state.write().unwrap().entry_height = entry_height;
         let storage_state_inner = storage_state.state.clone();
         let exit0 = exit.clone();
-        let keypair0 = keypair.clone();
+        let keypair0 = storage_keypair.clone();
 
-        let (tx_sender, tx_receiver) = channel();
+        let (instruction_sender, instruction_receiver) = channel();
 
         let t_storage_mining_verifier = Builder::new()
             .name("soros-storage-mining-verify-stage".to_string())
@@ -171,7 +177,7 @@ impl StorageStage {
                             &mut entry_height,
                             &mut current_key,
                             storage_rotate_count,
-                            &tx_sender,
+                            &instruction_sender,
                         ) {
                             match e {
                                 Error::RecvTimeoutError(RecvTimeoutError::Disconnected) => break,
@@ -190,27 +196,40 @@ impl StorageStage {
         let cluster_info0 = cluster_info.clone();
         let exit1 = exit.clone();
         let keypair1 = keypair.clone();
+        let storage_keypair1 = storage_keypair.clone();
+        let bank_forks1 = bank_forks.clone();
         let t_storage_create_accounts = Builder::new()
             .name("soros-storage-create-accounts".to_string())
-            .spawn(move || loop {
-                match tx_receiver.recv_timeout(Duration::from_secs(1)) {
-                    Ok(mut tx) => {
-                        if Self::send_transaction(&cluster_info0, &mut tx, &exit1, &keypair1, None)
-                            .is_ok()
-                        {
-                            debug!("sent transaction: {:?}", tx);
+            .spawn(move || {
+                let transactions_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+                loop {
+                    match instruction_receiver.recv_timeout(Duration::from_secs(1)) {
+                        Ok(instruction) => {
+                            if Self::send_transaction(
+                                &bank_forks1,
+                                &cluster_info0,
+                                instruction,
+                                &keypair1,
+                                &storage_keypair1,
+                                Some(storage_keypair1.pubkey()),
+                                &transactions_socket,
+                            )
+                            .is_err()
+                            {
+                                debug!("Failed to send storage transaction");
+                            }
                         }
-                    }
-                    Err(e) => match e {
-                        RecvTimeoutError::Disconnected => break,
-                        RecvTimeoutError::Timeout => (),
-                    },
-                };
+                        Err(e) => match e {
+                            RecvTimeoutError::Disconnected => break,
+                            RecvTimeoutError::Timeout => (),
+                        },
+                    };
 
-                if exit1.load(Ordering::Relaxed) {
-                    break;
+                    if exit1.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    sleep(Duration::from_millis(100));
                 }
-                sleep(Duration::from_millis(100));
             })
             .unwrap();
 
@@ -221,82 +240,63 @@ impl StorageStage {
     }
 
     fn send_transaction(
+        bank_forks: &Arc<RwLock<BankForks>>,
         cluster_info: &Arc<RwLock<ClusterInfo>>,
-        transaction: &mut Transaction,
-        exit: &Arc<AtomicBool>,
+        instruction: Instruction,
         keypair: &Arc<Keypair>,
+        storage_keypair: &Arc<Keypair>,
         account_to_create: Option<Pubkey>,
+        transactions_socket: &UdpSocket,
     ) -> io::Result<()> {
-        let contact_info = cluster_info.read().unwrap().my_data();
-        let mut client = create_client_with_timeout(
-            contact_info.client_facing_addr(),
-            FULLNODE_PORT_RANGE,
-            Duration::from_secs(5),
-        );
-
+        let working_bank = bank_forks.read().unwrap().working_bank();
+        let blockhash = working_bank.confirmed_last_blockhash();
+        let mut instructions = vec![];
+        let mut signing_keys = vec![];
         if let Some(account) = account_to_create {
-            if client.get_account_data(&account).is_ok() {
-                return Ok(());
+            if working_bank.get_account(&account).is_none() {
+                // TODO the account space needs to be well defined somewhere
+                let create_instruction = system_instruction::create_account(
+                    &keypair.pubkey(),
+                    &storage_keypair.pubkey(),
+                    1,
+                    1024 * 4,
+                    &soros_storage_api::id(),
+                );
+                instructions.push(create_instruction);
+                signing_keys.push(keypair.as_ref());
+                info!("storage account requested");
             }
         }
-
-        let mut blockhash = None;
-        for _ in 0..10 {
-            if let Some(new_blockhash) = client.try_get_recent_blockhash(1) {
-                blockhash = Some(new_blockhash);
-                break;
-            }
-
-            if exit.load(Ordering::Relaxed) {
-                Err(io::Error::new(io::ErrorKind::Other, "exit signaled"))?;
-            }
-        }
-
-        if let Some(blockhash) = blockhash {
-            transaction.sign(&[keypair.as_ref()], blockhash);
-
-            if exit.load(Ordering::Relaxed) {
-                Err(io::Error::new(io::ErrorKind::Other, "exit signaled"))?;
-            }
-
-            if let Ok(signature) = client.transfer_signed(&transaction) {
-                for _ in 0..10 {
-                    if client.check_signature(&signature) {
-                        return Ok(());
-                    }
-
-                    if exit.load(Ordering::Relaxed) {
-                        Err(io::Error::new(io::ErrorKind::Other, "exit signaled"))?;
-                    }
-
-                    sleep(Duration::from_millis(200));
-                }
-            }
-        }
-
-        Err(io::Error::new(io::ErrorKind::Other, "other failure"))
+        instructions.push(instruction);
+        signing_keys.push(storage_keypair.as_ref());
+        let mut transaction = Transaction::new_unsigned_instructions(instructions);
+        transaction.sign(&signing_keys, blockhash);
+        transactions_socket.send_to(
+            &bincode::serialize(&transaction).unwrap(),
+            cluster_info.read().unwrap().my_data().tpu,
+        )?;
+        Ok(())
     }
 
-    pub fn process_entry_crossing(
+    fn process_entry_crossing(
         state: &Arc<RwLock<StorageStateInner>>,
         keypair: &Arc<Keypair>,
         _blocktree: &Arc<Blocktree>,
         entry_id: Hash,
         entry_height: u64,
-        tx_sender: &TransactionSender,
+        instruction_sender: &InstructionSender,
     ) -> Result<()> {
         let mut seed = [0u8; 32];
         let signature = keypair.sign(&entry_id.as_ref());
 
-        let tx = StorageTransaction::new_advertise_recent_blockhash(
-            keypair,
+        let ix = storage_instruction::advertise_recent_blockhash(
+            &keypair.pubkey(),
             entry_id,
-            Hash::default(),
             entry_height,
         );
-        tx_sender.send(tx)?;
+        instruction_sender.send(ix)?;
 
-        seed.copy_from_slice(&signature.as_ref()[..32]);
+        seed.copy_from_slice(&signature.to_bytes()[..32]);
 
         let mut rng = ChaChaRng::from_seed(seed);
 
@@ -309,7 +309,7 @@ impl StorageStage {
             return Ok(());
         }
         // TODO: what if the validator does not have this segment
-        let segment = signature.as_ref()[0] as usize % num_segments;
+        let segment = signature.to_bytes()[0] as usize % num_segments;
 
         debug!(
             "storage verifying: segment: {} identities: {}",
@@ -328,7 +328,7 @@ impl StorageStage {
         {
             // Lock the keys, since this is the IV memory,
             // it will be updated in-place by the encryption.
-            // Should be overwritten by the vote signatures which replace the
+            // Should be overwritten by the proof signatures which replace the
             // key values by the time it runs again.
 
             let mut statew = state.write().unwrap();
@@ -354,7 +354,7 @@ impl StorageStage {
         Ok(())
     }
 
-    pub fn process_entries(
+    fn process_entries(
         keypair: &Arc<Keypair>,
         storage_state: &Arc<RwLock<StorageStateInner>>,
         entry_receiver: &EntryReceiver,
@@ -363,32 +363,39 @@ impl StorageStage {
         entry_height: &mut u64,
         current_key_idx: &mut usize,
         storage_rotate_count: u64,
-        tx_sender: &TransactionSender,
+        instruction_sender: &InstructionSender,
     ) -> Result<()> {
         let timeout = Duration::new(1, 0);
         let entries: Vec<Entry> = entry_receiver.recv_timeout(timeout)?;
         for entry in entries {
-            // Go through the transactions, find votes, and use them to update
-            // the storage_keys with their signatures.
+            // Go through the transactions, find proofs, and use them to update
+            // the storage_keys with their signatures
             for tx in entry.transactions {
-                for (i, program_id) in tx.program_ids.iter().enumerate() {
-                    if soros_vote_api::check_id(&program_id) {
-                        debug!(
-                            "generating storage_keys from votes current_key_idx: {}",
-                            *current_key_idx
-                        );
-                        let storage_keys = &mut storage_state.write().unwrap().storage_keys;
-                        storage_keys[*current_key_idx..*current_key_idx + size_of::<Signature>()]
-                            .copy_from_slice(tx.signatures[0].as_ref());
-                        *current_key_idx += size_of::<Signature>();
-                        *current_key_idx %= storage_keys.len();
-                    } else if soros_storage_api::check_id(&program_id) {
-                        match deserialize(&tx.instructions[i].data) {
-                            Ok(StorageProgram::SubmitMiningProof {
+                let message = tx.message();
+                for instruction in &message.instructions {
+                    let program_id = instruction.program_id(message.program_ids());
+                    if soros_storage_api::check_id(program_id) {
+                        match deserialize(&instruction.data) {
+                            Ok(StorageInstruction::SubmitMiningProof {
                                 entry_height: proof_entry_height,
+                                signature,
                                 ..
                             }) => {
                                 if proof_entry_height < *entry_height {
+                                    {
+                                        debug!(
+                                            "generating storage_keys from storage txs current_key_idx: {}",
+                                            *current_key_idx
+                                        );
+                                        let storage_keys =
+                                            &mut storage_state.write().unwrap().storage_keys;
+                                        storage_keys[*current_key_idx
+                                            ..*current_key_idx + size_of::<Signature>()]
+                                            .copy_from_slice(signature.as_ref());
+                                        *current_key_idx += size_of::<Signature>();
+                                        *current_key_idx %= storage_keys.len();
+                                    }
+
                                     let mut statew = storage_state.write().unwrap();
                                     let max_segment_index =
                                         (*entry_height / ENTRIES_PER_SEGMENT) as usize;
@@ -401,7 +408,7 @@ impl StorageStage {
                                         (proof_entry_height / ENTRIES_PER_SEGMENT) as usize;
                                     if proof_segment_index < statew.replicator_map.len() {
                                         statew.replicator_map[proof_segment_index]
-                                            .insert(tx.account_keys[0]);
+                                            .insert(message.account_keys[0]);
                                     }
                                 }
                                 debug!("storage proof: entry_height: {}", entry_height);
@@ -427,7 +434,7 @@ impl StorageStage {
                     &blocktree,
                     entry.hash,
                     *entry_height,
-                    tx_sender,
+                    instruction_sender,
                 )?;
             }
             *entry_height += 1;
@@ -448,23 +455,18 @@ impl Service for StorageStage {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::blocktree::{create_new_tmp_ledger, Blocktree};
     use crate::cluster_info::ClusterInfo;
     use crate::contact_info::ContactInfo;
     use crate::entry::{make_tiny_test_entries, Entry};
     use crate::service::Service;
-    use crate::storage_stage::StorageState;
-    use crate::storage_stage::NUM_IDENTITIES;
-    use crate::storage_stage::{
-        get_identity_index_from_signature, StorageStage, STORAGE_ROTATE_TEST_COUNT,
-    };
     use rayon::prelude::*;
+    use soros_runtime::bank::Bank;
     use soros_sdk::genesis_block::GenesisBlock;
-    use soros_sdk::hash::Hash;
-    use soros_sdk::hash::Hasher;
+    use soros_sdk::hash::{Hash, Hasher};
     use soros_sdk::pubkey::Pubkey;
     use soros_sdk::signature::{Keypair, KeypairUtil};
-    use soros_vote_api::vote_transaction::VoteTransaction;
     use std::cmp::{max, min};
     use std::fs::remove_dir_all;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -476,10 +478,13 @@ mod tests {
     #[test]
     fn test_storage_stage_none_ledger() {
         let keypair = Arc::new(Keypair::new());
+        let storage_keypair = Arc::new(Keypair::new());
         let exit = Arc::new(AtomicBool::new(false));
 
         let cluster_info = test_cluster_info(&keypair.pubkey());
-
+        let (genesis_block, _mint_keypair) = GenesisBlock::new(1000);
+        let bank = Arc::new(Bank::new(&genesis_block));
+        let bank_forks = Arc::new(RwLock::new(BankForks::new_from_banks(&[bank])));
         let (_storage_entry_sender, storage_entry_receiver) = channel();
         let storage_state = StorageState::new();
         let storage_stage = StorageStage::new(
@@ -487,8 +492,10 @@ mod tests {
             storage_entry_receiver,
             None,
             &keypair,
+            &storage_keypair,
             &exit.clone(),
             0,
+            &bank_forks,
             STORAGE_ROTATE_TEST_COUNT,
             &cluster_info,
         );
@@ -506,6 +513,7 @@ mod tests {
     fn test_storage_stage_process_entries() {
         soros_logger::setup();
         let keypair = Arc::new(Keypair::new());
+        let storage_keypair = Arc::new(Keypair::new());
         let exit = Arc::new(AtomicBool::new(false));
 
         let (genesis_block, _mint_keypair) = GenesisBlock::new(1000);
@@ -513,8 +521,12 @@ mod tests {
         let (ledger_path, _blockhash) = create_new_tmp_ledger!(&genesis_block);
 
         let entries = make_tiny_test_entries(64);
-        let blocktree = Blocktree::open_config(&ledger_path, ticks_per_slot).unwrap();
-        blocktree.write_entries(1, 0, 0, &entries).unwrap();
+        let blocktree = Blocktree::open(&ledger_path).unwrap();
+        let bank = Arc::new(Bank::new(&genesis_block));
+        let bank_forks = Arc::new(RwLock::new(BankForks::new_from_banks(&[bank])));
+        blocktree
+            .write_entries(1, 0, 0, ticks_per_slot, &entries)
+            .unwrap();
 
         let cluster_info = test_cluster_info(&keypair.pubkey());
 
@@ -525,8 +537,10 @@ mod tests {
             storage_entry_receiver,
             Some(Arc::new(blocktree)),
             &keypair,
+            &storage_keypair,
             &exit.clone(),
             0,
+            &bank_forks,
             STORAGE_ROTATE_TEST_COUNT,
             &cluster_info,
         );
@@ -565,9 +579,10 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_stage_process_vote_entries() {
+    fn test_storage_stage_process_proof_entries() {
         soros_logger::setup();
         let keypair = Arc::new(Keypair::new());
+        let storage_keypair = Arc::new(Keypair::new());
         let exit = Arc::new(AtomicBool::new(false));
 
         let (genesis_block, _mint_keypair) = GenesisBlock::new(1000);
@@ -575,9 +590,12 @@ mod tests {
         let (ledger_path, _blockhash) = create_new_tmp_ledger!(&genesis_block);
 
         let entries = make_tiny_test_entries(128);
-        let blocktree = Blocktree::open_config(&ledger_path, ticks_per_slot).unwrap();
-        blocktree.write_entries(1, 0, 0, &entries).unwrap();
-
+        let blocktree = Blocktree::open(&ledger_path).unwrap();
+        blocktree
+            .write_entries(1, 0, 0, ticks_per_slot, &entries)
+            .unwrap();
+        let bank = Arc::new(Bank::new(&genesis_block));
+        let bank_forks = Arc::new(RwLock::new(BankForks::new_from_banks(&[bank])));
         let cluster_info = test_cluster_info(&keypair.pubkey());
 
         let (storage_entry_sender, storage_entry_receiver) = channel();
@@ -587,8 +605,10 @@ mod tests {
             storage_entry_receiver,
             Some(Arc::new(blocktree)),
             &keypair,
+            &storage_keypair,
             &exit.clone(),
             0,
+            &bank_forks,
             STORAGE_ROTATE_TEST_COUNT,
             &cluster_info,
         );
@@ -600,13 +620,19 @@ mod tests {
             reference_keys = vec![0; keys.len()];
             reference_keys.copy_from_slice(keys);
         }
-        let mut vote_txs: Vec<_> = Vec::new();
+
         let keypair = Keypair::new();
-        let vote_tx =
-            VoteTransaction::new_vote(&keypair.pubkey(), &keypair, 123456, Hash::default(), 1);
-        vote_txs.push(vote_tx);
-        let vote_entries = vec![Entry::new(&Hash::default(), 1, vote_txs)];
-        storage_entry_sender.send(vote_entries).unwrap();
+        let mining_proof_ix = storage_instruction::mining_proof(
+            &keypair.pubkey(),
+            Hash::default(),
+            0,
+            keypair.sign_message(b"test"),
+        );
+        let mining_proof_tx = Transaction::new_unsigned_instructions(vec![mining_proof_ix]);
+        let mining_txs = vec![mining_proof_tx];
+
+        let proof_entries = vec![Entry::new(&Hash::default(), 1, mining_txs)];
+        storage_entry_sender.send(proof_entries).unwrap();
 
         for _ in 0..5 {
             {

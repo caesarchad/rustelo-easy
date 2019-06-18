@@ -1,7 +1,8 @@
 //! The `vote_signer_proxy` votes on the `blockhash` of the bank at a regular cadence
 
 use jsonrpc_core;
-use soros_client::rpc_request::{RpcClient, RpcRequest};
+use soros_client::rpc_client::RpcClient;
+use soros_client::rpc_request::RpcRequest;
 use soros_sdk::pubkey::Pubkey;
 use soros_sdk::signature::{Keypair, KeypairUtil, Signature};
 use soros_vote_signer::rpc::LocalVoteSigner;
@@ -15,7 +16,7 @@ pub struct RemoteVoteSigner {
 
 impl RemoteVoteSigner {
     pub fn new(signer: SocketAddr) -> Self {
-        let rpc_client = RpcClient::new_from_socket(signer);
+        let rpc_client = RpcClient::new_socket(signer);
         Self { rpc_client }
     }
 }
@@ -30,7 +31,7 @@ impl VoteSigner for RemoteVoteSigner {
         let params = json!([pubkey, sig, msg]);
         let resp = self
             .rpc_client
-            .retry_make_rpc_request(1, &RpcRequest::RegisterNode, Some(params), 5)
+            .retry_make_rpc_request(&RpcRequest::RegisterNode, Some(params), 5)
             .unwrap();
         let vote_account: Pubkey = serde_json::from_value(resp).unwrap();
         Ok(vote_account)
@@ -44,7 +45,7 @@ impl VoteSigner for RemoteVoteSigner {
         let params = json!([pubkey, sig, msg]);
         let resp = self
             .rpc_client
-            .retry_make_rpc_request(1, &RpcRequest::SignVote, Some(params), 0)
+            .retry_make_rpc_request(&RpcRequest::SignVote, Some(params), 0)
             .unwrap();
         let vote_signature: Signature = serde_json::from_value(resp).unwrap();
         Ok(vote_signature)
@@ -53,7 +54,7 @@ impl VoteSigner for RemoteVoteSigner {
         let params = json!([pubkey, sig, msg]);
         let _resp = self
             .rpc_client
-            .retry_make_rpc_request(1, &RpcRequest::DeregisterNode, Some(params), 5)
+            .retry_make_rpc_request(&RpcRequest::DeregisterNode, Some(params), 5)
             .unwrap();
         Ok(())
     }
@@ -105,55 +106,62 @@ impl VotingKeypair {
 #[cfg(test)]
 pub mod tests {
     use soros_runtime::bank::Bank;
+    use soros_sdk::instruction::Instruction;
     use soros_sdk::pubkey::Pubkey;
     use soros_sdk::signature::{Keypair, KeypairUtil};
-    use soros_vote_api::vote_transaction::VoteTransaction;
+    use soros_sdk::transaction::Transaction;
+    use soros_vote_api::vote_instruction;
+    use soros_vote_api::vote_state::Vote;
+
+    fn process_instructions<T: KeypairUtil>(bank: &Bank, keypairs: &[&T], ixs: Vec<Instruction>) {
+        let blockhash = bank.last_blockhash();
+        let tx = Transaction::new_signed_instructions(keypairs, ixs, blockhash);
+        bank.process_transaction(&tx).unwrap();
+    }
 
     pub fn new_vote_account(
         from_keypair: &Keypair,
-        voting_pubkey: &Pubkey,
-        bank: &Bank,
-        lamports: u64,
-    ) {
-        let blockhash = bank.last_blockhash();
-        let tx = VoteTransaction::new_account(from_keypair, voting_pubkey, blockhash, lamports, 0);
-        bank.process_transaction(&tx).unwrap();
-    }
-
-    pub fn new_vote_account_with_delegate(
-        from_keypair: &Keypair,
         voting_keypair: &Keypair,
-        delegate: &Pubkey,
+        node_id: &Pubkey,
         bank: &Bank,
         lamports: u64,
     ) {
-        let blockhash = bank.last_blockhash();
-        let tx = VoteTransaction::new_account_with_delegate(
-            from_keypair,
-            voting_keypair,
-            delegate,
-            blockhash,
-            lamports,
+        let voting_pubkey = voting_keypair.pubkey();
+        let ixs = vote_instruction::create_account(
+            &from_keypair.pubkey(),
+            &voting_pubkey,
+            node_id,
             0,
+            lamports,
         );
-        bank.process_transaction(&tx).unwrap();
+        process_instructions(bank, &[from_keypair], ixs);
     }
 
     pub fn push_vote<T: KeypairUtil>(voting_keypair: &T, bank: &Bank, slot: u64) {
-        let blockhash = bank.last_blockhash();
-        let tx =
-            VoteTransaction::new_vote(&voting_keypair.pubkey(), voting_keypair, slot, blockhash, 0);
-        bank.process_transaction(&tx).unwrap();
+        let ix = vote_instruction::vote(&voting_keypair.pubkey(), vec![Vote::new(slot)]);
+        process_instructions(bank, &[voting_keypair], vec![ix]);
     }
 
     pub fn new_vote_account_with_vote<T: KeypairUtil>(
-        from_keypair: &Keypair,
+        from_keypair: &T,
         voting_keypair: &T,
+        node_id: &Pubkey,
         bank: &Bank,
         lamports: u64,
         slot: u64,
     ) {
-        new_vote_account(from_keypair, &voting_keypair.pubkey(), bank, lamports);
-        push_vote(voting_keypair, bank, slot);
+        let voting_pubkey = voting_keypair.pubkey();
+        let mut ixs = vote_instruction::create_account(
+            &from_keypair.pubkey(),
+            &voting_pubkey,
+            node_id,
+            0,
+            lamports,
+        );
+        ixs.push(vote_instruction::vote(
+            &voting_pubkey,
+            vec![Vote::new(slot)],
+        ));
+        process_instructions(bank, &[from_keypair, voting_keypair], ixs);
     }
 }

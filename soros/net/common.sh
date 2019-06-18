@@ -19,30 +19,37 @@ mkdir -p "$netConfigDir" "$netLogDir"
 source "$(dirname "${BASH_SOURCE[0]}")"/../scripts/configure-metrics.sh
 
 configFile="$netConfigDir/config"
+geoipConfigFile="$netConfigDir/geoip.yml"
 
 entrypointIp=
 publicNetwork=
 netBasename=
 sshPrivateKey=
+externalNodeSshKey=
 sshOptions=()
 fullnodeIpList=()
 fullnodeIpListPrivate=()
+fullnodeIpListZone=()
 clientIpList=()
 clientIpListPrivate=()
+clientIpListZone=()
 blockstreamerIpList=()
 blockstreamerIpListPrivate=()
+blockstreamerIpListZone=()
 leaderRotation=
 
 buildSshOptions() {
   sshOptions=(
+    -o "ConnectTimeout=20"
     -o "BatchMode=yes"
     -o "StrictHostKeyChecking=no"
     -o "UserKnownHostsFile=/dev/null"
-    -o "User=bitconch"
+    -o "User=soros"
     -o "IdentityFile=$sshPrivateKey"
     -o "LogLevel=ERROR"
-    -F /dev/null
   )
+
+  [[ -z $externalNodeSshKey ]] || sshOptions+=(-o "IdentityFile=$externalNodeSshKey")
 }
 
 loadConfigFile() {

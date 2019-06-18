@@ -193,7 +193,7 @@ pub fn submit(point: influxdb::Point) {
 
 fn get_env_settings() -> Result<(String, String, String, String), env::VarError> {
     let host =
-        env::var("INFLUX_HOST").unwrap_or_else(|_| "https://dashboard.bitconch.io:8086".to_string());
+        env::var("INFLUX_HOST").unwrap_or_else(|_| "https://metrics.soros.com:8086".to_string());
     let db = env::var("INFLUX_DATABASE")?.to_string();
     let username = env::var("INFLUX_USERNAME")?.to_string();
     let password = env::var("INFLUX_PASSWORD")?.to_string();
@@ -223,7 +223,6 @@ pub fn flush() {
 /// Hook the panic handler to generate a data point on each panic
 pub fn set_panic_hook(program: &'static str) {
     use std::panic;
-    use std::sync::{Once, ONCE_INIT};
     static SET_HOOK: Once = ONCE_INIT;
     SET_HOOK.call_once(|| {
         let default_hook = panic::take_hook();

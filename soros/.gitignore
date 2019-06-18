@@ -1,10 +1,13 @@
-/target/
-/ledger-tool/target/
-/wallet/target/
-/core/target/
 /book/html/
 /book/src/img/
 /book/src/tests.ok
+/core/target/
+/farf/
+/ledger-tool/target/
+/soros-release/
+soros-release.tar.bz2
+/target/
+/wallet/target/
 
 **/*.rs.bk
 .cargo
@@ -20,4 +23,4 @@ log-*.txt
 
 # intellij files
 /.idea/
-/bitconch.iml
+/soros.iml

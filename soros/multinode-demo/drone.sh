@@ -7,18 +7,6 @@ here=$(dirname "$0")
 # shellcheck source=multinode-demo/common.sh
 source "$here"/common.sh
 
-usage() {
-  if [[ -n $1 ]]; then
-    echo "$*"
-    echo
-  fi
-  echo "usage: $0]"
-  echo
-  echo " Run an airdrop drone"
-  echo
-  exit 1
-}
-
 [[ -f "$SOROS_CONFIG_DIR"/mint-id.json ]] || {
   echo "$SOROS_CONFIG_DIR/mint-id.json not found, create it by running:"
   echo
@@ -31,6 +19,7 @@ set -ex
 trap 'kill "$pid" && wait "$pid"' INT TERM ERR
 $soros_drone \
   --keypair "$SOROS_CONFIG_DIR"/mint-id.json \
+  "$@" \
   > >($drone_logger) 2>&1 &
 pid=$!
 wait "$pid"

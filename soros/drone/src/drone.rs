@@ -1,6 +1,6 @@
-//! The `drone` module provides an object for launching a Bitconch Drone,
-//! which is the custodian of any remaining lamports in a mint.
-//! The Bitconch Drone builds and send airdrop transactions,
+//! The `tokenbot` module provides an object for launching a Bitconch Tokenbot,
+//! which is the custodian of any remaining balance in a mint.
+//! The Bitconh Tokenbot builds and send airdrop transactions,
 //! checking requests against a request cap for a given time time_slice
 //! and (to come) an IP rate limit.
 
@@ -12,11 +12,11 @@ use serde_derive::{Deserialize, Serialize};
 use soros_metrics;
 use soros_metrics::influxdb;
 use soros_sdk::hash::Hash;
+use soros_sdk::message::Message;
 use soros_sdk::packet::PACKET_DATA_SIZE;
 use soros_sdk::pubkey::Pubkey;
-use soros_sdk::signature::Keypair;
-use soros_sdk::system_instruction::SystemInstruction;
-use soros_sdk::system_program;
+use soros_sdk::signature::{Keypair, KeypairUtil};
+use soros_sdk::system_instruction;
 use soros_sdk::transaction::Transaction;
 use std::io;
 use std::io::{Error, ErrorKind};
@@ -42,7 +42,7 @@ macro_rules! socketaddr {
 }
 
 pub const TIME_SLICE: u64 = 60;
-pub const REQUEST_CAP: u64 = 500_000_000;
+pub const REQUEST_CAP: u64 = 100_000_000_000_000;
 pub const DRONE_PORT: u16 = 9900;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -127,24 +127,21 @@ impl Drone {
 
                     info!("Requesting airdrop of {} to {:?}", lamports, to);
 
-                    let create_instruction = SystemInstruction::CreateAccount {
+                    let create_instruction = system_instruction::create_user_account(
+                        &self.mint_keypair.pubkey(),
+                        &to,
                         lamports,
-                        space: 0,
-                        program_id: system_program::id(),
-                    };
-                    let mut transaction = Transaction::new(
-                        &self.mint_keypair,
-                        &[to],
-                        &system_program::id(),
-                        &create_instruction,
-                        blockhash,
-                        0, /*fee*/
                     );
-
-                    transaction.sign(&[&self.mint_keypair], blockhash);
-                    Ok(transaction)
+                    let message = Message::new(vec![create_instruction]);
+                    Ok(Transaction::new(&[&self.mint_keypair], message, blockhash))
                 } else {
-                    Err(Error::new(ErrorKind::Other, "token limit reached"))
+                    Err(Error::new(
+                        ErrorKind::Other,
+                        format!(
+                            "token limit reached; req: {} current: {} cap: {}",
+                            lamports, self.request_current, self.request_cap
+                        ),
+                    ))
                 }
             }
         }
@@ -252,49 +249,73 @@ pub fn request_airdrop_transaction(
 }
 
 // For integration tests. Listens on random open port and reports port to Sender.
-pub fn run_local_drone(mint_keypair: Keypair, sender: Sender<SocketAddr>) {
+pub fn run_local_drone(
+    mint_keypair: Keypair,
+    sender: Sender<SocketAddr>,
+    request_cap_input: Option<u64>,
+) {
     thread::spawn(move || {
         let drone_addr = socketaddr!(0, 0);
-        let drone = Arc::new(Mutex::new(Drone::new(mint_keypair, None, None)));
-        let socket = TcpListener::bind(&drone_addr).unwrap();
-        sender.send(socket.local_addr().unwrap()).unwrap();
-        info!("Drone started. Listening on: {}", drone_addr);
-        let done = socket
-            .incoming()
-            .map_err(|e| debug!("failed to accept socket; error = {:?}", e))
-            .for_each(move |socket| {
-                let drone2 = drone.clone();
-                let framed = BytesCodec::new().framed(socket);
-                let (writer, reader) = framed.split();
-
-                let processor = reader.and_then(move |bytes| {
-                    let response_bytes = drone2
-                        .lock()
-                        .unwrap()
-                        .process_drone_request(&bytes)
-                        .unwrap();
-                    info!("Airdrop response_bytes: {:?}", response_bytes.to_vec());
-                    Ok(response_bytes)
-                });
-                let server = writer
-                    .send_all(processor.or_else(|err| {
-                        Err(io::Error::new(
-                            io::ErrorKind::Other,
-                            format!("Drone response: {:?}", err),
-                        ))
-                    }))
-                    .then(|_| Ok(()));
-                tokio::spawn(server)
-            });
-        tokio::run(done);
+        let drone = Arc::new(Mutex::new(Drone::new(
+            mint_keypair,
+            None,
+            request_cap_input,
+        )));
+        run_drone(drone, drone_addr, Some(sender));
     });
+}
+
+pub fn run_drone(
+    drone: Arc<Mutex<Drone>>,
+    drone_addr: SocketAddr,
+    send_addr: Option<Sender<SocketAddr>>,
+) {
+    let socket = TcpListener::bind(&drone_addr).unwrap();
+    if send_addr.is_some() {
+        send_addr
+            .unwrap()
+            .send(socket.local_addr().unwrap())
+            .unwrap();
+    }
+    info!("Drone started. Listening on: {}", drone_addr);
+    let done = socket
+        .incoming()
+        .map_err(|e| debug!("failed to accept socket; error = {:?}", e))
+        .for_each(move |socket| {
+            let drone2 = drone.clone();
+            let framed = BytesCodec::new().framed(socket);
+            let (writer, reader) = framed.split();
+
+            let processor = reader.and_then(move |bytes| {
+                match drone2.lock().unwrap().process_drone_request(&bytes) {
+                    Ok(response_bytes) => {
+                        trace!("Airdrop response_bytes: {:?}", response_bytes.to_vec());
+                        Ok(response_bytes)
+                    }
+                    Err(e) => {
+                        info!("Error in request: {:?}", e);
+                        Ok(Bytes::from(&b""[..]))
+                    }
+                }
+            });
+            let server = writer
+                .send_all(processor.or_else(|err| {
+                    Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("Drone response: {:?}", err),
+                    ))
+                }))
+                .then(|_| Ok(()));
+            tokio::spawn(server)
+        });
+    tokio::run(done);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use bytes::BufMut;
-    use soros_sdk::signature::{Keypair, KeypairUtil};
+    use soros_sdk::system_instruction::SystemInstruction;
     use std::time::Duration;
 
     #[test]
@@ -352,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_drone_build_airdrop_transaction() {
-        let to = Keypair::new().pubkey();
+        let to = Pubkey::new_rand();
         let blockhash = Hash::default();
         let request = DroneRequest::GetAirdrop {
             lamports: 2,
@@ -365,14 +386,14 @@ mod tests {
         let mut drone = Drone::new(mint, None, None);
 
         let tx = drone.build_airdrop_transaction(request).unwrap();
+        let message = tx.message();
 
         assert_eq!(tx.signatures.len(), 1);
-        assert_eq!(tx.account_keys, vec![mint_pubkey, to]);
-        assert_eq!(tx.recent_blockhash, blockhash);
-        assert_eq!(tx.program_ids, vec![system_program::id()]);
+        assert_eq!(message.account_keys, vec![mint_pubkey, to]);
+        assert_eq!(message.recent_blockhash, blockhash);
 
-        assert_eq!(tx.instructions.len(), 1);
-        let instruction: SystemInstruction = deserialize(&tx.instructions[0].data).unwrap();
+        assert_eq!(message.instructions.len(), 1);
+        let instruction: SystemInstruction = deserialize(&message.instructions[0].data).unwrap();
         assert_eq!(
             instruction,
             SystemInstruction::CreateAccount {
@@ -390,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_process_drone_request() {
-        let to = Keypair::new().pubkey();
+        let to = Pubkey::new_rand();
         let blockhash = Hash::new(&to.as_ref());
         let lamports = 50;
         let req = DroneRequest::GetAirdrop {
@@ -403,20 +424,10 @@ mod tests {
         bytes.put(&req[..]);
 
         let keypair = Keypair::new();
-        let expected_instruction = SystemInstruction::CreateAccount {
-            lamports,
-            space: 0,
-            program_id: system_program::id(),
-        };
-        let mut expected_tx = Transaction::new(
-            &keypair,
-            &[to],
-            &system_program::id(),
-            &expected_instruction,
-            blockhash,
-            0,
-        );
-        expected_tx.sign(&[&keypair], blockhash);
+        let expected_instruction =
+            system_instruction::create_user_account(&keypair.pubkey(), &to, lamports);
+        let message = Message::new(vec![expected_instruction]);
+        let expected_tx = Transaction::new(&[&keypair], message, blockhash);
         let expected_bytes = serialize(&expected_tx).unwrap();
         let mut expected_vec_with_length = vec![0; 2];
         LittleEndian::write_u16(&mut expected_vec_with_length, expected_bytes.len() as u16);

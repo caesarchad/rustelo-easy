@@ -23,7 +23,7 @@ export CI_BUILD_START
 # processes will all have the `init` process as their PPID:
 (
   victims=
-  for name in bash cargo docker bitconch; do
+  for name in bash cargo docker soros; do
     victims="$victims $(pgrep -u "$(id -u)" -P 1 -d \  $name)"
   done
   for victim in $victims; do

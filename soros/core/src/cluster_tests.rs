@@ -6,15 +6,18 @@ use crate::blocktree::Blocktree;
 use crate::cluster_info::FULLNODE_PORT_RANGE;
 use crate::contact_info::ContactInfo;
 use crate::entry::{Entry, EntrySlice};
-use crate::gossip_service::discover;
+use crate::gossip_service::discover_nodes;
+use crate::locktower::VOTE_THRESHOLD_DEPTH;
 use crate::poh_service::PohServiceConfig;
-use soros_client::client::create_client;
+use soros_client::thin_client::create_client;
+use soros_sdk::client::SyncClient;
 use soros_sdk::hash::Hash;
-use soros_sdk::signature::{Keypair, KeypairUtil};
-use soros_sdk::system_transaction::SystemTransaction;
+use soros_sdk::signature::{Keypair, KeypairUtil, Signature};
+use soros_sdk::system_transaction;
 use soros_sdk::timing::{
-    duration_as_ms, DEFAULT_SLOTS_PER_EPOCH, DEFAULT_TICKS_PER_SLOT, NUM_TICKS_PER_SECOND,
+    duration_as_ms, DEFAULT_TICKS_PER_SLOT, NUM_CONSECUTIVE_LEADER_SLOTS, NUM_TICKS_PER_SECOND,
 };
+use soros_sdk::transport::TransportError;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -26,45 +29,46 @@ pub fn spend_and_verify_all_nodes(
     funding_keypair: &Keypair,
     nodes: usize,
 ) {
-    let cluster_nodes = discover(&entry_point_info.gossip, nodes).unwrap();
+    let cluster_nodes = discover_nodes(&entry_point_info.gossip, nodes).unwrap();
     assert!(cluster_nodes.len() >= nodes);
     for ingress_node in &cluster_nodes {
         let random_keypair = Keypair::new();
-        let mut client = create_client(ingress_node.client_facing_addr(), FULLNODE_PORT_RANGE);
+        let client = create_client(ingress_node.client_facing_addr(), FULLNODE_PORT_RANGE);
         let bal = client
             .poll_get_balance(&funding_keypair.pubkey())
             .expect("balance in source");
         assert!(bal > 0);
-        let mut transaction = SystemTransaction::new_move(
+        let mut transaction = system_transaction::transfer(
             &funding_keypair,
             &random_keypair.pubkey(),
             1,
-            client.get_recent_blockhash(),
+            client.get_recent_blockhash().unwrap(),
             0,
         );
+        let confs = VOTE_THRESHOLD_DEPTH + 1;
         let sig = client
-            .retry_transfer(&funding_keypair, &mut transaction, 5)
+            .retry_transfer_until_confirmed(&funding_keypair, &mut transaction, 5, confs)
             .unwrap();
         for validator in &cluster_nodes {
-            let mut client = create_client(validator.client_facing_addr(), FULLNODE_PORT_RANGE);
-            client.poll_for_signature(&sig).unwrap();
+            let client = create_client(validator.client_facing_addr(), FULLNODE_PORT_RANGE);
+            client.poll_for_signature_confirmation(&sig, confs).unwrap();
         }
     }
 }
 
 pub fn send_many_transactions(node: &ContactInfo, funding_keypair: &Keypair, num_txs: u64) {
-    let mut client = create_client(node.client_facing_addr(), FULLNODE_PORT_RANGE);
+    let client = create_client(node.client_facing_addr(), FULLNODE_PORT_RANGE);
     for _ in 0..num_txs {
         let random_keypair = Keypair::new();
         let bal = client
             .poll_get_balance(&funding_keypair.pubkey())
             .expect("balance in source");
         assert!(bal > 0);
-        let mut transaction = SystemTransaction::new_move(
+        let mut transaction = system_transaction::transfer(
             &funding_keypair,
             &random_keypair.pubkey(),
             1,
-            client.get_recent_blockhash(),
+            client.get_recent_blockhash().unwrap(),
             0,
         );
         client
@@ -74,15 +78,15 @@ pub fn send_many_transactions(node: &ContactInfo, funding_keypair: &Keypair, num
 }
 
 pub fn fullnode_exit(entry_point_info: &ContactInfo, nodes: usize) {
-    let cluster_nodes = discover(&entry_point_info.gossip, nodes).unwrap();
+    let cluster_nodes = discover_nodes(&entry_point_info.gossip, nodes).unwrap();
     assert!(cluster_nodes.len() >= nodes);
     for node in &cluster_nodes {
-        let mut client = create_client(node.client_facing_addr(), FULLNODE_PORT_RANGE);
+        let client = create_client(node.client_facing_addr(), FULLNODE_PORT_RANGE);
         assert!(client.fullnode_exit().unwrap());
     }
     sleep(Duration::from_millis(SLOT_MILLIS));
     for node in &cluster_nodes {
-        let mut client = create_client(node.client_facing_addr(), FULLNODE_PORT_RANGE);
+        let client = create_client(node.client_facing_addr(), FULLNODE_PORT_RANGE);
         assert!(client.fullnode_exit().is_err());
     }
 }
@@ -145,45 +149,94 @@ pub fn kill_entry_and_spend_and_verify_rest(
     nodes: usize,
 ) {
     soros_logger::setup();
-    let cluster_nodes = discover(&entry_point_info.gossip, nodes).unwrap();
+    let cluster_nodes = discover_nodes(&entry_point_info.gossip, nodes).unwrap();
     assert!(cluster_nodes.len() >= nodes);
-    let mut client = create_client(entry_point_info.client_facing_addr(), FULLNODE_PORT_RANGE);
-    info!("sleeping for an epoch");
-    sleep(Duration::from_millis(SLOT_MILLIS * DEFAULT_SLOTS_PER_EPOCH));
-    info!("done sleeping for an epoch");
+    let client = create_client(entry_point_info.client_facing_addr(), FULLNODE_PORT_RANGE);
+    info!("sleeping for 2 leader fortnights");
+    sleep(Duration::from_millis(
+        SLOT_MILLIS * NUM_CONSECUTIVE_LEADER_SLOTS * 2,
+    ));
+    info!("done sleeping for 2 fortnights");
     info!("killing entry point");
     assert!(client.fullnode_exit().unwrap());
-    info!("sleeping for a slot");
-    sleep(Duration::from_millis(SLOT_MILLIS));
-    info!("done sleeping for a slot");
+    info!("sleeping for 2 leader fortnights");
+    sleep(Duration::from_millis(
+        SLOT_MILLIS * NUM_CONSECUTIVE_LEADER_SLOTS,
+    ));
+    info!("done sleeping for 2 fortnights");
     for ingress_node in &cluster_nodes {
         if ingress_node.id == entry_point_info.id {
             continue;
         }
-        let random_keypair = Keypair::new();
-        let mut client = create_client(ingress_node.client_facing_addr(), FULLNODE_PORT_RANGE);
+
+        let client = create_client(ingress_node.client_facing_addr(), FULLNODE_PORT_RANGE);
         let bal = client
             .poll_get_balance(&funding_keypair.pubkey())
             .expect("balance in source");
         assert!(bal > 0);
-        let mut transaction = SystemTransaction::new_move(
-            &funding_keypair,
-            &random_keypair.pubkey(),
-            1,
-            client.get_recent_blockhash(),
-            0,
-        );
-        let sig = client
-            .retry_transfer(&funding_keypair, &mut transaction, 5)
-            .unwrap();
-        for validator in &cluster_nodes {
-            if validator.id == entry_point_info.id {
-                continue;
+
+        let mut result = Ok(());
+        let mut retries = 0;
+        loop {
+            retries += 1;
+            if retries > 5 {
+                result.unwrap();
             }
-            let mut client = create_client(validator.client_facing_addr(), FULLNODE_PORT_RANGE);
-            client.poll_for_signature(&sig).unwrap();
+
+            let random_keypair = Keypair::new();
+            let mut transaction = system_transaction::transfer(
+                &funding_keypair,
+                &random_keypair.pubkey(),
+                1,
+                client.get_recent_blockhash().unwrap(),
+                0,
+            );
+
+            let confs = VOTE_THRESHOLD_DEPTH + 1;
+            let sig = {
+                let sig = client.retry_transfer_until_confirmed(
+                    &funding_keypair,
+                    &mut transaction,
+                    5,
+                    confs,
+                );
+                match sig {
+                    Err(e) => {
+                        result = Err(TransportError::IoError(e));
+                        continue;
+                    }
+
+                    Ok(sig) => sig,
+                }
+            };
+
+            match poll_all_nodes_for_signature(&entry_point_info, &cluster_nodes, &sig, confs) {
+                Err(e) => {
+                    result = Err(e);
+                }
+                Ok(()) => {
+                    break;
+                }
+            }
         }
     }
+}
+
+fn poll_all_nodes_for_signature(
+    entry_point_info: &ContactInfo,
+    cluster_nodes: &[ContactInfo],
+    sig: &Signature,
+    confs: usize,
+) -> Result<(), TransportError> {
+    for validator in cluster_nodes {
+        if validator.id == entry_point_info.id {
+            continue;
+        }
+        let client = create_client(validator.client_facing_addr(), FULLNODE_PORT_RANGE);
+        client.poll_for_signature_confirmation(&sig, confs)?;
+    }
+
+    Ok(())
 }
 
 fn get_and_verify_slot_entries(blocktree: &Blocktree, slot: u64, last_entry: &Hash) -> Vec<Entry> {

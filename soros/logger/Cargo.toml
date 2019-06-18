@@ -1,11 +1,11 @@
 [package]
 name = "soros-logger"
-version = "0.12.3"
-description = "Bitconch Logger"
-authors = ["Bitconch Dev Team"]
-repository = "https://github.com/bitconch/bus"
+version = "0.14.2"
+description = "Soros Logger"
+authors = ["Soros Maintainers <maintainers@soros.com>"]
+repository = "https://github.com/soros-labs/soros"
 license = "Apache-2.0"
-homepage = "https://bitconch.io"
+homepage = "https://soros.com/"
 edition = "2018"
 
 [dependencies]

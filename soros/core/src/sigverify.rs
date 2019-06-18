@@ -4,20 +4,20 @@
 //! offloaded to the GPU.
 //!
 
-use crate::packet::{Packet, SharedPackets};
+use crate::packet::{Packet, Packets};
 use crate::result::Result;
 use soros_metrics::counter::Counter;
 use soros_sdk::pubkey::Pubkey;
-use soros_sdk::shortvec::decode_len;
+use soros_sdk::short_vec::decode_len;
 use soros_sdk::signature::Signature;
 #[cfg(test)]
 use soros_sdk::transaction::Transaction;
-use std::io::Cursor;
 use std::mem::size_of;
 
-pub const TX_OFFSET: usize = 0;
-
 type TxOffsets = (Vec<u32>, Vec<u32>, Vec<u32>, Vec<u32>, Vec<Vec<u32>>);
+
+// The serialized size of Message::num_required_signatures.
+const NUM_REQUIRED_SIGNATURES_SIZE: usize = 1;
 
 #[cfg(feature = "cuda")]
 #[repr(C)]
@@ -67,10 +67,8 @@ pub fn init() {
 }
 
 fn verify_packet(packet: &Packet) -> u8 {
-    use ring::signature;
     use soros_sdk::pubkey::Pubkey;
     use soros_sdk::signature::Signature;
-    use untrusted;
 
     let (sig_len, sig_start, msg_start, pubkey_start) = get_packet_offsets(packet, 0);
     let mut sig_start = sig_start as usize;
@@ -90,14 +88,11 @@ fn verify_packet(packet: &Packet) -> u8 {
             return 0;
         }
 
-        if signature::verify(
-            &signature::ED25519,
-            untrusted::Input::from(&packet.data[pubkey_start..pubkey_end]),
-            untrusted::Input::from(&packet.data[msg_start..msg_end]),
-            untrusted::Input::from(&packet.data[sig_start..sig_end]),
-        )
-        .is_err()
-        {
+        let signature = Signature::new(&packet.data[sig_start..sig_end]);
+        if !signature.verify(
+            &packet.data[pubkey_start..pubkey_end],
+            &packet.data[msg_start..msg_end],
+        ) {
             return 0;
         }
         pubkey_start += size_of::<Pubkey>();
@@ -106,46 +101,34 @@ fn verify_packet(packet: &Packet) -> u8 {
     1
 }
 
-fn verify_packet_disabled(_packet: &Packet) -> u8 {
-    warn!("signature verification is disabled");
-    1
-}
-
-fn batch_size(batches: &[SharedPackets]) -> usize {
-    batches
-        .iter()
-        .map(|p| p.read().unwrap().packets.len())
-        .sum()
+fn batch_size(batches: &[Packets]) -> usize {
+    batches.iter().map(|p| p.packets.len()).sum()
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn ed25519_verify(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
+pub fn ed25519_verify(batches: &[Packets]) -> Vec<Vec<u8>> {
     ed25519_verify_cpu(batches)
 }
 
 pub fn get_packet_offsets(packet: &Packet, current_offset: u32) -> (u32, u32, u32, u32) {
-    // Read in the size of signatures array
-    let start_offset = TX_OFFSET + size_of::<u64>();
-    let mut rd = Cursor::new(&packet.data[start_offset..]);
-    let sig_len = decode_len(&mut rd).unwrap();
-    let sig_size = rd.position() as usize;
-    let msg_start_offset = start_offset + sig_size + sig_len * size_of::<Signature>();
-    let mut rd = Cursor::new(&packet.data[msg_start_offset..]);
-    let _ = decode_len(&mut rd).unwrap();
-    let pubkey_size = rd.position() as usize;
-    let pubkey_offset = current_offset as usize + msg_start_offset + pubkey_size;
+    let (sig_len, sig_size) = decode_len(&packet.data);
+    let msg_start_offset = sig_size + sig_len * size_of::<Signature>();
 
-    let sig_start = start_offset + current_offset as usize + sig_size;
+    let (_pubkey_len, pubkey_size) = decode_len(&packet.data[msg_start_offset..]);
+
+    let sig_start = current_offset as usize + sig_size;
+    let msg_start = current_offset as usize + msg_start_offset;
+    let pubkey_start = msg_start + NUM_REQUIRED_SIGNATURES_SIZE + pubkey_size;
 
     (
         sig_len as u32,
         sig_start as u32,
-        current_offset + msg_start_offset as u32,
-        pubkey_offset as u32,
+        msg_start as u32,
+        pubkey_start as u32,
     )
 }
 
-pub fn generate_offsets(batches: &[SharedPackets]) -> Result<TxOffsets> {
+pub fn generate_offsets(batches: &[Packets]) -> Result<TxOffsets> {
     let mut signature_offsets: Vec<_> = Vec::new();
     let mut pubkey_offsets: Vec<_> = Vec::new();
     let mut msg_start_offsets: Vec<_> = Vec::new();
@@ -154,7 +137,7 @@ pub fn generate_offsets(batches: &[SharedPackets]) -> Result<TxOffsets> {
     let mut v_sig_lens = Vec::new();
     batches.iter().for_each(|p| {
         let mut sig_lens = Vec::new();
-        p.read().unwrap().packets.iter().for_each(|packet| {
+        p.packets.iter().for_each(|packet| {
             let current_offset = current_packet as u32 * size_of::<Packet>() as u32;
 
             let (sig_len, sig_start, msg_start_offset, pubkey_offset) =
@@ -189,39 +172,25 @@ pub fn generate_offsets(batches: &[SharedPackets]) -> Result<TxOffsets> {
     ))
 }
 
-pub fn ed25519_verify_cpu(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
+pub fn ed25519_verify_cpu(batches: &[Packets]) -> Vec<Vec<u8>> {
     use rayon::prelude::*;
     let count = batch_size(batches);
-    info!("CPU ECDSA for {}", batch_size(batches));
+    debug!("CPU ECDSA for {}", batch_size(batches));
     let rv = batches
         .into_par_iter()
-        .map(|p| {
-            p.read()
-                .unwrap()
-                .packets
-                .par_iter()
-                .map(verify_packet)
-                .collect()
-        })
+        .map(|p| p.packets.par_iter().map(verify_packet).collect())
         .collect();
     inc_new_counter_info!("ed25519_verify_cpu", count);
     rv
 }
 
-pub fn ed25519_verify_disabled(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
+pub fn ed25519_verify_disabled(batches: &[Packets]) -> Vec<Vec<u8>> {
     use rayon::prelude::*;
     let count = batch_size(batches);
-    info!("disabled ECDSA for {}", batch_size(batches));
+    debug!("disabled ECDSA for {}", batch_size(batches));
     let rv = batches
         .into_par_iter()
-        .map(|p| {
-            p.read()
-                .unwrap()
-                .packets
-                .par_iter()
-                .map(verify_packet_disabled)
-                .collect()
-        })
+        .map(|p| vec![1u8; p.packets.len()])
         .collect();
     inc_new_counter_info!("ed25519_verify_disabled", count);
     rv
@@ -239,7 +208,7 @@ pub fn init() {
 }
 
 #[cfg(feature = "cuda")]
-pub fn ed25519_verify(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
+pub fn ed25519_verify(batches: &[Packets]) -> Vec<Vec<u8>> {
     use crate::packet::PACKET_DATA_SIZE;
     let count = batch_size(batches);
 
@@ -255,17 +224,13 @@ pub fn ed25519_verify(batches: &[SharedPackets]) -> Vec<Vec<u8>> {
     let (signature_offsets, pubkey_offsets, msg_start_offsets, msg_sizes, sig_lens) =
         generate_offsets(batches).unwrap();
 
-    info!("CUDA ECDSA for {}", batch_size(batches));
+    debug!("CUDA ECDSA for {}", batch_size(batches));
     let mut out = Vec::new();
     let mut elems = Vec::new();
-    let mut locks = Vec::new();
     let mut rvs = Vec::new();
 
-    for packets in batches {
-        locks.push(packets.read().unwrap());
-    }
     let mut num_packets = 0;
-    for p in locks {
+    for p in batches {
         elems.push(Elems {
             elems: p.packets.as_ptr(),
             num: p.packets.len() as u32,
@@ -331,18 +296,13 @@ pub fn make_packet_from_transaction(tx: Transaction) -> Packet {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::{Packet, SharedPackets};
+    use crate::packet::{Packet, Packets};
     use crate::sigverify;
-    use crate::test_tx::test_tx;
+    use crate::test_tx::{test_multisig_tx, test_tx};
     use bincode::{deserialize, serialize};
-    use soros_budget_api;
-    use soros_sdk::hash::Hash;
-    use soros_sdk::signature::{Keypair, KeypairUtil};
-    use soros_sdk::system_instruction::SystemInstruction;
-    use soros_sdk::system_program;
-    use soros_sdk::transaction::{Instruction, Transaction};
+    use soros_sdk::transaction::Transaction;
 
-    const SIG_OFFSET: usize = std::mem::size_of::<u64>() + 1;
+    const SIG_OFFSET: usize = 1;
 
     pub fn memfind<A: Eq>(a: &[A], b: &[A]) -> Option<usize> {
         assert!(a.len() >= b.len());
@@ -360,7 +320,7 @@ mod tests {
         let tx = test_tx();
         let tx_bytes = serialize(&tx).unwrap();
         let packet = serialize(&tx).unwrap();
-        assert_matches!(memfind(&packet, &tx_bytes), Some(sigverify::TX_OFFSET));
+        assert_matches!(memfind(&packet, &tx_bytes), Some(0));
         assert_matches!(memfind(&packet, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), None);
     }
 
@@ -368,7 +328,7 @@ mod tests {
     fn test_system_transaction_layout() {
         let tx = test_tx();
         let tx_bytes = serialize(&tx).unwrap();
-        let message = tx.message();
+        let message_data = tx.message_data();
         let packet = sigverify::make_packet_from_transaction(tx.clone());
 
         let (sig_len, sig_start, msg_start_offset, pubkey_offset) =
@@ -379,11 +339,11 @@ mod tests {
             Some(SIG_OFFSET)
         );
         assert_eq!(
-            memfind(&tx_bytes, &tx.account_keys[0].as_ref()),
+            memfind(&tx_bytes, &tx.message().account_keys[0].as_ref()),
             Some(pubkey_offset as usize)
         );
         assert_eq!(
-            memfind(&tx_bytes, &message),
+            memfind(&tx_bytes, &message_data),
             Some(msg_start_offset as usize)
         );
         assert_eq!(
@@ -391,15 +351,14 @@ mod tests {
             Some(sig_start as usize)
         );
         assert_eq!(sig_len, 1);
-        assert!(tx.verify_signature());
     }
 
     #[test]
     fn test_system_transaction_data_layout() {
         use crate::packet::PACKET_DATA_SIZE;
         let mut tx0 = test_tx();
-        tx0.instructions[0].data = vec![1, 2, 3];
-        let message0a = tx0.message();
+        tx0.message.instructions[0].data = vec![1, 2, 3];
+        let message0a = tx0.message_data();
         let tx_bytes = serialize(&tx0).unwrap();
         assert!(tx_bytes.len() < PACKET_DATA_SIZE);
         assert_eq!(
@@ -408,43 +367,58 @@ mod tests {
         );
         let tx1 = deserialize(&tx_bytes).unwrap();
         assert_eq!(tx0, tx1);
-        assert_eq!(tx1.instructions[0].data, vec![1, 2, 3]);
+        assert_eq!(tx1.message().instructions[0].data, vec![1, 2, 3]);
 
-        tx0.instructions[0].data = vec![1, 2, 4];
-        let message0b = tx0.message();
+        tx0.message.instructions[0].data = vec![1, 2, 4];
+        let message0b = tx0.message_data();
         assert_ne!(message0a, message0b);
+    }
+
+    // Just like get_packet_offsets, but not returning redundant information.
+    fn get_packet_offsets_from_tx(tx: Transaction, current_offset: u32) -> (u32, u32, u32, u32) {
+        let packet = sigverify::make_packet_from_transaction(tx);
+        let (sig_len, sig_start, msg_start_offset, pubkey_offset) =
+            sigverify::get_packet_offsets(&packet, current_offset);
+        (
+            sig_len,
+            sig_start - current_offset,
+            msg_start_offset - sig_start,
+            pubkey_offset - msg_start_offset,
+        )
     }
 
     #[test]
     fn test_get_packet_offsets() {
-        let tx = test_tx();
-        let packet = sigverify::make_packet_from_transaction(tx);
-        let (sig_len, sig_start, msg_start_offset, pubkey_offset) =
-            sigverify::get_packet_offsets(&packet, 0);
-        assert_eq!(sig_len, 1);
-        assert_eq!(sig_start, 9);
-        assert_eq!(msg_start_offset, 73);
-        assert_eq!(pubkey_offset, 74);
+        assert_eq!(get_packet_offsets_from_tx(test_tx(), 0), (1, 1, 64, 2));
+        assert_eq!(get_packet_offsets_from_tx(test_tx(), 100), (1, 1, 64, 2));
+
+        // Ensure we're not indexing packet by the `current_offset` parameter.
+        assert_eq!(
+            get_packet_offsets_from_tx(test_tx(), 1_000_000),
+            (1, 1, 64, 2)
+        );
+
+        // Ensure we're returning sig_len, not sig_size.
+        assert_eq!(
+            get_packet_offsets_from_tx(test_multisig_tx(), 0),
+            (2, 1, 128, 2)
+        );
     }
 
     fn generate_packet_vec(
         packet: &Packet,
         num_packets_per_batch: usize,
         num_batches: usize,
-    ) -> Vec<SharedPackets> {
+    ) -> Vec<Packets> {
         // generate packet vector
         let batches: Vec<_> = (0..num_batches)
             .map(|_| {
-                let packets = SharedPackets::default();
-                packets
-                    .write()
-                    .unwrap()
-                    .packets
-                    .resize(0, Packet::default());
+                let mut packets = Packets::default();
+                packets.packets.resize(0, Packet::default());
                 for _ in 0..num_packets_per_batch {
-                    packets.write().unwrap().packets.push(packet.clone());
+                    packets.packets.push(packet.clone());
                 }
-                assert_eq!(packets.read().unwrap().packets.len(), num_packets_per_batch);
+                assert_eq!(packets.packets.len(), num_packets_per_batch);
                 packets
             })
             .collect();
@@ -488,41 +462,19 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_multi_sig() {
+    fn test_verify_multisig() {
         soros_logger::setup();
-        let keypair0 = Keypair::new();
-        let keypair1 = Keypair::new();
-        let keypairs = vec![&keypair0, &keypair1];
-        let lamports = 5;
-        let fee = 2;
-        let blockhash = Hash::default();
 
-        let keys = vec![keypair0.pubkey(), keypair1.pubkey()];
-
-        let system_instruction = SystemInstruction::Move { lamports };
-
-        let program_ids = vec![system_program::id(), soros_budget_api::id()];
-
-        let instructions = vec![Instruction::new(0, &system_instruction, vec![0, 1])];
-
-        let tx = Transaction::new_with_instructions(
-            &keypairs,
-            &keys,
-            blockhash,
-            fee,
-            program_ids,
-            instructions,
-        );
-
+        let tx = test_multisig_tx();
         let mut packet = sigverify::make_packet_from_transaction(tx);
 
         let n = 4;
         let num_batches = 3;
-        let batches = generate_packet_vec(&packet, n, num_batches);
+        let mut batches = generate_packet_vec(&packet, n, num_batches);
 
         packet.data[40] = packet.data[40].wrapping_add(8);
 
-        batches[0].write().unwrap().packets.push(packet);
+        batches[0].packets.push(packet);
 
         // verify packets
         let ans = sigverify::ed25519_verify(&batches);

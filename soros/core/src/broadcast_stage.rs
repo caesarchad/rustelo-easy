@@ -1,11 +1,10 @@
 //! A stage to broadcast data from a leader node to validators
 //!
 use crate::blocktree::Blocktree;
-use crate::cluster_info::{ClusterInfo, ClusterInfoError, DATA_PLANE_FANOUT};
-use crate::entry::EntrySlice;
-#[cfg(feature = "erasure")]
+use crate::cluster_info::{ClusterInfo, ClusterInfoError, NEIGHBORHOOD_SIZE};
+use crate::entry::{EntrySender, EntrySlice};
 use crate::erasure::CodingGenerator;
-use crate::packet::index_blobs;
+use crate::packet::index_blobs_with_genesis;
 use crate::poh_recorder::WorkingBankEntries;
 use crate::result::{Error, Result};
 use crate::service::Service;
@@ -13,6 +12,7 @@ use crate::staking_utils;
 use rayon::prelude::*;
 use soros_metrics::counter::Counter;
 use soros_metrics::{influxdb, submit};
+use soros_sdk::hash::Hash;
 use soros_sdk::pubkey::Pubkey;
 use soros_sdk::timing::duration_as_ms;
 use std::net::UdpSocket;
@@ -29,8 +29,6 @@ pub enum BroadcastStageReturnType {
 
 struct Broadcast {
     id: Pubkey,
-
-    #[cfg(feature = "erasure")]
     coding_generator: CodingGenerator,
 }
 
@@ -41,10 +39,12 @@ impl Broadcast {
         receiver: &Receiver<WorkingBankEntries>,
         sock: &UdpSocket,
         blocktree: &Arc<Blocktree>,
+        storage_entry_sender: &EntrySender,
+        genesis_blockhash: &Hash,
     ) -> Result<()> {
         let timer = Duration::new(1, 0);
         let (mut bank, entries) = receiver.recv_timeout(timer)?;
-        let mut max_tick_height = (bank.slot() + 1) * bank.ticks_per_slot() - 1;
+        let mut max_tick_height = bank.max_tick_height();
 
         let now = Instant::now();
         let mut num_entries = entries.len();
@@ -52,7 +52,7 @@ impl Broadcast {
         let mut last_tick = entries.last().map(|v| v.1).unwrap_or(0);
         ventries.push(entries);
 
-        assert!(last_tick <= max_tick_height,);
+        assert!(last_tick <= max_tick_height);
         if last_tick != max_tick_height {
             while let Ok((same_bank, entries)) = receiver.try_recv() {
                 // If the bank changed, that implies the previous slot was interrupted and we do not have to
@@ -61,7 +61,7 @@ impl Broadcast {
                     num_entries = 0;
                     ventries.clear();
                     bank = same_bank.clone();
-                    max_tick_height = (bank.slot() + 1) * bank.ticks_per_slot() - 1;
+                    max_tick_height = bank.max_tick_height();
                 }
                 num_entries += entries.len();
                 last_tick = entries.last().map(|v| v.1).unwrap_or(0);
@@ -73,24 +73,27 @@ impl Broadcast {
             }
         }
 
-        let mut broadcast_table = cluster_info
-            .read()
-            .unwrap()
-            .sorted_tvu_peers(&staking_utils::delegated_stakes(&bank));
-        // Layer 1, leader nodes are limited to the fanout size.
-        broadcast_table.truncate(DATA_PLANE_FANOUT);
-
+        let bank_epoch = bank.get_stakers_epoch(bank.slot());
+        let mut broadcast_table = cluster_info.read().unwrap().sorted_tvu_peers(
+            &staking_utils::delegated_stakes_at_epoch(&bank, bank_epoch).unwrap(),
+        );
         inc_new_counter_info!("broadcast_service-num_peers", broadcast_table.len() + 1);
+        // Layer 1, leader nodes are limited to the fanout size.
+        broadcast_table.truncate(NEIGHBORHOOD_SIZE);
+
         inc_new_counter_info!("broadcast_service-entries_received", num_entries);
 
         let to_blobs_start = Instant::now();
 
         let blobs: Vec<_> = ventries
             .into_par_iter()
-            .flat_map(|p| {
+            .map_with(storage_entry_sender.clone(), |s, p| {
                 let entries: Vec<_> = p.into_iter().map(|e| e.0).collect();
-                entries.to_shared_blobs()
+                let blobs = entries.to_shared_blobs();
+                let _ignored = s.send(entries);
+                blobs
             })
+            .flatten()
             .collect();
 
         let blob_index = blocktree
@@ -99,9 +102,10 @@ impl Broadcast {
             .map(|meta| meta.consumed)
             .unwrap_or(0);
 
-        index_blobs(
+        index_blobs_with_genesis(
             &blobs,
             &self.id,
+            genesis_blockhash,
             blob_index,
             bank.slot(),
             bank.parent().map_or(0, |parent| parent.slot()),
@@ -115,6 +119,8 @@ impl Broadcast {
 
         blocktree.write_shared_blobs(&blobs)?;
 
+        let coding = self.coding_generator.next(&blobs);
+
         let to_blobs_elapsed = duration_as_ms(&to_blobs_start.elapsed());
 
         let broadcast_start = Instant::now();
@@ -124,14 +130,8 @@ impl Broadcast {
 
         inc_new_counter_info!("streamer-broadcast-sent", blobs.len());
 
-        // Fill in the coding blob data from the window data blobs
-        #[cfg(feature = "erasure")]
-        {
-            let coding = self.coding_generator.next(&blobs)?;
-
-            // send out erasures
-            ClusterInfo::broadcast(&self.id, false, &broadcast_table, sock, &coding)?;
-        }
+        // send out erasures
+        ClusterInfo::broadcast(&self.id, false, &broadcast_table, sock, &coding)?;
 
         let broadcast_elapsed = duration_as_ms(&broadcast_start.elapsed());
 
@@ -186,17 +186,26 @@ impl BroadcastStage {
         cluster_info: &Arc<RwLock<ClusterInfo>>,
         receiver: &Receiver<WorkingBankEntries>,
         blocktree: &Arc<Blocktree>,
+        storage_entry_sender: EntrySender,
+        genesis_blockhash: &Hash,
     ) -> BroadcastStageReturnType {
         let me = cluster_info.read().unwrap().my_data().clone();
+        let coding_generator = CodingGenerator::default();
 
         let mut broadcast = Broadcast {
             id: me.id,
-            #[cfg(feature = "erasure")]
-            coding_generator: CodingGenerator::new(),
+            coding_generator,
         };
 
         loop {
-            if let Err(e) = broadcast.run(&cluster_info, receiver, sock, blocktree) {
+            if let Err(e) = broadcast.run(
+                &cluster_info,
+                receiver,
+                sock,
+                blocktree,
+                &storage_entry_sender,
+                genesis_blockhash,
+            ) {
                 match e {
                     Error::RecvTimeoutError(RecvTimeoutError::Disconnected) | Error::SendError => {
                         return BroadcastStageReturnType::ChannelDisconnected;
@@ -234,14 +243,24 @@ impl BroadcastStage {
         receiver: Receiver<WorkingBankEntries>,
         exit_sender: &Arc<AtomicBool>,
         blocktree: &Arc<Blocktree>,
+        storage_entry_sender: EntrySender,
+        genesis_blockhash: &Hash,
     ) -> Self {
         let blocktree = blocktree.clone();
         let exit_sender = exit_sender.clone();
+        let genesis_blockhash = *genesis_blockhash;
         let thread_hdl = Builder::new()
             .name("soros-broadcaster".to_string())
             .spawn(move || {
                 let _finalizer = Finalizer::new(exit_sender);
-                Self::run(&sock, &cluster_info, &receiver, &blocktree)
+                Self::run(
+                    &sock,
+                    &cluster_info,
+                    &receiver,
+                    &blocktree,
+                    storage_entry_sender,
+                    &genesis_blockhash,
+                )
             })
             .unwrap();
 
@@ -265,9 +284,9 @@ mod test {
     use crate::entry::create_ticks;
     use crate::service::Service;
     use soros_runtime::bank::Bank;
+    use soros_sdk::genesis_block::GenesisBlock;
     use soros_sdk::hash::Hash;
     use soros_sdk::signature::{Keypair, KeypairUtil};
-    use soros_sdk::timing::DEFAULT_TICKS_PER_SLOT;
     use std::sync::atomic::AtomicBool;
     use std::sync::mpsc::channel;
     use std::sync::{Arc, RwLock};
@@ -301,7 +320,10 @@ mod test {
         let cluster_info = Arc::new(RwLock::new(cluster_info));
 
         let exit_sender = Arc::new(AtomicBool::new(false));
-        let bank = Arc::new(Bank::default());
+        let (storage_sender, _receiver) = channel();
+
+        let (genesis_block, _) = GenesisBlock::new(10_000);
+        let bank = Arc::new(Bank::new(&genesis_block));
 
         // Start up the broadcast stage
         let broadcast_service = BroadcastStage::new(
@@ -310,6 +332,8 @@ mod test {
             entry_receiver,
             &exit_sender,
             &blocktree,
+            storage_sender,
+            &Hash::default(),
         );
 
         MockBroadcastStage {
@@ -320,15 +344,13 @@ mod test {
     }
 
     #[test]
-    #[ignore]
-    //TODO this test won't work since broadcast stage no longer edits the ledger
     fn test_broadcast_ledger() {
+        soros_logger::setup();
         let ledger_path = get_tmp_ledger_path("test_broadcast_ledger");
+
         {
             // Create the leader scheduler
             let leader_keypair = Keypair::new();
-            let start_tick_height = 0;
-            let max_tick_height = start_tick_height + DEFAULT_TICKS_PER_SLOT;
 
             let (entry_sender, entry_receiver) = channel();
             let broadcast_service = setup_dummy_broadcast_service(
@@ -337,6 +359,9 @@ mod test {
                 entry_receiver,
             );
             let bank = broadcast_service.bank.clone();
+            let start_tick_height = bank.tick_height();
+            let max_tick_height = bank.max_tick_height();
+            let ticks_per_slot = bank.ticks_per_slot();
 
             let ticks = create_ticks(max_tick_height - start_tick_height, Hash::default());
             for (i, tick) in ticks.into_iter().enumerate() {
@@ -346,15 +371,23 @@ mod test {
             }
 
             sleep(Duration::from_millis(2000));
+
+            trace!(
+                "[broadcast_ledger] max_tick_height: {}, start_tick_height: {}, ticks_per_slot: {}",
+                max_tick_height,
+                start_tick_height,
+                ticks_per_slot,
+            );
+
             let blocktree = broadcast_service.blocktree;
             let mut blob_index = 0;
             for i in 0..max_tick_height - start_tick_height {
-                let slot = (start_tick_height + i + 1) / DEFAULT_TICKS_PER_SLOT;
+                let slot = (start_tick_height + i + 1) / ticks_per_slot;
 
                 let result = blocktree.get_data_blob(slot, blob_index).unwrap();
 
                 blob_index += 1;
-                assert!(result.is_some());
+                result.expect("expect blob presence");
             }
 
             drop(entry_sender);

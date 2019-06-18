@@ -20,8 +20,8 @@ use crate::crds_gossip_error::CrdsGossipError;
 use crate::crds_gossip_pull::CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS;
 use crate::crds_value::{CrdsValue, CrdsValueLabel, Vote};
 use crate::packet::{to_shared_blob, Blob, SharedBlob, BLOB_SIZE};
+use crate::repair_service::RepairType;
 use crate::result::Result;
-use crate::rpc_service::RPC_PORT;
 use crate::staking_utils;
 use crate::streamer::{BlobReceiver, BlobSender};
 use bincode::{deserialize, serialize};
@@ -31,7 +31,9 @@ use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use soros_metrics::counter::Counter;
 use soros_metrics::{influxdb, submit};
-use soros_netutil::{bind_in_range, bind_to, find_available_port_in_range, multi_bind_in_range};
+use soros_netutil::{
+    bind_in_range, bind_to, find_available_port_in_range, multi_bind_in_range, PortRange,
+};
 use soros_runtime::bloom::Bloom;
 use soros_sdk::hash::Hash;
 use soros_sdk::pubkey::Pubkey;
@@ -47,16 +49,18 @@ use std::sync::{Arc, RwLock};
 use std::thread::{sleep, Builder, JoinHandle};
 use std::time::{Duration, Instant};
 
-pub const FULLNODE_PORT_RANGE: (u16, u16) = (8000, 10_000);
+pub const FULLNODE_PORT_RANGE: PortRange = (8000, 10_000);
 
-/// The fanout for Ledger Replication
-pub const DATA_PLANE_FANOUT: usize = 200;
-pub const NEIGHBORHOOD_SIZE: usize = DATA_PLANE_FANOUT;
+/// The Data plane "neighborhood" size
+pub const NEIGHBORHOOD_SIZE: usize = 200;
 /// Set whether node capacity should grow as layers are added
 pub const GROW_LAYER_CAPACITY: bool = false;
 
 /// milliseconds we sleep for between gossip requests
 pub const GOSSIP_SLEEP_MILLIS: u64 = 100;
+
+/// the number of slots to respond with when responding to `Orphan` requests
+pub const MAX_ORPHAN_REPAIR_RESPONSES: usize = 10;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClusterInfoError {
@@ -161,6 +165,7 @@ enum Protocol {
     /// TODO: move this message to a different module
     RequestWindowIndex(ContactInfo, u64, u64),
     RequestHighestWindowIndex(ContactInfo, u64, u64),
+    RequestOrphan(ContactInfo, u64),
 }
 
 impl ClusterInfo {
@@ -221,7 +226,7 @@ impl ClusterInfo {
         self.gossip
             .crds
             .lookup(&entry)
-            .and_then(|x| x.contact_info())
+            .and_then(CrdsValue::contact_info)
     }
 
     pub fn my_data(&self) -> ContactInfo {
@@ -238,36 +243,50 @@ impl ClusterInfo {
     }
 
     pub fn contact_info_trace(&self) -> String {
-        let leader_id = self.gossip_leader_id;
+        let now = timestamp();
+        let mut spy_nodes = 0;
+        let my_id = self.my_data().id;
         let nodes: Vec<_> = self
-            .rpc_peers()
+            .all_peers()
             .into_iter()
-            .map(|node| {
-                let mut annotation = String::new();
-                if node.id == leader_id {
-                    annotation.push_str(" [leader]");
+            .map(|(node, last_updated)| {
+                if !ContactInfo::is_valid_address(&node.gossip) {
+                    spy_nodes += 1;
+                }
+                fn addr_to_string(addr: &SocketAddr) -> String {
+                    if ContactInfo::is_valid_address(addr) {
+                        addr.to_string()
+                    } else {
+                        "none".to_string()
+                    }
                 }
 
                 format!(
-                    "- gossip: {:20} | {}{}\n  \
-                     tpu:    {:20} |\n  \
-                     rpc:    {:20} |\n",
-                    node.gossip.to_string(),
+                    "- gossip: {:20} | {:5}ms | {} {}\n  \
+                     tpu:    {:20} |         |\n  \
+                     rpc:    {:20} |         |\n",
+                    addr_to_string(&node.gossip),
+                    now.saturating_sub(last_updated),
                     node.id,
-                    annotation,
-                    node.tpu.to_string(),
-                    node.rpc.to_string()
+                    if node.id == my_id { "(me)" } else { "" }.to_string(),
+                    addr_to_string(&node.tpu),
+                    addr_to_string(&node.rpc),
                 )
             })
             .collect();
 
         format!(
-            " Node contact info             | Node identifier\n\
-             -------------------------------+------------------\n\
+            " Node contact info             | Age     | Node identifier                   \n\
+             -------------------------------+---------+-----------------------------------\n\
              {}\
-             Nodes: {}",
+             Nodes: {}{}",
             nodes.join(""),
-            nodes.len()
+            nodes.len() - spy_nodes,
+            if spy_nodes > 0 {
+                format!("\nSpies: {}", spy_nodes)
+            } else {
+                "".to_string()
+            }
         )
     }
 
@@ -282,28 +301,28 @@ impl ClusterInfo {
 
     pub fn push_vote(&mut self, vote: Transaction) {
         let now = timestamp();
-        let vote = Vote::new(vote, now);
+        let vote = Vote::new(&self.id(), vote, now);
         let mut entry = CrdsValue::Vote(vote);
         entry.sign(&self.keypair);
         self.gossip.process_push_message(&[entry], now);
     }
 
     /// Get votes in the crds
-    /// * since - The local timestamp when the vote was updated or inserted must be greater then
+    /// * since - The timestamp of when the vote inserted must be greater than
     /// since. This allows the bank to query for new votes only.
     ///
-    /// * return - The votes, and the max local timestamp from the new set.
+    /// * return - The votes, and the max timestamp from the new set.
     pub fn get_votes(&self, since: u64) -> (Vec<Transaction>, u64) {
         let votes: Vec<_> = self
             .gossip
             .crds
             .table
             .values()
-            .filter(|x| x.local_timestamp > since)
+            .filter(|x| x.insert_timestamp > since)
             .filter_map(|x| {
                 x.value
                     .vote()
-                    .map(|v| (x.local_timestamp, v.transaction.clone()))
+                    .map(|v| (x.insert_timestamp, v.transaction.clone()))
             })
             .collect();
         let max_ts = votes.iter().map(|x| x.0).max().unwrap_or(since);
@@ -325,6 +344,20 @@ impl ClusterInfo {
             .filter(|x| x.id != me)
             .filter(|x| ContactInfo::is_valid_address(&x.rpc))
             .cloned()
+            .collect()
+    }
+
+    // All nodes in gossip (including spy nodes) and the last time we heard about them
+    pub(crate) fn all_peers(&self) -> Vec<(ContactInfo, u64)> {
+        self.gossip
+            .crds
+            .table
+            .values()
+            .filter_map(|x| {
+                x.value
+                    .contact_info()
+                    .map(|ci| (ci.clone(), x.local_timestamp))
+            })
             .collect()
     }
 
@@ -398,16 +431,28 @@ impl ClusterInfo {
         peers_with_stakes
     }
 
-    fn sorted_retransmit_peers<S: std::hash::BuildHasher>(
+    /// Return sorted Retransmit peers and index of `Self.id()` as if it were in that list
+    fn sorted_peers_and_index<S: std::hash::BuildHasher>(
         &self,
         stakes: &HashMap<Pubkey, u64, S>,
-    ) -> Vec<ContactInfo> {
-        let peers = self.retransmit_peers();
-        let peers_with_stakes: Vec<_> = ClusterInfo::sort_by_stake(&peers, stakes);
-        peers_with_stakes
-            .iter()
-            .map(|(_, peer)| (*peer).clone())
-            .collect()
+    ) -> (usize, Vec<ContactInfo>) {
+        let mut peers = self.retransmit_peers();
+        peers.push(self.lookup(&self.id()).unwrap().clone());
+        let contacts_and_stakes: Vec<_> = ClusterInfo::sort_by_stake(&peers, stakes);
+        let mut index = 0;
+        let peers: Vec<_> = contacts_and_stakes
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, (_, peer))| {
+                if peer.id == self.id() {
+                    index = i;
+                    None
+                } else {
+                    Some(peer)
+                }
+            })
+            .collect();
+        (index, peers)
     }
 
     pub fn sorted_tvu_peers(&self, stakes: &HashMap<Pubkey, u64>) -> Vec<ContactInfo> {
@@ -604,30 +649,38 @@ impl ClusterInfo {
         obj: &Arc<RwLock<Self>>,
         peers: &[ContactInfo],
         blob: &SharedBlob,
+        slot_leader_id: Option<Pubkey>,
         s: &UdpSocket,
+        forwarded: bool,
     ) -> Result<()> {
         let (me, orders): (ContactInfo, &[ContactInfo]) = {
             // copy to avoid locking during IO
             let s = obj.read().unwrap();
             (s.my_data().clone(), peers)
         };
-        let rblob = blob.read().unwrap();
+        // hold a write lock so no one modifies the blob until we send it
+        let mut wblob = blob.write().unwrap();
+        let was_forwarded = !wblob.should_forward();
+        wblob.set_forwarded(forwarded);
         trace!("retransmit orders {}", orders.len());
         let errs: Vec<_> = orders
             .par_iter()
+            .filter(|v| v.id != slot_leader_id.unwrap_or_default())
             .map(|v| {
                 debug!(
                     "{}: retransmit blob {} to {} {}",
                     me.id,
-                    rblob.index(),
+                    wblob.index(),
                     v.id,
                     v.tvu,
                 );
                 //TODO profile this, may need multiple sockets for par_iter
-                assert!(rblob.meta.size <= BLOB_SIZE);
-                s.send_to(&rblob.data[..rblob.meta.size], &v.tvu)
+                assert!(wblob.meta.size <= BLOB_SIZE);
+                s.send_to(&wblob.data[..wblob.meta.size], &v.tvu)
             })
             .collect();
+        // reset the blob to its old state. This avoids us having to copy the blob to modify it
+        wblob.set_forwarded(was_forwarded);
         for e in errs {
             if let Err(e) = &e {
                 inc_new_counter_info!("cluster_info-retransmit-send_to_error", 1, 1);
@@ -636,14 +689,6 @@ impl ClusterInfo {
             e?;
         }
         Ok(())
-    }
-
-    /// retransmit messages from the leader to layer 1 nodes
-    /// # Remarks
-    /// We need to avoid having obj locked while doing any io, such as the `send_to`
-    pub fn retransmit(obj: &Arc<RwLock<Self>>, blob: &SharedBlob, s: &UdpSocket) -> Result<()> {
-        let peers = obj.read().unwrap().retransmit_peers();
-        ClusterInfo::retransmit_to(obj, &peers, blob, s)
     }
 
     fn send_orders(
@@ -746,12 +791,13 @@ impl ClusterInfo {
         Ok(out)
     }
 
-    pub fn window_index_request(
-        &self,
-        slot: u64,
-        blob_index: u64,
-        get_highest: bool,
-    ) -> Result<(SocketAddr, Vec<u8>)> {
+    fn orphan_bytes(&self, slot: u64) -> Result<Vec<u8>> {
+        let req = Protocol::RequestOrphan(self.my_data().clone(), slot);
+        let out = serialize(&req)?;
+        Ok(out)
+    }
+
+    pub fn repair_request(&self, repair_request: &RepairType) -> Result<(SocketAddr, Vec<u8>)> {
         // find a peer that appears to be accepting replication, as indicated
         //  by a valid tvu port location
         let valid: Vec<_> = self.repair_peers();
@@ -761,18 +807,41 @@ impl ClusterInfo {
         let n = thread_rng().gen::<usize>() % valid.len();
         let addr = valid[n].gossip; // send the request to the peer's gossip port
         let out = {
-            if get_highest {
-                self.window_highest_index_request_bytes(slot, blob_index)?
-            } else {
-                self.window_index_request_bytes(slot, blob_index)?
+            match repair_request {
+                RepairType::Blob(slot, blob_index) => {
+                    submit(
+                        influxdb::Point::new("cluster_info-repair")
+                            .add_field("repair-slot", influxdb::Value::Integer(*slot as i64))
+                            .add_field("repair-ix", influxdb::Value::Integer(*blob_index as i64))
+                            .to_owned(),
+                    );
+                    self.window_index_request_bytes(*slot, *blob_index)?
+                }
+                RepairType::HighestBlob(slot, blob_index) => {
+                    submit(
+                        influxdb::Point::new("cluster_info-repair_highest")
+                            .add_field(
+                                "repair-highest-slot",
+                                influxdb::Value::Integer(*slot as i64),
+                            )
+                            .add_field(
+                                "repair-highest-ix",
+                                influxdb::Value::Integer(*blob_index as i64),
+                            )
+                            .to_owned(),
+                    );
+                    self.window_highest_index_request_bytes(*slot, *blob_index)?
+                }
+                RepairType::Orphan(slot) => {
+                    submit(
+                        influxdb::Point::new("cluster_info-repair_orphan")
+                            .add_field("repair-orphan", influxdb::Value::Integer(*slot as i64))
+                            .to_owned(),
+                    );
+                    self.orphan_bytes(*slot)?
+                }
             }
         };
-
-        submit(
-            influxdb::Point::new("cluster-info")
-                .add_field("repair-ix", influxdb::Value::Integer(blob_index as i64))
-                .to_owned(),
-        );
 
         Ok((addr, out))
     }
@@ -813,14 +882,12 @@ impl ClusterInfo {
                 self.gossip
                     .crds
                     .lookup(&peer_label)
-                    .and_then(|v| v.contact_info())
+                    .and_then(CrdsValue::contact_info)
                     .map(|peer_info| (peer, filter, peer_info.gossip, self_info))
             })
             .collect();
         if pr.is_empty() {
             self.add_entrypoint(&mut pr);
-        } else {
-            self.entrypoint = None;
         }
         pr.into_iter()
             .map(|(peer, filter, gossip, self_info)| {
@@ -839,7 +906,7 @@ impl ClusterInfo {
                 self.gossip
                     .crds
                     .lookup(&peer_label)
-                    .and_then(|v| v.contact_info())
+                    .and_then(CrdsValue::contact_info)
                     .map(|p| p.gossip)
             })
             .map(|peer| (peer, Protocol::PushMessage(self_id, msgs.clone())))
@@ -966,6 +1033,35 @@ impl ClusterInfo {
         vec![]
     }
 
+    fn run_orphan(
+        from_addr: &SocketAddr,
+        blocktree: Option<&Arc<Blocktree>>,
+        mut slot: u64,
+        max_responses: usize,
+    ) -> Vec<SharedBlob> {
+        let mut res = vec![];
+        if let Some(blocktree) = blocktree {
+            // Try to find the next "n" parent slots of the input slot
+            while let Ok(Some(meta)) = blocktree.meta(slot) {
+                if meta.received == 0 {
+                    break;
+                }
+                let blob = blocktree.get_data_blob(slot, meta.received - 1);
+                if let Ok(Some(mut blob)) = blob {
+                    blob.meta.set_addr(from_addr);
+                    res.push(Arc::new(RwLock::new(blob)));
+                }
+                if meta.is_parent_set() && res.len() <= max_responses {
+                    slot = meta.parent_slot;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        res
+    }
+
     //TODO we should first coalesce all the requests
     fn handle_blob(
         obj: &Arc<RwLock<Self>>,
@@ -1008,21 +1104,16 @@ impl ClusterInfo {
             .process_pull_request(caller, filter, now);
         let len = data.len();
         trace!("get updates since response {}", len);
-        if data.is_empty() {
-            trace!("no updates me {}", self_id);
-            vec![]
-        } else {
-            let rsp = Protocol::PullResponse(self_id, data);
-            // the remote side may not know his public IP:PORT, record what he looks like to us
-            //  this may or may not be correct for everybody but it's better than leaving him with
-            //  an unspecified address in our table
-            if from.gossip.ip().is_unspecified() {
-                inc_new_counter_info!("cluster_info-window-request-updates-unspec-gossip", 1);
-                from.gossip = *from_addr;
-            }
-            inc_new_counter_info!("cluster_info-pull_request-rsp", len);
-            to_shared_blob(rsp, from.gossip).ok().into_iter().collect()
+        let rsp = Protocol::PullResponse(self_id, data);
+        // The remote node may not know its public IP:PORT. Record what it looks like to us.
+        // This may or may not be correct for everybody, but it's better than leaving the remote with
+        // an unspecified address in our table
+        if from.gossip.ip().is_unspecified() {
+            inc_new_counter_info!("cluster_info-window-request-updates-unspec-gossip", 1);
+            from.gossip = *from_addr;
         }
+        inc_new_counter_info!("cluster_info-pull_request-rsp", len);
+        to_shared_blob(rsp, from.gossip).ok().into_iter().collect()
     }
     fn handle_pull_response(me: &Arc<RwLock<Self>>, from: &Pubkey, data: Vec<CrdsValue>) {
         let len = data.len();
@@ -1044,7 +1135,7 @@ impl ClusterInfo {
         data: &[CrdsValue],
     ) -> Vec<SharedBlob> {
         let self_id = me.read().unwrap().gossip.id;
-        inc_new_counter_info!("cluster_info-push_message", 1);
+        inc_new_counter_info!("cluster_info-push_message", 1, 0, 1000);
         let prunes: Vec<_> = me
             .write()
             .unwrap()
@@ -1082,14 +1173,21 @@ impl ClusterInfo {
             vec![]
         }
     }
-    fn handle_request_window_index(
+
+    fn get_repair_sender(request: &Protocol) -> &ContactInfo {
+        match request {
+            Protocol::RequestWindowIndex(ref from, _, _) => from,
+            Protocol::RequestHighestWindowIndex(ref from, _, _) => from,
+            Protocol::RequestOrphan(ref from, _) => from,
+            _ => panic!("Not a repair request"),
+        }
+    }
+
+    fn handle_repair(
         me: &Arc<RwLock<Self>>,
-        from: &ContactInfo,
-        blocktree: Option<&Arc<Blocktree>>,
-        slot: u64,
-        blob_index: u64,
         from_addr: &SocketAddr,
-        is_get_highest: bool,
+        blocktree: Option<&Arc<Blocktree>>,
+        request: Protocol,
     ) -> Vec<SharedBlob> {
         let now = Instant::now();
 
@@ -1098,12 +1196,13 @@ impl ClusterInfo {
         //TODO verify from is signed
 
         let self_id = me.read().unwrap().gossip.id;
+        let from = Self::get_repair_sender(&request);
         if from.id == me.read().unwrap().gossip.id {
             warn!(
-                "{}: Ignored received RequestWindowIndex from ME {} {} {} ",
-                self_id, from.id, slot, blob_index,
+                "{}: Ignored received repair request from ME {}",
+                self_id, from.id,
             );
-            inc_new_counter_info!("cluster_info-window-request-address-eq", 1);
+            inc_new_counter_info!("cluster_info-handle-repair--eq", 1);
             return vec![];
         }
 
@@ -1113,26 +1212,49 @@ impl ClusterInfo {
             .crds
             .update_record_timestamp(&from.id, timestamp());
         let my_info = me.read().unwrap().my_data().clone();
-        inc_new_counter_info!("cluster_info-window-request-recv", 1);
-        trace!(
-            "{}: received RequestWindowIndex from: {} slot: {}, blob_index: {}",
-            self_id,
-            from.id,
-            slot,
-            blob_index,
-        );
-        let res = {
-            if is_get_highest {
-                Self::run_highest_window_request(&from_addr, blocktree, slot, blob_index)
-            } else {
-                Self::run_window_request(&from, &from_addr, blocktree, &my_info, slot, blob_index)
+
+        let (res, label) = {
+            match &request {
+                Protocol::RequestWindowIndex(from, slot, blob_index) => {
+                    inc_new_counter_info!("cluster_info-request-window-index", 1);
+                    (
+                        Self::run_window_request(
+                            from,
+                            &from_addr,
+                            blocktree,
+                            &my_info,
+                            *slot,
+                            *blob_index,
+                        ),
+                        "RequestWindowIndex",
+                    )
+                }
+
+                Protocol::RequestHighestWindowIndex(_, slot, highest_index) => {
+                    inc_new_counter_info!("cluster_info-request-highest-window-index", 1);
+                    (
+                        Self::run_highest_window_request(
+                            &from_addr,
+                            blocktree,
+                            *slot,
+                            *highest_index,
+                        ),
+                        "RequestHighestWindowIndex",
+                    )
+                }
+                Protocol::RequestOrphan(_, slot) => {
+                    inc_new_counter_info!("cluster_info-request-orphan", 1);
+                    (
+                        Self::run_orphan(&from_addr, blocktree, *slot, MAX_ORPHAN_REPAIR_RESPONSES),
+                        "RequestOrphan",
+                    )
+                }
+                _ => panic!("Not a repair request"),
             }
         };
-        report_time_spent(
-            "RequestWindowIndex",
-            &now.elapsed(),
-            &format!("slot {}, blob_index: {}", slot, blob_index),
-        );
+
+        trace!("{}: received repair request: {:?}", self_id, request);
+        report_time_spent(label, &now.elapsed(), "");
         res
     }
 
@@ -1198,22 +1320,7 @@ impl ClusterInfo {
                 }
                 vec![]
             }
-            Protocol::RequestWindowIndex(from, slot, blob_index) => {
-                Self::handle_request_window_index(
-                    me, &from, blocktree, slot, blob_index, from_addr, false,
-                )
-            }
-            Protocol::RequestHighestWindowIndex(from, slot, highest_index) => {
-                Self::handle_request_window_index(
-                    me,
-                    &from,
-                    blocktree,
-                    slot,
-                    highest_index,
-                    from_addr,
-                    true,
-                )
-            }
+            _ => Self::handle_repair(me, from_addr, blocktree, request),
         }
     }
 
@@ -1304,8 +1411,7 @@ pub fn compute_retransmit_peers<S: std::hash::BuildHasher>(
     hood_size: usize,
     grow: bool,
 ) -> (Vec<ContactInfo>, Vec<ContactInfo>) {
-    let peers = cluster_info.read().unwrap().sorted_retransmit_peers(stakes);
-    let my_id = cluster_info.read().unwrap().id();
+    let (my_index, peers) = cluster_info.read().unwrap().sorted_peers_and_index(stakes);
     //calc num_layers and num_neighborhoods using the total number of nodes
     let (num_layers, layer_indices) =
         ClusterInfo::describe_data_plane(peers.len(), fanout, hood_size, grow);
@@ -1314,16 +1420,8 @@ pub fn compute_retransmit_peers<S: std::hash::BuildHasher>(
         /* single layer data plane */
         (peers, vec![])
     } else {
-        //find my index (my ix is the same as the first node with smaller stake)
-        let my_index = peers
-            .iter()
-            .position(|ci| *stakes.get(&ci.id).unwrap_or(&0) <= *stakes.get(&my_id).unwrap_or(&0));
         //find my layer
-        let locality = ClusterInfo::localize(
-            &layer_indices,
-            hood_size,
-            my_index.unwrap_or(peers.len() - 1),
-        );
+        let locality = ClusterInfo::localize(&layer_indices, hood_size, my_index);
         let upper_bound = cmp::min(locality.neighbor_bounds.1, peers.len());
         let neighbors = peers[locality.neighbor_bounds.0..upper_bound].to_vec();
         let mut children = Vec::new();
@@ -1347,6 +1445,7 @@ pub struct Sockets {
     pub broadcast: UdpSocket,
     pub repair: UdpSocket,
     pub retransmit: UdpSocket,
+    pub storage: Option<UdpSocket>,
 }
 
 #[derive(Debug)]
@@ -1357,8 +1456,43 @@ pub struct Node {
 
 impl Node {
     pub fn new_localhost() -> Self {
-        let pubkey = Keypair::new().pubkey();
+        let pubkey = Pubkey::new_rand();
         Self::new_localhost_with_pubkey(&pubkey)
+    }
+    pub fn new_localhost_replicator(pubkey: &Pubkey) -> Self {
+        let gossip = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let tvu = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let storage = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let empty = "0.0.0.0:0".parse().unwrap();
+        let repair = UdpSocket::bind("127.0.0.1:0").unwrap();
+
+        let broadcast = UdpSocket::bind("0.0.0.0:0").unwrap();
+        let retransmit = UdpSocket::bind("0.0.0.0:0").unwrap();
+        let info = ContactInfo::new(
+            pubkey,
+            gossip.local_addr().unwrap(),
+            tvu.local_addr().unwrap(),
+            empty,
+            empty,
+            storage.local_addr().unwrap(),
+            empty,
+            empty,
+            timestamp(),
+        );
+
+        Node {
+            info,
+            sockets: Sockets {
+                gossip,
+                tvu: vec![tvu],
+                tpu: vec![],
+                tpu_via_blobs: vec![],
+                broadcast,
+                repair,
+                retransmit,
+                storage: Some(storage),
+            },
+        }
     }
     pub fn new_localhost_with_pubkey(pubkey: &Pubkey) -> Self {
         let tpu = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -1396,15 +1530,12 @@ impl Node {
                 broadcast,
                 repair,
                 retransmit,
+                storage: None,
             },
         }
     }
-    pub fn new_with_external_ip(pubkey: &Pubkey, gossip_addr: &SocketAddr) -> Node {
-        fn bind() -> (u16, UdpSocket) {
-            bind_in_range(FULLNODE_PORT_RANGE).expect("Failed to bind")
-        };
-
-        let (gossip_port, gossip) = if gossip_addr.port() != 0 {
+    fn get_gossip_port(gossip_addr: &SocketAddr, port_range: PortRange) -> (u16, UdpSocket) {
+        if gossip_addr.port() != 0 {
             (
                 gossip_addr.port(),
                 bind_to(gossip_addr.port(), false).unwrap_or_else(|e| {
@@ -1412,22 +1543,29 @@ impl Node {
                 }),
             )
         } else {
-            bind()
-        };
+            Self::bind(port_range)
+        }
+    }
+    fn bind(port_range: PortRange) -> (u16, UdpSocket) {
+        bind_in_range(port_range).expect("Failed to bind")
+    }
+    pub fn new_with_external_ip(
+        pubkey: &Pubkey,
+        gossip_addr: &SocketAddr,
+        port_range: PortRange,
+    ) -> Node {
+        let (gossip_port, gossip) = Self::get_gossip_port(gossip_addr, port_range);
 
-        let (tvu_port, tvu_sockets) =
-            multi_bind_in_range(FULLNODE_PORT_RANGE, 8).expect("tvu multi_bind");
+        let (tvu_port, tvu_sockets) = multi_bind_in_range(port_range, 8).expect("tvu multi_bind");
 
-        let (tpu_port, tpu_sockets) =
-            multi_bind_in_range(FULLNODE_PORT_RANGE, 32).expect("tpu multi_bind");
+        let (tpu_port, tpu_sockets) = multi_bind_in_range(port_range, 32).expect("tpu multi_bind");
 
         let (tpu_via_blobs_port, tpu_via_blobs_sockets) =
-            multi_bind_in_range(FULLNODE_PORT_RANGE, 8).expect("tpu multi_bind");
+            multi_bind_in_range(port_range, 8).expect("tpu multi_bind");
 
-        let (_, repair) = bind();
-        let (_, broadcast) = bind();
-        let (_, retransmit) = bind();
-        let (storage_port, _) = bind();
+        let (_, repair) = Self::bind(port_range);
+        let (_, broadcast) = Self::bind(port_range);
+        let (_, retransmit) = Self::bind(port_range);
 
         let info = ContactInfo::new(
             pubkey,
@@ -1435,9 +1573,9 @@ impl Node {
             SocketAddr::new(gossip_addr.ip(), tvu_port),
             SocketAddr::new(gossip_addr.ip(), tpu_port),
             SocketAddr::new(gossip_addr.ip(), tpu_via_blobs_port),
-            SocketAddr::new(gossip_addr.ip(), storage_port),
-            SocketAddr::new(gossip_addr.ip(), RPC_PORT),
-            SocketAddr::new(gossip_addr.ip(), RPC_PORT + 1),
+            socketaddr_any!(),
+            socketaddr_any!(),
+            socketaddr_any!(),
             0,
         );
         trace!("new ContactInfo: {:?}", info);
@@ -1452,8 +1590,28 @@ impl Node {
                 broadcast,
                 repair,
                 retransmit,
+                storage: None,
             },
         }
+    }
+    pub fn new_replicator_with_external_ip(
+        pubkey: &Pubkey,
+        gossip_addr: &SocketAddr,
+        port_range: PortRange,
+    ) -> Node {
+        let mut new = Self::new_with_external_ip(pubkey, gossip_addr, port_range);
+        let (storage_port, storage_socket) = Self::bind(port_range);
+
+        new.info.storage_addr = SocketAddr::new(gossip_addr.ip(), storage_port);
+        new.sockets.storage = Some(storage_socket);
+
+        let empty = socketaddr_any!();
+        new.info.tpu = empty;
+        new.info.tpu_via_blobs = empty;
+        new.sockets.tpu = vec![];
+        new.sockets.tpu_via_blobs = vec![];
+
+        new
     }
 }
 
@@ -1468,9 +1626,11 @@ fn report_time_spent(label: &str, time: &Duration, extra: &str) {
 mod tests {
     use super::*;
     use crate::blocktree::get_tmp_ledger_path;
+    use crate::blocktree::tests::make_many_slot_entries;
     use crate::blocktree::Blocktree;
     use crate::crds_value::CrdsValueLabel;
     use crate::packet::BLOB_HEADER_SIZE;
+    use crate::repair_service::RepairType;
     use crate::result::Error;
     use crate::test_tx::test_tx;
     use soros_sdk::signature::{Keypair, KeypairUtil};
@@ -1482,7 +1642,7 @@ mod tests {
     fn test_cluster_spy_gossip() {
         //check that gossip doesn't try to push to invalid addresses
         let node = Node::new_localhost();
-        let (spy, _) = ClusterInfo::spy_node(&Keypair::new().pubkey());
+        let (spy, _) = ClusterInfo::spy_node(&Pubkey::new_rand());
         let cluster_info = Arc::new(RwLock::new(ClusterInfo::new_with_invalid_keypair(
             node.info,
         )));
@@ -1506,43 +1666,43 @@ mod tests {
 
     #[test]
     fn test_cluster_info_new() {
-        let d = ContactInfo::new_localhost(&Keypair::new().pubkey(), timestamp());
+        let d = ContactInfo::new_localhost(&Pubkey::new_rand(), timestamp());
         let cluster_info = ClusterInfo::new_with_invalid_keypair(d.clone());
         assert_eq!(d.id, cluster_info.my_data().id);
     }
 
     #[test]
     fn insert_info_test() {
-        let d = ContactInfo::new_localhost(&Keypair::new().pubkey(), timestamp());
+        let d = ContactInfo::new_localhost(&Pubkey::new_rand(), timestamp());
         let mut cluster_info = ClusterInfo::new_with_invalid_keypair(d);
-        let d = ContactInfo::new_localhost(&Keypair::new().pubkey(), timestamp());
+        let d = ContactInfo::new_localhost(&Pubkey::new_rand(), timestamp());
         let label = CrdsValueLabel::ContactInfo(d.id);
         cluster_info.insert_info(d);
         assert!(cluster_info.gossip.crds.lookup(&label).is_some());
     }
     #[test]
     fn test_insert_self() {
-        let d = ContactInfo::new_localhost(&Keypair::new().pubkey(), timestamp());
+        let d = ContactInfo::new_localhost(&Pubkey::new_rand(), timestamp());
         let mut cluster_info = ClusterInfo::new_with_invalid_keypair(d.clone());
         let entry_label = CrdsValueLabel::ContactInfo(cluster_info.id());
         assert!(cluster_info.gossip.crds.lookup(&entry_label).is_some());
 
         // inserting something else shouldn't work
-        let d = ContactInfo::new_localhost(&Keypair::new().pubkey(), timestamp());
+        let d = ContactInfo::new_localhost(&Pubkey::new_rand(), timestamp());
         cluster_info.insert_self(d.clone());
         let label = CrdsValueLabel::ContactInfo(d.id);
         assert!(cluster_info.gossip.crds.lookup(&label).is_none());
     }
     #[test]
     fn window_index_request() {
-        let me = ContactInfo::new_localhost(&Keypair::new().pubkey(), timestamp());
+        let me = ContactInfo::new_localhost(&Pubkey::new_rand(), timestamp());
         let mut cluster_info = ClusterInfo::new_with_invalid_keypair(me);
-        let rv = cluster_info.window_index_request(0, 0, false);
+        let rv = cluster_info.repair_request(&RepairType::Blob(0, 0));
         assert_matches!(rv, Err(Error::ClusterInfoError(ClusterInfoError::NoPeers)));
 
         let gossip_addr = socketaddr!([127, 0, 0, 1], 1234);
         let nxt = ContactInfo::new(
-            &Keypair::new().pubkey(),
+            &Pubkey::new_rand(),
             gossip_addr,
             socketaddr!([127, 0, 0, 1], 1235),
             socketaddr!([127, 0, 0, 1], 1236),
@@ -1553,13 +1713,15 @@ mod tests {
             0,
         );
         cluster_info.insert_info(nxt.clone());
-        let rv = cluster_info.window_index_request(0, 0, false).unwrap();
+        let rv = cluster_info
+            .repair_request(&RepairType::Blob(0, 0))
+            .unwrap();
         assert_eq!(nxt.gossip, gossip_addr);
         assert_eq!(rv.0, nxt.gossip);
 
         let gossip_addr2 = socketaddr!([127, 0, 0, 2], 1234);
         let nxt = ContactInfo::new(
-            &Keypair::new().pubkey(),
+            &Pubkey::new_rand(),
             gossip_addr2,
             socketaddr!([127, 0, 0, 1], 1235),
             socketaddr!([127, 0, 0, 1], 1236),
@@ -1574,7 +1736,9 @@ mod tests {
         let mut two = false;
         while !one || !two {
             //this randomly picks an option, so eventually it should pick both
-            let rv = cluster_info.window_index_request(0, 0, false).unwrap();
+            let rv = cluster_info
+                .repair_request(&RepairType::Blob(0, 0))
+                .unwrap();
             if rv.0 == gossip_addr {
                 one = true;
             }
@@ -1593,7 +1757,7 @@ mod tests {
         {
             let blocktree = Arc::new(Blocktree::open(&ledger_path).unwrap());
             let me = ContactInfo::new(
-                &Keypair::new().pubkey(),
+                &Pubkey::new_rand(),
                 socketaddr!("127.0.0.1:1234"),
                 socketaddr!("127.0.0.1:1235"),
                 socketaddr!("127.0.0.1:1236"),
@@ -1693,9 +1857,45 @@ mod tests {
     }
 
     #[test]
+    fn run_orphan() {
+        soros_logger::setup();
+        let ledger_path = get_tmp_ledger_path!();
+        {
+            let blocktree = Arc::new(Blocktree::open(&ledger_path).unwrap());
+            let rv = ClusterInfo::run_orphan(&socketaddr_any!(), Some(&blocktree), 2, 0);
+            assert!(rv.is_empty());
+
+            // Create slots 1, 2, 3 with 5 blobs apiece
+            let (blobs, _) = make_many_slot_entries(1, 3, 5);
+
+            blocktree
+                .write_blobs(&blobs)
+                .expect("Expect successful ledger write");
+
+            // We don't have slot 4, so we don't know how to service this requeset
+            let rv = ClusterInfo::run_orphan(&socketaddr_any!(), Some(&blocktree), 4, 5);
+            assert!(rv.is_empty());
+
+            // For slot 3, we should return the highest blobs from slots 3, 2, 1 respectively
+            // for this request
+            let rv: Vec<_> = ClusterInfo::run_orphan(&socketaddr_any!(), Some(&blocktree), 3, 5)
+                .iter()
+                .map(|b| b.read().unwrap().clone())
+                .collect();
+            let expected: Vec<_> = (1..=3)
+                .rev()
+                .map(|slot| blocktree.get_data_blob(slot, 4).unwrap().unwrap())
+                .collect();
+            assert_eq!(rv, expected)
+        }
+
+        Blocktree::destroy(&ledger_path).expect("Expected successful database destruction");
+    }
+
+    #[test]
     fn test_default_leader() {
         soros_logger::setup();
-        let contact_info = ContactInfo::new_localhost(&Keypair::new().pubkey(), 0);
+        let contact_info = ContactInfo::new_localhost(&Pubkey::new_rand(), 0);
         let mut cluster_info = ClusterInfo::new_with_invalid_keypair(contact_info);
         let network_entry_point =
             ContactInfo::new_gossip_entry_point(&socketaddr!("127.0.0.1:1239"));
@@ -1703,69 +1903,80 @@ mod tests {
         assert!(cluster_info.leader_data().is_none());
     }
 
+    fn assert_in_range(x: u16, range: (u16, u16)) {
+        assert!(x >= range.0);
+        assert!(x < range.1);
+    }
+
+    fn check_sockets(sockets: &Vec<UdpSocket>, ip: IpAddr, range: (u16, u16)) {
+        assert!(sockets.len() > 1);
+        let port = sockets[0].local_addr().unwrap().port();
+        for socket in sockets.iter() {
+            check_socket(socket, ip, range);
+            assert_eq!(socket.local_addr().unwrap().port(), port);
+        }
+    }
+
+    fn check_socket(socket: &UdpSocket, ip: IpAddr, range: (u16, u16)) {
+        let local_addr = socket.local_addr().unwrap();
+        assert_eq!(local_addr.ip(), ip);
+        assert_in_range(local_addr.port(), range);
+    }
+
+    fn check_node_sockets(node: &Node, ip: IpAddr, range: (u16, u16)) {
+        check_socket(&node.sockets.gossip, ip, range);
+        check_socket(&node.sockets.repair, ip, range);
+
+        check_sockets(&node.sockets.tvu, ip, range);
+        check_sockets(&node.sockets.tpu, ip, range);
+    }
+
     #[test]
     fn new_with_external_ip_test_random() {
         let ip = Ipv4Addr::from(0);
-        let node = Node::new_with_external_ip(&Keypair::new().pubkey(), &socketaddr!(ip, 0));
-        assert_eq!(node.sockets.gossip.local_addr().unwrap().ip(), ip);
-        assert!(node.sockets.tvu.len() > 1);
-        for tx_socket in node.sockets.tvu.iter() {
-            assert_eq!(tx_socket.local_addr().unwrap().ip(), ip);
-        }
-        assert!(node.sockets.tpu.len() > 1);
-        for tx_socket in node.sockets.tpu.iter() {
-            assert_eq!(tx_socket.local_addr().unwrap().ip(), ip);
-        }
-        assert_eq!(node.sockets.repair.local_addr().unwrap().ip(), ip);
+        let node = Node::new_with_external_ip(
+            &Pubkey::new_rand(),
+            &socketaddr!(ip, 0),
+            FULLNODE_PORT_RANGE,
+        );
 
-        assert!(node.sockets.gossip.local_addr().unwrap().port() >= FULLNODE_PORT_RANGE.0);
-        assert!(node.sockets.gossip.local_addr().unwrap().port() < FULLNODE_PORT_RANGE.1);
-        let tx_port = node.sockets.tvu[0].local_addr().unwrap().port();
-        assert!(tx_port >= FULLNODE_PORT_RANGE.0);
-        assert!(tx_port < FULLNODE_PORT_RANGE.1);
-        for tx_socket in node.sockets.tvu.iter() {
-            assert_eq!(tx_socket.local_addr().unwrap().port(), tx_port);
-        }
-        let tx_port = node.sockets.tpu[0].local_addr().unwrap().port();
-        assert!(tx_port >= FULLNODE_PORT_RANGE.0);
-        assert!(tx_port < FULLNODE_PORT_RANGE.1);
-        for tx_socket in node.sockets.tpu.iter() {
-            assert_eq!(tx_socket.local_addr().unwrap().port(), tx_port);
-        }
-        assert!(node.sockets.repair.local_addr().unwrap().port() >= FULLNODE_PORT_RANGE.0);
-        assert!(node.sockets.repair.local_addr().unwrap().port() < FULLNODE_PORT_RANGE.1);
+        check_node_sockets(&node, IpAddr::V4(ip), FULLNODE_PORT_RANGE);
     }
 
     #[test]
     fn new_with_external_ip_test_gossip() {
         let ip = IpAddr::V4(Ipv4Addr::from(0));
-        let node = Node::new_with_external_ip(&Keypair::new().pubkey(), &socketaddr!(0, 8050));
-        assert_eq!(node.sockets.gossip.local_addr().unwrap().ip(), ip);
-        assert!(node.sockets.tvu.len() > 1);
-        for tx_socket in node.sockets.tvu.iter() {
-            assert_eq!(tx_socket.local_addr().unwrap().ip(), ip);
-        }
-        assert!(node.sockets.tpu.len() > 1);
-        for tx_socket in node.sockets.tpu.iter() {
-            assert_eq!(tx_socket.local_addr().unwrap().ip(), ip);
-        }
-        assert_eq!(node.sockets.repair.local_addr().unwrap().ip(), ip);
+        let port = {
+            bind_in_range(FULLNODE_PORT_RANGE)
+                .expect("Failed to bind")
+                .0
+        };
+        let node = Node::new_with_external_ip(
+            &Pubkey::new_rand(),
+            &socketaddr!(0, port),
+            FULLNODE_PORT_RANGE,
+        );
 
-        assert_eq!(node.sockets.gossip.local_addr().unwrap().port(), 8050);
-        let tx_port = node.sockets.tvu[0].local_addr().unwrap().port();
-        assert!(tx_port >= FULLNODE_PORT_RANGE.0);
-        assert!(tx_port < FULLNODE_PORT_RANGE.1);
-        for tx_socket in node.sockets.tvu.iter() {
-            assert_eq!(tx_socket.local_addr().unwrap().port(), tx_port);
-        }
-        let tx_port = node.sockets.tpu[0].local_addr().unwrap().port();
-        assert!(tx_port >= FULLNODE_PORT_RANGE.0);
-        assert!(tx_port < FULLNODE_PORT_RANGE.1);
-        for tx_socket in node.sockets.tpu.iter() {
-            assert_eq!(tx_socket.local_addr().unwrap().port(), tx_port);
-        }
-        assert!(node.sockets.repair.local_addr().unwrap().port() >= FULLNODE_PORT_RANGE.0);
-        assert!(node.sockets.repair.local_addr().unwrap().port() < FULLNODE_PORT_RANGE.1);
+        check_node_sockets(&node, ip, FULLNODE_PORT_RANGE);
+
+        assert_eq!(node.sockets.gossip.local_addr().unwrap().port(), port);
+    }
+
+    #[test]
+    fn new_replicator_external_ip_test() {
+        let ip = Ipv4Addr::from(0);
+        let node = Node::new_replicator_with_external_ip(
+            &Pubkey::new_rand(),
+            &socketaddr!(ip, 0),
+            FULLNODE_PORT_RANGE,
+        );
+
+        let ip = IpAddr::V4(ip);
+        check_socket(&node.sockets.storage.unwrap(), ip, FULLNODE_PORT_RANGE);
+        check_socket(&node.sockets.gossip, ip, FULLNODE_PORT_RANGE);
+        check_socket(&node.sockets.repair, ip, FULLNODE_PORT_RANGE);
+
+        check_sockets(&node.sockets.tvu, ip, FULLNODE_PORT_RANGE);
     }
 
     //test that all cluster_info objects only generate signed messages
@@ -1980,7 +2191,7 @@ fn test_add_entrypoint() {
         ContactInfo::new_localhost(&node_keypair.pubkey(), timestamp()),
         node_keypair,
     );
-    let entrypoint_id = Keypair::new().pubkey();
+    let entrypoint_id = Pubkey::new_rand();
     let entrypoint = ContactInfo::new_localhost(&entrypoint_id, timestamp());
     cluster_info.set_entrypoint(entrypoint.clone());
     let pulls = cluster_info.new_pull_requests(&HashMap::new());
@@ -2008,5 +2219,5 @@ fn test_add_entrypoint() {
         .unwrap()
         .new_pull_requests(&HashMap::new());
     assert_eq!(1, pulls.len());
-    assert_eq!(cluster_info.read().unwrap().entrypoint, None);
+    assert_eq!(cluster_info.read().unwrap().entrypoint, Some(entrypoint));
 }

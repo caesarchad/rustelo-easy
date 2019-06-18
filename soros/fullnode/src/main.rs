@@ -1,20 +1,34 @@
-use clap::{crate_version, App, Arg};
+use clap::{crate_description, crate_name, crate_version, App, Arg};
 use log::*;
 use soros::cluster_info::{Node, FULLNODE_PORT_RANGE};
 use soros::contact_info::ContactInfo;
 use soros::fullnode::{Fullnode, FullnodeConfig};
 use soros::local_vote_signer_service::LocalVoteSignerService;
 use soros::service::Service;
+use soros::socketaddr;
+use soros_netutil::parse_port_range;
 use soros_sdk::signature::{read_keypair, Keypair, KeypairUtil};
 use std::fs::File;
+use std::net::SocketAddr;
 use std::process::exit;
 use std::sync::Arc;
+
+fn port_range_validator(port_range: String) -> Result<(), String> {
+    if parse_port_range(&port_range).is_some() {
+        Ok(())
+    } else {
+        Err("Invalid port range".to_string())
+    }
+}
 
 fn main() {
     soros_logger::setup();
     soros_metrics::set_panic_hook("fullnode");
 
-    let matches = App::new("soros-fullnode")
+    let default_dynamic_port_range =
+        &format!("{}-{}", FULLNODE_PORT_RANGE.0, FULLNODE_PORT_RANGE.1);
+
+    let matches = App::new(crate_name!()).about(crate_description!())
         .version(crate_version!())
         .arg(
             Arg::with_name("blockstream")
@@ -32,11 +46,11 @@ fn main() {
                 .help("File containing an identity (keypair)"),
         )
         .arg(
-            Arg::with_name("staking_account")
-                .long("staking-account")
+            Arg::with_name("vote_account")
+                .long("vote-account")
                 .value_name("PUBKEY_BASE58_STR")
                 .takes_value(true)
-                .help("Public key of the staking account, where to send votes"),
+                .help("Public key of the vote account, where to send votes"),
         )
         .arg(
             Arg::with_name("voting_keypair")
@@ -119,17 +133,20 @@ fn main() {
                 .help("Comma separated persistent accounts location"),
         )
         .arg(
-            clap::Arg::with_name("public_address")
-                .long("public-address")
-                .takes_value(false)
-                .help("Advertise public machine address in gossip.  By default the local machine address is advertised"),
-        )
-        .arg(
             clap::Arg::with_name("gossip_port")
                 .long("gossip-port")
-                .value_name("PORT")
+                .value_name("HOST:PORT")
                 .takes_value(true)
                 .help("Gossip port number for the node"),
+        )
+        .arg(
+            clap::Arg::with_name("dynamic_port_range")
+                .long("dynamic-port-range")
+                .value_name("MIN_PORT-MAX_PORT")
+                .takes_value(true)
+                .default_value(default_dynamic_port_range)
+                .validator(port_range_validator)
+                .help("Range to use for dynamically assigned ports"),
         )
         .get_matches();
 
@@ -166,22 +183,21 @@ fn main() {
     if matches.is_present("enable_rpc_exit") {
         fullnode_config.rpc_config.enable_fullnode_exit = true;
     }
-    fullnode_config.rpc_config.drone_addr = matches
-        .value_of("rpc_drone_address")
-        .map(|address| address.parse().expect("failed to parse drone address"));
+    fullnode_config.rpc_config.drone_addr = matches.value_of("rpc_drone_address").map(|address| {
+        soros_netutil::parse_host_port(address).expect("failed to parse drone address")
+    });
 
-    let gossip_addr = {
-        let mut addr = soros_netutil::parse_port_or_addr(
-            matches.value_of("gossip_port"),
-            FULLNODE_PORT_RANGE.0 + 1,
-        );
-        if matches.is_present("public_address") {
-            addr.set_ip(soros_netutil::get_public_ip_addr().unwrap());
-        } else {
-            addr.set_ip(soros_netutil::get_ip_addr(false).unwrap());
-        }
-        addr
-    };
+    let dynamic_port_range = parse_port_range(matches.value_of("dynamic_port_range").unwrap())
+        .expect("invalid dynamic_port_range");
+
+    let mut gossip_addr = soros_netutil::parse_port_or_addr(
+        matches.value_of("gossip_port"),
+        socketaddr!(
+            [127, 0, 0, 1],
+            soros_netutil::find_available_port_in_range(dynamic_port_range)
+                .expect("unable to find an available gossip port")
+        ),
+    );
 
     if let Some(paths) = matches.value_of("accounts") {
         fullnode_config.account_paths = Some(paths.to_string());
@@ -189,8 +205,11 @@ fn main() {
         fullnode_config.account_paths = None;
     }
     let cluster_entrypoint = matches.value_of("network").map(|network| {
-        let gossip_addr = network.parse().expect("failed to parse network address");
-        ContactInfo::new_gossip_entry_point(&gossip_addr)
+        let entrypoint_addr =
+            soros_netutil::parse_host_port(network).expect("failed to parse network address");
+        gossip_addr.set_ip(soros_netutil::get_public_ip_addr(&entrypoint_addr).unwrap());
+
+        ContactInfo::new_gossip_entry_point(&entrypoint_addr)
     });
     let (_signer_service, _signer_addr) = if let Some(signer_addr) = matches.value_of("signer") {
         (
@@ -199,31 +218,23 @@ fn main() {
         )
     } else {
         // Run a local vote signer if a vote signer service address was not provided
-        let (signer_service, signer_addr) = LocalVoteSignerService::new();
+        let (signer_service, signer_addr) = LocalVoteSignerService::new(dynamic_port_range);
         (Some(signer_service), signer_addr)
     };
-    let (rpc_port, rpc_pubsub_port) = if let Some(port) = matches.value_of("rpc_port") {
+    let init_complete_file = matches.value_of("init_complete_file");
+    fullnode_config.blockstream = matches.value_of("blockstream").map(ToString::to_string);
+
+    let keypair = Arc::new(keypair);
+    let mut node = Node::new_with_external_ip(&keypair.pubkey(), &gossip_addr, dynamic_port_range);
+    if let Some(port) = matches.value_of("rpc_port") {
         let port_number = port.to_string().parse().expect("integer");
         if port_number == 0 {
             eprintln!("Invalid RPC port requested: {:?}", port);
             exit(1);
         }
-        (port_number, port_number + 1)
-    } else {
-        (
-            soros_netutil::find_available_port_in_range(FULLNODE_PORT_RANGE)
-                .expect("unable to allocate rpc_port"),
-            soros_netutil::find_available_port_in_range(FULLNODE_PORT_RANGE)
-                .expect("unable to allocate rpc_pubsub_port"),
-        )
+        node.info.rpc = SocketAddr::new(gossip_addr.ip(), port_number);
+        node.info.rpc_pubsub = SocketAddr::new(gossip_addr.ip(), port_number + 1);
     };
-    let init_complete_file = matches.value_of("init_complete_file");
-    fullnode_config.blockstream = matches.value_of("blockstream").map(|s| s.to_string());
-
-    let keypair = Arc::new(keypair);
-    let mut node = Node::new_with_external_ip(&keypair.pubkey(), &gossip_addr);
-    node.info.rpc.set_port(rpc_port);
-    node.info.rpc_pubsub.set_port(rpc_pubsub_port);
 
     let fullnode = Fullnode::new(
         node,

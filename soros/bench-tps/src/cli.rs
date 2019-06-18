@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::process::exit;
 use std::time::Duration;
 
-use clap::{crate_version, App, Arg, ArgMatches};
+use clap::{crate_description, crate_name, crate_version, App, Arg, ArgMatches};
 use soros_drone::drone::DRONE_PORT;
 use soros_sdk::signature::{read_keypair, Keypair, KeypairUtil};
 
@@ -17,8 +17,6 @@ pub struct Config {
     pub tx_count: usize,
     pub thread_batch_sleep_ms: usize,
     pub sustained: bool,
-    pub reject_extra_nodes: bool,
-    pub converge_only: bool,
 }
 
 impl Default for Config {
@@ -33,15 +31,13 @@ impl Default for Config {
             tx_count: 500_000,
             thread_batch_sleep_ms: 0,
             sustained: false,
-            reject_extra_nodes: false,
-            converge_only: false,
         }
     }
 }
 
 /// Defines and builds the CLI args for a run of the benchmark
 pub fn build_args<'a, 'b>() -> App<'a, 'b> {
-    App::new("soros-bench-tps")
+    App::new(crate_name!()).about(crate_description!())
         .version(crate_version!())
         .arg(
             Arg::with_name("network")
@@ -76,11 +72,6 @@ pub fn build_args<'a, 'b>() -> App<'a, 'b> {
                 .help("Wait for NUM nodes to converge"),
         )
         .arg(
-            Arg::with_name("reject-extra-nodes")
-                .long("reject-extra-nodes")
-                .help("Require exactly `num-nodes` on convergence. Appropriate only for internal networks"),
-        )
-        .arg(
             Arg::with_name("threads")
                 .short("t")
                 .long("threads")
@@ -94,11 +85,6 @@ pub fn build_args<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SECS")
                 .takes_value(true)
                 .help("Seconds to run benchmark, then exit; default is forever"),
-        )
-        .arg(
-            Arg::with_name("converge-only")
-                .long("converge-only")
-                .help("Exit immediately after converging"),
         )
         .arg(
             Arg::with_name("sustained")
@@ -131,14 +117,14 @@ pub fn extract_args<'a>(matches: &ArgMatches<'a>) -> Config {
     let mut args = Config::default();
 
     if let Some(addr) = matches.value_of("network") {
-        args.network_addr = addr.parse().unwrap_or_else(|e| {
-            eprintln!("failed to parse network: {}", e);
+        args.network_addr = soros_netutil::parse_host_port(addr).unwrap_or_else(|e| {
+            eprintln!("failed to parse network address: {}", e);
             exit(1)
         });
     }
 
     if let Some(addr) = matches.value_of("drone") {
-        args.drone_addr = addr.parse().unwrap_or_else(|e| {
+        args.drone_addr = soros_netutil::parse_host_port(addr).unwrap_or_else(|e| {
             eprintln!("failed to parse drone address: {}", e);
             exit(1)
         });
@@ -176,8 +162,6 @@ pub fn extract_args<'a>(matches: &ArgMatches<'a>) -> Config {
     }
 
     args.sustained = matches.is_present("sustained");
-    args.converge_only = matches.is_present("converge-only");
-    args.reject_extra_nodes = matches.is_present("reject-extra-nodes");
 
     args
 }

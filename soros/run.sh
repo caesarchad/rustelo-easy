@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Run a minimal Bitconch cluster.  Ctrl-C to exit.
+# Run a minimal Soros cluster.  Ctrl-C to exit.
 #
-# Before running this script ensure standard Bitconch programs are available
+# Before running this script ensure standard Soros programs are available
 # in the PATH, or that `cargo build --all` ran successfully
 #
 set -e
@@ -23,7 +23,7 @@ $ok || {
   exit 1
 }
 
-blockstreamSocket=/tmp/soros-blockstream.sock # Default to location used by the block explorer
+blockstreamSocket=/tmp/bitconch-blockstream.sock # Default to location used by the block explorer
 while [[ -n $1 ]]; do
   if [[ $1 = --blockstream ]]; then
     blockstreamSocket=$2
@@ -40,17 +40,12 @@ dataDir=$PWD/target/"$(basename "$0" .sh)"
 
 set -x
 soros-keygen -o "$dataDir"/config/leader-keypair.json
-soros-keygen -o "$dataDir"/config/leader-staking-account-keypair.json
+soros-keygen -o "$dataDir"/config/leader-vote-account-keypair.json
 soros-keygen -o "$dataDir"/config/drone-keypair.json
 
-leaderPubkey=$(\
+leaderVoteAccountPubkey=$(\
   soros-wallet \
-    --keypair "$dataDir"/config/leader-keypair.json  \
-    address \
-)
-leaderStakingAccountPubkey=$(\
-  soros-wallet \
-    --keypair "$dataDir"/config/leader-staking-account-keypair.json  \
+    --keypair "$dataDir"/config/leader-vote-account-keypair.json  \
     address \
 )
 
@@ -58,6 +53,7 @@ soros-genesis \
   --lamports 1000000000 \
   --mint "$dataDir"/config/drone-keypair.json \
   --bootstrap-leader-keypair "$dataDir"/config/leader-keypair.json \
+  --bootstrap-vote-keypair "$dataDir"/config/leader-vote-account-keypair.json \
   --ledger "$dataDir"/ledger
 
 soros-drone --keypair "$dataDir"/config/drone-keypair.json &
@@ -65,8 +61,8 @@ drone=$!
 
 args=(
   --identity "$dataDir"/config/leader-keypair.json
-  --voting-keypair "$dataDir"/config/leader-staking-account-keypair.json
-  --staking-account "$leaderStakingAccountPubkey"
+  --voting-keypair "$dataDir"/config/leader-vote-account-keypair.json
+  --vote-account "$leaderVoteAccountPubkey"
   --ledger "$dataDir"/ledger/
   --rpc-port 8899
   --rpc-drone-address 127.0.0.1:9900
@@ -82,16 +78,5 @@ abort() {
   kill "$drone" "$fullnode"
 }
 trap abort INT TERM EXIT
-
-soros-wallet --keypair "$dataDir"/config/leader-keypair.json airdrop 42
-soros-wallet \
-  --keypair "$dataDir"/config/leader-keypair.json  \
-  create-staking-account "$leaderStakingAccountPubkey" 42
-soros-wallet \
-  --keypair "$dataDir"/config/leader-staking-account-keypair.json  \
-  configure-staking-account \
-  --delegate-account "$leaderPubkey" \
-  --authorize-voter "$leaderStakingAccountPubkey"
-soros-wallet --keypair "$dataDir"/config/leader-keypair.json balance
 
 wait "$fullnode"

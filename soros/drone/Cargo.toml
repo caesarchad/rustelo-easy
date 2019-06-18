@@ -1,27 +1,28 @@
 [package]
 name = "soros-drone"
-version = "0.12.3"
-description = "Bitconch Drone"
-authors = ["Bitconch Dev Team"]
-repository = "https://github.com/bitconch/bus"
+version = "0.14.2"
+description = "Soros Drone"
+authors = ["Soros Maintainers <maintainers@soros.com>"]
+repository = "https://github.com/soros-labs/soros"
 license = "Apache-2.0"
-homepage = "https://bitconch.io"
+homepage = "https://soros.com/"
 edition = "2018"
 
 [features]
 cuda = []
+erasure = []
 
 [dependencies]
-bincode = "1.1.2"
+bincode = "1.1.3"
 bytes = "0.4"
 byteorder = "1.3.1"
-clap = "2.31"
+clap = "2.33"
 log = "0.4.2"
-serde = "1.0.89"
-serde_derive = "1.0.89"
-soros-logger = { path = "../logger", version = "0.12.3" }
-soros-sdk = { path = "../sdk", version = "0.12.3" }
-soros-metrics = { path = "../metrics", version = "0.12.3" }
+serde = "1.0.90"
+serde_derive = "1.0.90"
+soros-logger = { path = "../logger", version = "0.14.2"   }
+soros-sdk = { path = "../sdk", version = "0.14.2"   }
+soros-metrics = { path = "../metrics", version = "0.14.2"   }
 tokio = "0.1"
 tokio-codec = "0.1"
 

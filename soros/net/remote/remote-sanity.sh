@@ -9,6 +9,7 @@ cd "$(dirname "$0")"/../..
 deployMethod=
 entrypointIp=
 numNodes=
+failOnValidatorBootupFailure=
 
 [[ -r deployConfig ]] || {
   echo deployConfig missing
@@ -26,6 +27,7 @@ missing() {
 [[ -n $entrypointIp ]]   || missing entrypointIp
 [[ -n $numNodes ]]       || missing numNodes
 [[ -n $leaderRotation ]] || missing leaderRotation
+[[ -n $failOnValidatorBootupFailure ]] || missing failOnValidatorBootupFailure
 
 ledgerVerify=true
 validatorSanity=true
@@ -67,7 +69,7 @@ local|tar)
 
   entrypointRsyncUrl="$entrypointIp:~/soros"
 
-  soros_bench_tps=soros-bench-tps
+  soros_gossip=soros-gossip
   soros_ledger_tool=soros-ledger-tool
   soros_keygen=soros-keygen
 
@@ -79,23 +81,28 @@ local|tar)
   exit 1
 esac
 
-echo "+++ $entrypointIp: node count ($numNodes expected)"
+if $failOnValidatorBootupFailure; then
+  numSanityNodes="$numNodes"
+else
+  numSanityNodes=1
+  if $rejectExtraNodes; then
+    echo "rejectExtraNodes cannot be used with failOnValidatorBootupFailure"
+    exit 1
+  fi
+fi
+
+echo "+++ $entrypointIp: node count ($numSanityNodes expected)"
 (
   set -x
   $soros_keygen -o "$client_id"
 
-  maybeRejectExtraNodes=
+  nodeArg="num-nodes"
   if $rejectExtraNodes; then
-    maybeRejectExtraNodes="--reject-extra-nodes"
+    nodeArg="num-nodes-exactly"
   fi
 
-  timeout 2m $soros_bench_tps \
-    --network "$entrypointIp:8001" \
-    --drone "$entrypointIp:9900" \
-    --identity "$client_id" \
-    --num-nodes "$numNodes" \
-    $maybeRejectExtraNodes \
-    --converge-only
+  timeout 2m $soros_gossip --network "$entrypointIp:8001" \
+    spy --$nodeArg "$numSanityNodes" \
 )
 
 echo "--- RPC API: getTransactionCount"
@@ -137,7 +144,7 @@ echo "--- $entrypointIp: validator sanity"
 if $validatorSanity; then
   (
     set -x -o pipefail
-    timeout 10s ./multinode-demo/fullnode-x.sh \
+    timeout 10s ./multinode-demo/fullnode-x.sh --stake 0 \
       "$entrypointRsyncUrl" \
       "$entrypointIp:8001" 2>&1 | tee validator-sanity.log
   ) || {

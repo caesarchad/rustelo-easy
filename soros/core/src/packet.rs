@@ -5,6 +5,7 @@ use bincode;
 use byteorder::{ByteOrder, LittleEndian};
 use serde::Serialize;
 use soros_metrics::counter::Counter;
+use soros_sdk::hash::Hash;
 pub use soros_sdk::packet::PACKET_DATA_SIZE;
 use soros_sdk::pubkey::Pubkey;
 use std::borrow::Borrow;
@@ -15,22 +16,23 @@ use std::io::Cursor;
 use std::io::Write;
 use std::mem::size_of;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, RwLock};
 
-pub type SharedPackets = Arc<RwLock<Packets>>;
 pub type SharedBlob = Arc<RwLock<Blob>>;
 pub type SharedBlobs = Vec<SharedBlob>;
 
 pub const NUM_PACKETS: usize = 1024 * 8;
 pub const BLOB_SIZE: usize = (64 * 1024 - 128); // wikipedia says there should be 20b for ipv4 headers
 pub const BLOB_DATA_SIZE: usize = BLOB_SIZE - (BLOB_HEADER_SIZE * 2);
+pub const BLOB_DATA_ALIGN: usize = 16; // safe for erasure input pointers, gf.c needs 16byte-aligned buffers
 pub const NUM_BLOBS: usize = (NUM_PACKETS * PACKET_DATA_SIZE) / BLOB_SIZE;
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Meta {
     pub size: usize,
-    pub num_retransmits: u64,
+    pub forward: bool,
     pub addr: [u16; 8],
     pub port: u16,
     pub v6: bool,
@@ -63,7 +65,7 @@ impl fmt::Debug for Packet {
 impl Default for Packet {
     fn default() -> Packet {
         Packet {
-            data: [0u8; PACKET_DATA_SIZE],
+            data: unsafe { std::mem::uninitialized() },
             meta: Meta::default(),
         }
     }
@@ -71,7 +73,7 @@ impl Default for Packet {
 
 impl PartialEq for Packet {
     fn eq(&self, other: &Packet) -> bool {
-        self.data.iter().zip(other.data.iter()).all(|(a, b)| a == b) && self.meta == other.meta
+        self.meta == other.meta && self.data.as_ref() == other.data.as_ref()
     }
 }
 
@@ -115,7 +117,7 @@ impl Meta {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Packets {
     pub packets: Vec<Packet>,
 }
@@ -124,7 +126,7 @@ pub struct Packets {
 impl Default for Packets {
     fn default() -> Packets {
         Packets {
-            packets: vec![Packet::default(); NUM_PACKETS],
+            packets: Vec::with_capacity(NUM_RCVMMSGS),
         }
     }
 }
@@ -141,16 +143,49 @@ impl Packets {
     }
 }
 
-#[derive(Clone)]
-pub struct Blob {
+#[repr(align(16))] // 16 === BLOB_DATA_ALIGN
+pub struct BlobData {
     pub data: [u8; BLOB_SIZE],
-    pub meta: Meta,
 }
 
-impl PartialEq for Blob {
-    fn eq(&self, other: &Blob) -> bool {
-        self.data.iter().zip(other.data.iter()).all(|(a, b)| a == b) && self.meta == other.meta
+impl Clone for BlobData {
+    fn clone(&self) -> Self {
+        BlobData { data: self.data }
     }
+}
+
+impl Default for BlobData {
+    fn default() -> Self {
+        BlobData {
+            data: [0u8; BLOB_SIZE],
+        }
+    }
+}
+
+impl PartialEq for BlobData {
+    fn eq(&self, other: &BlobData) -> bool {
+        self.data.as_ref() == other.data.as_ref()
+    }
+}
+
+// this code hides _data, maps it to _data.data
+impl Deref for Blob {
+    type Target = BlobData;
+
+    fn deref(&self) -> &Self::Target {
+        &self._data
+    }
+}
+impl DerefMut for Blob {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self._data
+    }
+}
+
+#[derive(Clone, Default, PartialEq)]
+pub struct Blob {
+    _data: BlobData, // hidden member, passed through by Deref
+    pub meta: Meta,
 }
 
 impl fmt::Debug for Blob {
@@ -164,16 +199,6 @@ impl fmt::Debug for Blob {
     }
 }
 
-//auto derive doesn't support large arrays
-impl Default for Blob {
-    fn default() -> Blob {
-        Blob {
-            data: [0u8; BLOB_SIZE],
-            meta: Meta::default(),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum BlobError {
     /// the Blob's meta and data are not self-consistent
@@ -183,8 +208,7 @@ pub enum BlobError {
 }
 
 impl Packets {
-    fn run_read_from(&mut self, socket: &UdpSocket) -> Result<usize> {
-        self.packets.resize(NUM_PACKETS, Packet::default());
+    pub fn recv_from(&mut self, socket: &UdpSocket) -> Result<usize> {
         let mut i = 0;
         //DOCUMENTED SIDE-EFFECT
         //Performance out of the IO without poll
@@ -195,11 +219,10 @@ impl Packets {
         socket.set_nonblocking(false)?;
         trace!("receiving on {}", socket.local_addr().unwrap());
         loop {
+            self.packets.resize(i + NUM_RCVMMSGS, Packet::default());
             match recv_mmsg(socket, &mut self.packets[i..]) {
                 Err(_) if i > 0 => {
-                    inc_new_counter_info!("packets-recv_count", i);
-                    debug!("got {:?} messages on {}", i, socket.local_addr().unwrap());
-                    return Ok(i);
+                    break;
                 }
                 Err(e) => {
                     trace!("recv_from err {:?}", e);
@@ -212,19 +235,16 @@ impl Packets {
                     trace!("got {} packets", npkts);
                     i += npkts;
                     if npkts != NUM_RCVMMSGS || i >= 1024 {
-                        inc_new_counter_info!("packets-recv_count", i);
-                        return Ok(i);
+                        break;
                     }
                 }
             }
         }
+        self.packets.truncate(i);
+        inc_new_counter_info!("packets-recv_count", i);
+        Ok(i)
     }
-    pub fn recv_from(&mut self, socket: &UdpSocket) -> Result<()> {
-        let sz = self.run_read_from(socket)?;
-        self.packets.resize(sz, Packet::default());
-        debug!("recv_from: {}", sz);
-        Ok(())
-    }
+
     pub fn send_to(&self, socket: &UdpSocket) -> Result<()> {
         for p in &self.packets {
             let a = p.meta.addr();
@@ -234,15 +254,12 @@ impl Packets {
     }
 }
 
-pub fn to_packets_chunked<T: Serialize>(xs: &[T], chunks: usize) -> Vec<SharedPackets> {
+pub fn to_packets_chunked<T: Serialize>(xs: &[T], chunks: usize) -> Vec<Packets> {
     let mut out = vec![];
     for x in xs.chunks(chunks) {
-        let p = SharedPackets::default();
-        p.write()
-            .unwrap()
-            .packets
-            .resize(x.len(), Packet::default());
-        for (i, o) in x.iter().zip(p.write().unwrap().packets.iter_mut()) {
+        let mut p = Packets::default();
+        p.packets.resize(x.len(), Packet::default());
+        for (i, o) in x.iter().zip(p.packets.iter_mut()) {
             let mut wr = io::Cursor::new(&mut o.data[..]);
             bincode::serialize_into(&mut wr, &i).expect("serialize request");
             let len = wr.position() as usize;
@@ -253,7 +270,7 @@ pub fn to_packets_chunked<T: Serialize>(xs: &[T], chunks: usize) -> Vec<SharedPa
     out
 }
 
-pub fn to_packets<T: Serialize>(xs: &[T]) -> Vec<SharedPackets> {
+pub fn to_packets<T: Serialize>(xs: &[T]) -> Vec<Packets> {
     to_packets_chunked(xs, NUM_PACKETS)
 }
 
@@ -337,17 +354,18 @@ const PARENT_RANGE: std::ops::Range<usize> = range!(0, u64);
 const SLOT_RANGE: std::ops::Range<usize> = range!(PARENT_RANGE.end, u64);
 const INDEX_RANGE: std::ops::Range<usize> = range!(SLOT_RANGE.end, u64);
 const ID_RANGE: std::ops::Range<usize> = range!(INDEX_RANGE.end, Pubkey);
-const FORWARD_RANGE: std::ops::Range<usize> = range!(ID_RANGE.end, bool);
-const FLAGS_RANGE: std::ops::Range<usize> = range!(FORWARD_RANGE.end, u32);
+const FORWARDED_RANGE: std::ops::Range<usize> = range!(ID_RANGE.end, bool);
+const GENESIS_RANGE: std::ops::Range<usize> = range!(FORWARDED_RANGE.end, Hash);
+const FLAGS_RANGE: std::ops::Range<usize> = range!(GENESIS_RANGE.end, u32);
 const SIZE_RANGE: std::ops::Range<usize> = range!(FLAGS_RANGE.end, u64);
 
 macro_rules! align {
     ($x:expr, $align:expr) => {
-        $x + ($align * 8 - 1) & !($align * 8 - 1)
+        $x + ($align - 1) & !($align - 1)
     };
 }
 
-pub const BLOB_HEADER_SIZE: usize = align!(SIZE_RANGE.end, 8);
+pub const BLOB_HEADER_SIZE: usize = align!(SIZE_RANGE.end, BLOB_DATA_ALIGN); // make sure data() is safe for erasure
 
 pub const BLOB_FLAG_IS_LAST_IN_SLOT: u32 = 0x2;
 
@@ -356,10 +374,25 @@ pub const BLOB_FLAG_IS_CODING: u32 = 0x1;
 impl Blob {
     pub fn new(data: &[u8]) -> Self {
         let mut blob = Self::default();
+
+        assert!(data.len() <= blob.data.len());
+
         let data_len = cmp::min(data.len(), blob.data.len());
+
         let bytes = &data[..data_len];
         blob.data[..data_len].copy_from_slice(bytes);
         blob.meta.size = blob.data_size() as usize;
+        blob
+    }
+
+    pub fn from_serializable<T: Serialize + ?Sized>(data: &T) -> Self {
+        let mut blob = Self::default();
+        let pos = {
+            let mut out = Cursor::new(blob.data_mut());
+            bincode::serialize_into(&mut out, data).expect("failed to serialize output");
+            out.position() as usize
+        };
+        blob.set_size(pos);
         blob
     }
 
@@ -396,11 +429,20 @@ impl Blob {
     /// A bool is used here instead of a flag because this item is not intended to be signed when
     /// blob signatures are introduced
     pub fn should_forward(&self) -> bool {
-        self.data[FORWARD_RANGE][0] & 0x1 == 1
+        self.data[FORWARDED_RANGE][0] & 0x1 == 0
     }
 
-    pub fn forward(&mut self, forward: bool) {
-        self.data[FORWARD_RANGE][0] = u8::from(forward)
+    /// Mark this blob's forwarded status
+    pub fn set_forwarded(&mut self, forward: bool) {
+        self.data[FORWARDED_RANGE][0] = u8::from(forward)
+    }
+
+    pub fn set_genesis_blockhash(&mut self, blockhash: &Hash) {
+        self.data[GENESIS_RANGE].copy_from_slice(blockhash.as_ref())
+    }
+
+    pub fn genesis_blockhash(&self) -> Hash {
+        Hash::new(&self.data[GENESIS_RANGE])
     }
 
     pub fn flags(&self) -> u32 {
@@ -432,8 +474,8 @@ impl Blob {
         LittleEndian::read_u64(&self.data[SIZE_RANGE])
     }
 
-    pub fn set_data_size(&mut self, ix: u64) {
-        LittleEndian::write_u64(&mut self.data[SIZE_RANGE], ix);
+    pub fn set_data_size(&mut self, size: u64) {
+        LittleEndian::write_u64(&mut self.data[SIZE_RANGE], size);
     }
 
     pub fn data(&self) -> &[u8] {
@@ -541,16 +583,27 @@ impl Blob {
     }
 }
 
-pub fn index_blobs(blobs: &[SharedBlob], id: &Pubkey, mut blob_index: u64, slot: u64, parent: u64) {
+pub fn index_blobs(blobs: &[SharedBlob], id: &Pubkey, blob_index: u64, slot: u64, parent: u64) {
+    index_blobs_with_genesis(blobs, id, &Hash::default(), blob_index, slot, parent)
+}
+
+pub fn index_blobs_with_genesis(
+    blobs: &[SharedBlob],
+    id: &Pubkey,
+    genesis: &Hash,
+    mut blob_index: u64,
+    slot: u64,
+    parent: u64,
+) {
     // enumerate all the blobs, those are the indices
     for blob in blobs.iter() {
         let mut blob = blob.write().unwrap();
 
         blob.set_index(blob_index);
+        blob.set_genesis_blockhash(genesis);
         blob.set_slot(slot);
         blob.set_parent(parent);
         blob.set_id(id);
-        blob.forward(true);
         blob_index += 1;
     }
 }
@@ -562,10 +615,10 @@ mod tests {
     use rand::Rng;
     use soros_sdk::hash::Hash;
     use soros_sdk::signature::{Keypair, KeypairUtil};
-    use soros_sdk::system_transaction::SystemTransaction;
+    use soros_sdk::system_transaction;
     use std::io;
     use std::io::Write;
-    use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+    use std::net::{SocketAddr, UdpSocket};
 
     #[test]
     fn test_packets_set_addr() {
@@ -579,19 +632,26 @@ mod tests {
 
     #[test]
     pub fn packet_send_recv() {
-        let reader = UdpSocket::bind("127.0.0.1:0").expect("bind");
-        let addr = reader.local_addr().unwrap();
-        let sender = UdpSocket::bind("127.0.0.1:0").expect("bind");
-        let saddr = sender.local_addr().unwrap();
-        let p = SharedPackets::default();
-        p.write().unwrap().packets.resize(10, Packet::default());
-        for m in p.write().unwrap().packets.iter_mut() {
+        soros_logger::setup();
+        let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("bind");
+        let addr = recv_socket.local_addr().unwrap();
+        let send_socket = UdpSocket::bind("127.0.0.1:0").expect("bind");
+        let saddr = send_socket.local_addr().unwrap();
+        let mut p = Packets::default();
+
+        p.packets.resize(10, Packet::default());
+
+        for m in p.packets.iter_mut() {
             m.meta.set_addr(&addr);
             m.meta.size = PACKET_DATA_SIZE;
         }
-        p.read().unwrap().send_to(&sender).unwrap();
-        p.write().unwrap().recv_from(&reader).unwrap();
-        for m in p.write().unwrap().packets.iter_mut() {
+        p.send_to(&send_socket).unwrap();
+
+        let recvd = p.recv_from(&recv_socket).unwrap();
+
+        assert_eq!(recvd, p.packets.len());
+
+        for m in p.packets {
             assert_eq!(m.meta.size, PACKET_DATA_SIZE);
             assert_eq!(m.meta.addr(), saddr);
         }
@@ -601,19 +661,19 @@ mod tests {
     fn test_to_packets() {
         let keypair = Keypair::new();
         let hash = Hash::new(&[1; 32]);
-        let tx = SystemTransaction::new_account(&keypair, &keypair.pubkey(), 1, hash, 0);
+        let tx = system_transaction::create_user_account(&keypair, &keypair.pubkey(), 1, hash, 0);
         let rv = to_packets(&vec![tx.clone(); 1]);
         assert_eq!(rv.len(), 1);
-        assert_eq!(rv[0].read().unwrap().packets.len(), 1);
+        assert_eq!(rv[0].packets.len(), 1);
 
         let rv = to_packets(&vec![tx.clone(); NUM_PACKETS]);
         assert_eq!(rv.len(), 1);
-        assert_eq!(rv[0].read().unwrap().packets.len(), NUM_PACKETS);
+        assert_eq!(rv[0].packets.len(), NUM_PACKETS);
 
         let rv = to_packets(&vec![tx.clone(); NUM_PACKETS + 1]);
         assert_eq!(rv.len(), 2);
-        assert_eq!(rv[0].read().unwrap().packets.len(), NUM_PACKETS);
-        assert_eq!(rv[1].read().unwrap().packets.len(), 1);
+        assert_eq!(rv[0].packets.len(), NUM_PACKETS);
+        assert_eq!(rv[1].packets.len(), 1);
     }
 
     #[test]
@@ -670,9 +730,9 @@ mod tests {
     #[test]
     fn test_blob_forward() {
         let mut b = Blob::default();
-        assert!(!b.should_forward());
-        b.forward(true);
         assert!(b.should_forward());
+        b.set_forwarded(true);
+        assert!(!b.should_forward());
     }
 
     #[test]
@@ -774,4 +834,39 @@ mod tests {
 
         assert_eq!(result, packets);
     }
+
+    #[test]
+    fn test_blob_data_align() {
+        assert_eq!(std::mem::align_of::<BlobData>(), BLOB_DATA_ALIGN);
+    }
+
+    #[test]
+    fn test_packet_partial_eq() {
+        let p1 = Packet::default();
+        let mut p2 = Packet::default();
+
+        assert!(p1 == p2);
+        p2.data[1] = 4;
+        assert!(p1 != p2);
+    }
+    #[test]
+    fn test_blob_partial_eq() {
+        let p1 = Blob::default();
+        let mut p2 = Blob::default();
+
+        assert!(p1 == p2);
+        p2.data[1] = 4;
+        assert!(p1 != p2);
+    }
+
+    #[test]
+    fn test_blob_genesis_blockhash() {
+        let mut blob = Blob::default();
+        assert_eq!(blob.genesis_blockhash(), Hash::default());
+
+        let hash = Hash::new(&Pubkey::new_rand().as_ref());
+        blob.set_genesis_blockhash(&hash);
+        assert_eq!(blob.genesis_blockhash(), hash);
+    }
+
 }

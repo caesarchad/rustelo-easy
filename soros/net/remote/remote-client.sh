@@ -7,7 +7,10 @@ echo "$(date) | $0 $*" > client.log
 
 deployMethod="$1"
 entrypointIp="$2"
-RUST_LOG="$3"
+clientToRun="$3"
+RUST_LOG="$4"
+benchTpsExtraArgs="$5"
+benchExchangeExtraArgs="$6"
 export RUST_LOG=${RUST_LOG:-soros=info} # if RUST_LOG is unset, default to info
 
 missing() {
@@ -36,7 +39,6 @@ local|tar)
   source ./target/perf-libs/env.sh
 
   net/scripts/rsync-retry.sh -vPrc "$entrypointIp:~/.cargo/bin/soros*" ~/.cargo/bin/
-  soros_bench_tps=soros-bench-tps
   ;;
 *)
   echo "Unknown deployment method: $deployMethod"
@@ -50,17 +52,38 @@ scripts/net-stats.sh  > net-stats.log 2>&1 &
 
 ! tmux list-sessions || tmux kill-session
 
-clientCommand="\
-  $soros_bench_tps \
-    --network $entrypointIp:8001 \
-    --drone $entrypointIp:9900 \
-    --duration 7500 \
-    --sustained \
-    --threads $threadCount \
-    --tx_count 10000 \
-"
+case $clientToRun in
+soros-bench-tps)
+  clientCommand="\
+    soros-bench-tps \
+      --network $entrypointIp:8001 \
+      --drone $entrypointIp:9900 \
+      --duration 7500 \
+      --sustained \
+      --threads $threadCount \
+      $benchTpsExtraArgs \
+  "
+  ;;
+soros-bench-exchange)
+  soros-keygen -o bench.keypair
+  clientCommand="\
+    soros-bench-exchange \
+      --network $entrypointIp:8001 \
+      --drone $entrypointIp:9900 \
+      --threads $threadCount \
+      --batch-size 1000 \
+      --fund-amount 20000 \
+      --duration 7500 \
+      --identity bench.keypair \
+      $benchExchangeExtraArgs \
+  "
+  ;;
+*)
+  echo "Unknown client name: $clientToRun"
+  exit 1
+esac
 
-tmux new -s soros-bench-tps -d "
+tmux new -s "$clientToRun" -d "
   while true; do
     echo === Client start: \$(date) | tee -a client.log
     $metricsWriteDatapoint 'testnet-deploy client-begin=1'
@@ -70,4 +93,4 @@ tmux new -s soros-bench-tps -d "
   done
 "
 sleep 1
-tmux capture-pane -t soros-bench-tps -p -S -100
+tmux capture-pane -t "$clientToRun" -p -S -100

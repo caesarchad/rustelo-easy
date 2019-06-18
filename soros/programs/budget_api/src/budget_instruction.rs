@@ -1,9 +1,12 @@
 use crate::budget_expr::BudgetExpr;
+use crate::budget_state::BudgetState;
 use crate::id;
+use bincode::serialized_size;
 use chrono::prelude::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
+use soros_sdk::instruction::{AccountMeta, Instruction};
 use soros_sdk::pubkey::Pubkey;
-use soros_sdk::transaction_builder::BuilderInstruction;
+use soros_sdk::system_instruction;
 
 /// A smart contract.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -27,38 +30,121 @@ pub enum BudgetInstruction {
     ApplySignature,
 }
 
-impl BudgetInstruction {
-    pub fn new_initialize_account(contract: &Pubkey, expr: BudgetExpr) -> BuilderInstruction {
-        let mut keys = vec![];
-        if let BudgetExpr::Pay(payment) = &expr {
-            keys.push((payment.to, false));
-        }
-        keys.push((*contract, false));
-        BuilderInstruction::new(id(), &BudgetInstruction::InitializeAccount(expr), keys)
+fn initialize_account(contract: &Pubkey, expr: BudgetExpr) -> Instruction {
+    let mut keys = vec![];
+    if let BudgetExpr::Pay(payment) = &expr {
+        keys.push(AccountMeta::new(payment.to, false));
+    }
+    keys.push(AccountMeta::new(*contract, false));
+    Instruction::new(id(), &BudgetInstruction::InitializeAccount(expr), keys)
+}
+
+pub fn create_account(
+    from: &Pubkey,
+    contract: &Pubkey,
+    lamports: u64,
+    expr: BudgetExpr,
+) -> Vec<Instruction> {
+    if !expr.verify(lamports) {
+        panic!("invalid budget expression");
+    }
+    let space = serialized_size(&BudgetState::new(expr.clone())).unwrap();
+    vec![
+        system_instruction::create_account(&from, contract, lamports, space, &id()),
+        initialize_account(contract, expr),
+    ]
+}
+
+/// Create a new payment script.
+pub fn payment(from: &Pubkey, to: &Pubkey, lamports: u64) -> Vec<Instruction> {
+    let contract = Pubkey::new_rand();
+    let expr = BudgetExpr::new_payment(lamports, to);
+    create_account(from, &contract, lamports, expr)
+}
+
+/// Create a future payment script.
+pub fn on_date(
+    from: &Pubkey,
+    to: &Pubkey,
+    contract: &Pubkey,
+    dt: DateTime<Utc>,
+    dt_pubkey: &Pubkey,
+    cancelable: Option<Pubkey>,
+    lamports: u64,
+) -> Vec<Instruction> {
+    let expr = BudgetExpr::new_cancelable_future_payment(dt, dt_pubkey, lamports, to, cancelable);
+    create_account(from, contract, lamports, expr)
+}
+
+/// Create a multisig payment script.
+pub fn when_signed(
+    from: &Pubkey,
+    to: &Pubkey,
+    contract: &Pubkey,
+    witness: &Pubkey,
+    cancelable: Option<Pubkey>,
+    lamports: u64,
+) -> Vec<Instruction> {
+    let expr = BudgetExpr::new_cancelable_authorized_payment(witness, lamports, to, cancelable);
+    create_account(from, contract, lamports, expr)
+}
+
+pub fn apply_timestamp(
+    from: &Pubkey,
+    contract: &Pubkey,
+    to: &Pubkey,
+    dt: DateTime<Utc>,
+) -> Instruction {
+    let mut account_metas = vec![
+        AccountMeta::new(*from, true),
+        AccountMeta::new(*contract, false),
+    ];
+    if from != to {
+        account_metas.push(AccountMeta::new(*to, false));
+    }
+    Instruction::new(id(), &BudgetInstruction::ApplyTimestamp(dt), account_metas)
+}
+
+pub fn apply_signature(from: &Pubkey, contract: &Pubkey, to: &Pubkey) -> Instruction {
+    let mut account_metas = vec![
+        AccountMeta::new(*from, true),
+        AccountMeta::new(*contract, false),
+    ];
+    if from != to {
+        account_metas.push(AccountMeta::new(*to, false));
+    }
+    Instruction::new(id(), &BudgetInstruction::ApplySignature, account_metas)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::budget_expr::BudgetExpr;
+
+    #[test]
+    fn test_budget_instruction_verify() {
+        let alice_pubkey = Pubkey::new_rand();
+        let bob_pubkey = Pubkey::new_rand();
+        payment(&alice_pubkey, &bob_pubkey, 1); // No panic! indicates success.
     }
 
-    pub fn new_apply_timestamp(
-        from: &Pubkey,
-        contract: &Pubkey,
-        to: &Pubkey,
-        dt: DateTime<Utc>,
-    ) -> BuilderInstruction {
-        let mut keys = vec![(*from, true), (*contract, false)];
-        if from != to {
-            keys.push((*to, false));
-        }
-        BuilderInstruction::new(id(), &BudgetInstruction::ApplyTimestamp(dt), keys)
+    #[test]
+    #[should_panic]
+    fn test_budget_instruction_overspend() {
+        let alice_pubkey = Pubkey::new_rand();
+        let bob_pubkey = Pubkey::new_rand();
+        let budget_pubkey = Pubkey::new_rand();
+        let expr = BudgetExpr::new_payment(2, &bob_pubkey);
+        create_account(&alice_pubkey, &budget_pubkey, 1, expr);
     }
 
-    pub fn new_apply_signature(
-        from: &Pubkey,
-        contract: &Pubkey,
-        to: &Pubkey,
-    ) -> BuilderInstruction {
-        let mut keys = vec![(*from, true), (*contract, false)];
-        if from != to {
-            keys.push((*to, false));
-        }
-        BuilderInstruction::new(id(), &BudgetInstruction::ApplySignature, keys)
+    #[test]
+    #[should_panic]
+    fn test_budget_instruction_underspend() {
+        let alice_pubkey = Pubkey::new_rand();
+        let bob_pubkey = Pubkey::new_rand();
+        let budget_pubkey = Pubkey::new_rand();
+        let expr = BudgetExpr::new_payment(1, &bob_pubkey);
+        create_account(&alice_pubkey, &budget_pubkey, 2, expr);
     }
 }

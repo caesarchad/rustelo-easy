@@ -30,7 +30,7 @@ loadConfigFile
 
 useEnv=false
 delete=false
-host="https://dashboard.bitconch.io:8086"
+host="https://metrics.soros.com:8086"
 while getopts "hcde" opt; do
   case $opt in
   h|\?)

@@ -5,21 +5,26 @@
 //! transaction. All processing is done on the CPU by default and on a GPU
 //! if the `cuda` feature is enabled with `--features=cuda`.
 
-use crate::packet::SharedPackets;
+use crate::packet::Packets;
 use crate::result::{Error, Result};
 use crate::service::Service;
 use crate::sigverify;
 use crate::streamer::{self, PacketReceiver};
-use rand::{thread_rng, Rng};
 use soros_metrics::counter::Counter;
 use soros_metrics::{influxdb, submit};
 use soros_sdk::timing;
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
-use std::thread::{self, spawn, JoinHandle};
+use std::thread::{self, Builder, JoinHandle};
 use std::time::Instant;
 
-pub type VerifiedPackets = Vec<(SharedPackets, Vec<u8>)>;
+#[cfg(feature = "cuda")]
+const RECV_BATCH_MAX: usize = 60_000;
+
+#[cfg(not(feature = "cuda"))]
+const RECV_BATCH_MAX: usize = 1000;
+
+pub type VerifiedPackets = Vec<(Packets, Vec<u8>)>;
 
 pub struct SigVerifyStage {
     thread_hdls: Vec<JoinHandle<()>>,
@@ -28,17 +33,17 @@ pub struct SigVerifyStage {
 impl SigVerifyStage {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
-        packet_receiver: Receiver<SharedPackets>,
+        packet_receiver: Receiver<Packets>,
         sigverify_disabled: bool,
-    ) -> (Self, Receiver<VerifiedPackets>) {
+        verified_sender: Sender<VerifiedPackets>,
+    ) -> Self {
         sigverify::init();
-        let (verified_sender, verified_receiver) = channel();
         let thread_hdls =
             Self::verifier_services(packet_receiver, verified_sender, sigverify_disabled);
-        (Self { thread_hdls }, verified_receiver)
+        Self { thread_hdls }
     }
 
-    fn verify_batch(batch: Vec<SharedPackets>, sigverify_disabled: bool) -> VerifiedPackets {
+    fn verify_batch(batch: Vec<Packets>, sigverify_disabled: bool) -> VerifiedPackets {
         let r = if sigverify_disabled {
             sigverify::ed25519_verify_disabled(&batch)
         } else {
@@ -49,35 +54,29 @@ impl SigVerifyStage {
 
     fn verifier(
         recvr: &Arc<Mutex<PacketReceiver>>,
-        sendr: &Arc<Mutex<Sender<VerifiedPackets>>>,
+        sendr: &Sender<VerifiedPackets>,
         sigverify_disabled: bool,
+        id: usize,
     ) -> Result<()> {
-        let (batch, len, recv_time) =
-            streamer::recv_batch(&recvr.lock().expect("'recvr' lock in fn verifier"))?;
-        inc_new_counter_info!("sigverify_stage-entries_received", len);
+        let (batch, len, recv_time) = streamer::recv_batch(
+            &recvr.lock().expect("'recvr' lock in fn verifier"),
+            RECV_BATCH_MAX,
+        )?;
+        inc_new_counter_info!("sigverify_stage-packets_received", len);
 
         let now = Instant::now();
         let batch_len = batch.len();
-        let rand_id = thread_rng().gen_range(0, 100);
-        info!(
+        debug!(
             "@{:?} verifier: verifying: {} id: {}",
             timing::timestamp(),
             batch.len(),
-            rand_id
+            id
         );
 
         let verified_batch = Self::verify_batch(batch, sigverify_disabled);
-        inc_new_counter_info!(
-            "sigverify_stage-verified_entries_send",
-            verified_batch.len()
-        );
+        inc_new_counter_info!("sigverify_stage-verified_packets_send", len);
 
-        if sendr
-            .lock()
-            .expect("lock in fn verify_batch in tpu")
-            .send(verified_batch)
-            .is_err()
-        {
+        if sendr.send(verified_batch).is_err() {
             return Err(Error::SendError);
         }
 
@@ -87,12 +86,12 @@ impl SigVerifyStage {
             "sigverify_stage-time_ms",
             (total_time_ms + recv_time) as usize
         );
-        info!(
+        debug!(
             "@{:?} verifier: done. batches: {} total verify time: {:?} id: {} verified: {} v/s {}",
             timing::timestamp(),
             batch_len,
             total_time_ms,
-            rand_id,
+            id,
             len,
             (len as f32 / total_time_s)
         );
@@ -113,21 +112,27 @@ impl SigVerifyStage {
 
     fn verifier_service(
         packet_receiver: Arc<Mutex<PacketReceiver>>,
-        verified_sender: Arc<Mutex<Sender<VerifiedPackets>>>,
+        verified_sender: Sender<VerifiedPackets>,
         sigverify_disabled: bool,
+        id: usize,
     ) -> JoinHandle<()> {
-        spawn(move || loop {
-            if let Err(e) = Self::verifier(&packet_receiver, &verified_sender, sigverify_disabled) {
-                match e {
-                    Error::RecvTimeoutError(RecvTimeoutError::Disconnected) => break,
-                    Error::RecvTimeoutError(RecvTimeoutError::Timeout) => (),
-                    Error::SendError => {
-                        break;
+        Builder::new()
+            .name(format!("soros-verifier-{}", id))
+            .spawn(move || loop {
+                if let Err(e) =
+                    Self::verifier(&packet_receiver, &verified_sender, sigverify_disabled, id)
+                {
+                    match e {
+                        Error::RecvTimeoutError(RecvTimeoutError::Disconnected) => break,
+                        Error::RecvTimeoutError(RecvTimeoutError::Timeout) => (),
+                        Error::SendError => {
+                            break;
+                        }
+                        _ => error!("{:?}", e),
                     }
-                    _ => error!("{:?}", e),
                 }
-            }
-        })
+            })
+            .unwrap()
     }
 
     fn verifier_services(
@@ -135,10 +140,16 @@ impl SigVerifyStage {
         verified_sender: Sender<VerifiedPackets>,
         sigverify_disabled: bool,
     ) -> Vec<JoinHandle<()>> {
-        let sender = Arc::new(Mutex::new(verified_sender));
         let receiver = Arc::new(Mutex::new(packet_receiver));
         (0..4)
-            .map(|_| Self::verifier_service(receiver.clone(), sender.clone(), sigverify_disabled))
+            .map(|id| {
+                Self::verifier_service(
+                    receiver.clone(),
+                    verified_sender.clone(),
+                    sigverify_disabled,
+                    id,
+                )
+            })
             .collect()
     }
 }

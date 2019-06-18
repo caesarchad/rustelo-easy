@@ -1,39 +1,35 @@
-use bincode::serialize;
 use bs58;
 use chrono::prelude::*;
 use clap::ArgMatches;
 use log::*;
+use num_traits::FromPrimitive;
 use serde_json;
 use serde_json::json;
-use soros::rpc_service::RPC_PORT;
-use soros::rpc_status::RpcSignatureStatus;
 use soros_budget_api;
-use soros_budget_api::budget_transaction::BudgetTransaction;
-#[cfg(test)]
-use soros_client::rpc_mock::{request_airdrop_transaction, MockRpcClient as RpcClient};
-#[cfg(not(test))]
-use soros_client::rpc_request::RpcClient;
-use soros_client::rpc_request::{get_rpc_request_str, RpcRequest};
+use soros_budget_api::budget_instruction;
+use soros_budget_api::budget_state::BudgetError;
+use soros_client::client_error::ClientError;
+use soros_client::rpc_client::{get_rpc_request_str, RpcClient};
 #[cfg(not(test))]
 use soros_drone::drone::request_airdrop_transaction;
 use soros_drone::drone::DRONE_PORT;
+#[cfg(test)]
+use soros_drone::drone_mock::request_airdrop_transaction;
 use soros_sdk::bpf_loader;
 use soros_sdk::hash::Hash;
-use soros_sdk::loader_transaction::LoaderTransaction;
+use soros_sdk::instruction::InstructionError;
+use soros_sdk::instruction_processor_utils::DecodeError;
+use soros_sdk::loader_instruction;
 use soros_sdk::pubkey::Pubkey;
+use soros_sdk::rpc_port::DEFAULT_RPC_PORT;
 use soros_sdk::signature::{Keypair, KeypairUtil, Signature};
-use soros_sdk::system_transaction::SystemTransaction;
-use soros_sdk::timing::{DEFAULT_TICKS_PER_SLOT, NUM_TICKS_PER_SECOND};
-use soros_sdk::transaction::Transaction;
-use soros_sdk::transaction_builder::TransactionBuilder;
-use soros_vote_api::vote_instruction::VoteInstruction;
-use soros_vote_api::vote_transaction::VoteTransaction;
+use soros_sdk::system_instruction::SystemError;
+use soros_sdk::system_transaction;
+use soros_sdk::transaction::{Transaction, TransactionError};
+use soros_vote_api::vote_instruction;
 use std::fs::File;
 use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-use std::thread::sleep;
-use std::time::Duration;
 use std::{error, fmt, mem};
 
 const USERDATA_CHUNK_SIZE: usize = 256;
@@ -42,12 +38,13 @@ const USERDATA_CHUNK_SIZE: usize = 256;
 pub enum WalletCommand {
     Address,
     Airdrop(u64),
-    Balance,
+    Balance(Pubkey),
     Cancel(Pubkey),
     Confirm(Signature),
     // ConfigureStakingAccount(delegate_id, authorized_voter_id)
-    ConfigureStakingAccount(Option<Pubkey>, Option<Pubkey>),
-    CreateStakingAccount(Pubkey, u64),
+    AuthorizeVoter(Pubkey),
+    CreateVoteAccount(Pubkey, Pubkey, u32, u64),
+    ShowVoteAccount(Pubkey),
     Deploy(String),
     GetTransactionCount,
     // Pay(lamports, to, timestamp, timestamp_pubkey, witness(es), cancelable)
@@ -91,7 +88,7 @@ impl error::Error for WalletError {
 }
 
 pub struct WalletConfig {
-    pub id: Keypair,
+    pub keypair: Keypair,
     pub command: WalletCommand,
     pub drone_host: Option<IpAddr>,
     pub drone_port: u16,
@@ -105,14 +102,14 @@ pub struct WalletConfig {
 impl Default for WalletConfig {
     fn default() -> WalletConfig {
         WalletConfig {
-            command: WalletCommand::Balance,
+            command: WalletCommand::Balance(Pubkey::default()),
             drone_host: None,
             drone_port: DRONE_PORT,
             host: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            id: Keypair::new(),
+            keypair: Keypair::new(),
             rpc_client: None,
             rpc_host: None,
-            rpc_port: RPC_PORT,
+            rpc_port: DEFAULT_RPC_PORT,
             rpc_tls: false,
         }
     }
@@ -131,6 +128,18 @@ impl WalletConfig {
     }
 }
 
+// Return the pubkey for an argument with `name` or None if not present.
+fn pubkey_of(matches: &ArgMatches<'_>, name: &str) -> Option<Pubkey> {
+    matches.value_of(name).map(|x| x.parse::<Pubkey>().unwrap())
+}
+
+// Return the pubkeys for arguments with `name` or None if none present.
+fn pubkeys_of(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<Pubkey>> {
+    matches
+        .values_of(name)
+        .map(|xs| xs.map(|x| x.parse::<Pubkey>().unwrap()).collect())
+}
+
 pub fn parse_command(
     pubkey: &Pubkey,
     matches: &ArgMatches<'_>,
@@ -141,17 +150,12 @@ pub fn parse_command(
             let lamports = airdrop_matches.value_of("lamports").unwrap().parse()?;
             Ok(WalletCommand::Airdrop(lamports))
         }
-        ("balance", Some(_balance_matches)) => Ok(WalletCommand::Balance),
+        ("balance", Some(balance_matches)) => {
+            let pubkey = pubkey_of(&balance_matches, "pubkey").unwrap_or(*pubkey);
+            Ok(WalletCommand::Balance(pubkey))
+        }
         ("cancel", Some(cancel_matches)) => {
-            let pubkey_vec = bs58::decode(cancel_matches.value_of("process_id").unwrap())
-                .into_vec()
-                .expect("base58-encoded public key");
-
-            if pubkey_vec.len() != mem::size_of::<Pubkey>() {
-                eprintln!("{}", cancel_matches.usage());
-                Err(WalletError::BadParameter("Invalid public key".to_string()))?;
-            }
-            let process_id = Pubkey::new(&pubkey_vec);
+            let process_id = pubkey_of(cancel_matches, "process_id").unwrap();
             Ok(WalletCommand::Cancel(process_id))
         }
         ("confirm", Some(confirm_matches)) => {
@@ -167,47 +171,29 @@ pub fn parse_command(
                 Err(WalletError::BadParameter("Invalid signature".to_string()))
             }
         }
-        ("configure-staking-account", Some(staking_config_matches)) => {
-            let delegate_id = staking_config_matches
-                .value_of("delegate")
-                .map(|pubkey_string| {
-                    let pubkey_vec = bs58::decode(pubkey_string)
-                        .into_vec()
-                        .expect("base58-encoded public key");
-                    // TODO: Add valid pubkey check
-                    Pubkey::new(&pubkey_vec)
-                });
-            let authorized_voter_id =
-                staking_config_matches
-                    .value_of("authorize")
-                    .map(|pubkey_string| {
-                        let pubkey_vec = bs58::decode(pubkey_string)
-                            .into_vec()
-                            .expect("base58-encoded public key");
-                        // TODO: Add valid pubkey check
-                        Pubkey::new(&pubkey_vec)
-                    });
-            Ok(WalletCommand::ConfigureStakingAccount(
-                delegate_id,
-                authorized_voter_id,
-            ))
+        ("authorize-voter", Some(matches)) => {
+            let authorized_voter_id = pubkey_of(matches, "authorized_voter_id").unwrap();
+            Ok(WalletCommand::AuthorizeVoter(authorized_voter_id))
         }
-        ("create-staking-account", Some(staking_matches)) => {
-            let voting_account_string = staking_matches.value_of("voting_account_id").unwrap();
-            let voting_account_vec = bs58::decode(voting_account_string)
-                .into_vec()
-                .expect("base58-encoded public key");
-
-            if voting_account_vec.len() != mem::size_of::<Pubkey>() {
-                eprintln!("{}", staking_matches.usage());
-                Err(WalletError::BadParameter("Invalid public key".to_string()))?;
-            }
-            let voting_account_id = Pubkey::new(&voting_account_vec);
-            let lamports = staking_matches.value_of("lamports").unwrap().parse()?;
-            Ok(WalletCommand::CreateStakingAccount(
+        ("create-vote-account", Some(matches)) => {
+            let voting_account_id = pubkey_of(matches, "voting_account_id").unwrap();
+            let node_id = pubkey_of(matches, "node_id").unwrap();
+            let commission = if let Some(commission) = matches.value_of("commission") {
+                commission.parse()?
+            } else {
+                0
+            };
+            let lamports = matches.value_of("lamports").unwrap().parse()?;
+            Ok(WalletCommand::CreateVoteAccount(
                 voting_account_id,
+                node_id,
+                commission,
                 lamports,
             ))
+        }
+        ("show-vote-account", Some(matches)) => {
+            let voting_account_id = pubkey_of(matches, "voting_account_id").unwrap();
+            Ok(WalletCommand::ShowVoteAccount(voting_account_id))
         }
         ("deploy", Some(deploy_matches)) => Ok(WalletCommand::Deploy(
             deploy_matches
@@ -218,21 +204,7 @@ pub fn parse_command(
         ("get-transaction-count", Some(_matches)) => Ok(WalletCommand::GetTransactionCount),
         ("pay", Some(pay_matches)) => {
             let lamports = pay_matches.value_of("lamports").unwrap().parse()?;
-            let to = if pay_matches.is_present("to") {
-                let pubkey_vec = bs58::decode(pay_matches.value_of("to").unwrap())
-                    .into_vec()
-                    .expect("base58-encoded public key");
-
-                if pubkey_vec.len() != mem::size_of::<Pubkey>() {
-                    eprintln!("{}", pay_matches.usage());
-                    Err(WalletError::BadParameter(
-                        "Invalid to public key".to_string(),
-                    ))?;
-                }
-                Pubkey::new(&pubkey_vec)
-            } else {
-                *pubkey
-            };
+            let to = pubkey_of(&pay_matches, "to").unwrap_or(*pubkey);
             let timestamp = if pay_matches.is_present("timestamp") {
                 // Parse input for serde_json
                 let date_string = if !pay_matches.value_of("timestamp").unwrap().contains('Z') {
@@ -244,41 +216,8 @@ pub fn parse_command(
             } else {
                 None
             };
-            let timestamp_pubkey = if pay_matches.is_present("timestamp_pubkey") {
-                let pubkey_vec = bs58::decode(pay_matches.value_of("timestamp_pubkey").unwrap())
-                    .into_vec()
-                    .expect("base58-encoded public key");
-
-                if pubkey_vec.len() != mem::size_of::<Pubkey>() {
-                    eprintln!("{}", pay_matches.usage());
-                    Err(WalletError::BadParameter(
-                        "Invalid timestamp public key".to_string(),
-                    ))?;
-                }
-                Some(Pubkey::new(&pubkey_vec))
-            } else {
-                None
-            };
-            let witness_vec = if pay_matches.is_present("witness") {
-                let witnesses = pay_matches.values_of("witness").unwrap();
-                let mut collection = Vec::new();
-                for witness in witnesses {
-                    let pubkey_vec = bs58::decode(witness)
-                        .into_vec()
-                        .expect("base58-encoded public key");
-
-                    if pubkey_vec.len() != mem::size_of::<Pubkey>() {
-                        eprintln!("{}", pay_matches.usage());
-                        Err(WalletError::BadParameter(
-                            "Invalid witness public key".to_string(),
-                        ))?;
-                    }
-                    collection.push(Pubkey::new(&pubkey_vec));
-                }
-                Some(collection)
-            } else {
-                None
-            };
+            let timestamp_pubkey = pubkey_of(&pay_matches, "timestamp_pubkey");
+            let witness_vec = pubkeys_of(&pay_matches, "witness");
             let cancelable = if pay_matches.is_present("cancelable") {
                 Some(*pubkey)
             } else {
@@ -295,47 +234,13 @@ pub fn parse_command(
             ))
         }
         ("send-signature", Some(sig_matches)) => {
-            let pubkey_vec = bs58::decode(sig_matches.value_of("to").unwrap())
-                .into_vec()
-                .expect("base58-encoded public key");
-
-            if pubkey_vec.len() != mem::size_of::<Pubkey>() {
-                eprintln!("{}", sig_matches.usage());
-                Err(WalletError::BadParameter("Invalid public key".to_string()))?;
-            }
-            let to = Pubkey::new(&pubkey_vec);
-
-            let pubkey_vec = bs58::decode(sig_matches.value_of("process_id").unwrap())
-                .into_vec()
-                .expect("base58-encoded public key");
-
-            if pubkey_vec.len() != mem::size_of::<Pubkey>() {
-                eprintln!("{}", sig_matches.usage());
-                Err(WalletError::BadParameter("Invalid public key".to_string()))?;
-            }
-            let process_id = Pubkey::new(&pubkey_vec);
+            let to = pubkey_of(&sig_matches, "to").unwrap();
+            let process_id = pubkey_of(&sig_matches, "process_id").unwrap();
             Ok(WalletCommand::Witness(to, process_id))
         }
         ("send-timestamp", Some(timestamp_matches)) => {
-            let pubkey_vec = bs58::decode(timestamp_matches.value_of("to").unwrap())
-                .into_vec()
-                .expect("base58-encoded public key");
-
-            if pubkey_vec.len() != mem::size_of::<Pubkey>() {
-                eprintln!("{}", timestamp_matches.usage());
-                Err(WalletError::BadParameter("Invalid public key".to_string()))?;
-            }
-            let to = Pubkey::new(&pubkey_vec);
-
-            let pubkey_vec = bs58::decode(timestamp_matches.value_of("process_id").unwrap())
-                .into_vec()
-                .expect("base58-encoded public key");
-
-            if pubkey_vec.len() != mem::size_of::<Pubkey>() {
-                eprintln!("{}", timestamp_matches.usage());
-                Err(WalletError::BadParameter("Invalid public key".to_string()))?;
-            }
-            let process_id = Pubkey::new(&pubkey_vec);
+            let to = pubkey_of(&timestamp_matches, "to").unwrap();
+            let process_id = pubkey_of(&timestamp_matches, "process_id").unwrap();
             let dt = if timestamp_matches.is_present("datetime") {
                 // Parse input for serde_json
                 let date_string = if !timestamp_matches
@@ -376,17 +281,17 @@ fn process_airdrop(
         "Requesting airdrop of {:?} lamports from {}",
         lamports, drone_addr
     );
-    let previous_balance = match rpc_client.retry_get_balance(1, &config.id.pubkey(), 5)? {
+    let previous_balance = match rpc_client.retry_get_balance(&config.keypair.pubkey(), 5)? {
         Some(lamports) => lamports,
         None => Err(WalletError::RpcRequestError(
             "Received result of an unexpected type".to_string(),
         ))?,
     };
 
-    request_and_confirm_airdrop(&rpc_client, &drone_addr, &config.id, lamports)?;
+    request_and_confirm_airdrop(&rpc_client, &drone_addr, &config.keypair.pubkey(), lamports)?;
 
     let current_balance = rpc_client
-        .retry_get_balance(1, &config.id.pubkey(), 5)?
+        .retry_get_balance(&config.keypair.pubkey(), 5)?
         .unwrap_or(previous_balance);
 
     if current_balance < previous_balance {
@@ -405,29 +310,12 @@ fn process_airdrop(
     Ok(format!("Your balance is: {:?}", current_balance))
 }
 
-fn process_balance(config: &WalletConfig, rpc_client: &RpcClient) -> ProcessResult {
-    let balance = rpc_client.retry_get_balance(1, &config.id.pubkey(), 5)?;
+fn process_balance(pubkey: &Pubkey, rpc_client: &RpcClient) -> ProcessResult {
+    let balance = rpc_client.retry_get_balance(pubkey, 5)?;
     match balance {
-        Some(0) => Ok("No account found! Request an airdrop to get started.".to_string()),
-        Some(lamports) => Ok(format!("Your balance is: {:?}", lamports)),
-        None => Err(WalletError::RpcRequestError(
-            "Received result of an unexpected type".to_string(),
-        ))?,
-    }
-}
-
-fn process_confirm(rpc_client: &RpcClient, signature: Signature) -> ProcessResult {
-    let params = json!([format!("{}", signature)]);
-    let confirmation = rpc_client
-        .retry_make_rpc_request(1, &RpcRequest::ConfirmTransaction, Some(params), 5)?
-        .as_bool();
-    match confirmation {
-        Some(b) => {
-            if b {
-                Ok("Confirmed".to_string())
-            } else {
-                Ok("Not found".to_string())
-            }
+        Some(lamports) => {
+            let ess = if lamports == 1 { "" } else { "s" };
+            Ok(format!("{:?} lamport{}", lamports, ess))
         }
         None => Err(WalletError::RpcRequestError(
             "Received result of an unexpected type".to_string(),
@@ -435,28 +323,38 @@ fn process_confirm(rpc_client: &RpcClient, signature: Signature) -> ProcessResul
     }
 }
 
-fn process_configure_staking(
+fn process_confirm(rpc_client: &RpcClient, signature: Signature) -> ProcessResult {
+    match rpc_client.get_signature_status(&signature.to_string()) {
+        Ok(status) => {
+            if let Some(result) = status {
+                match result {
+                    Ok(_) => Ok("Confirmed".to_string()),
+                    Err(err) => Ok(format!("Transaction failed with error {:?}", err)),
+                }
+            } else {
+                Ok("Not found".to_string())
+            }
+        }
+        Err(err) => Err(WalletError::RpcRequestError(format!(
+            "Unable to confirm: {:?}",
+            err
+        )))?,
+    }
+}
+
+fn process_authorize_voter(
     rpc_client: &RpcClient,
     config: &WalletConfig,
-    delegate_option: Option<Pubkey>,
-    authorized_voter_option: Option<Pubkey>,
+    authorized_voter_id: Pubkey,
 ) -> ProcessResult {
-    let recent_blockhash = get_recent_blockhash(&rpc_client)?;
-    let mut tx = TransactionBuilder::new(0);
-    if let Some(delegate_id) = delegate_option {
-        tx.push(VoteInstruction::new_delegate_stake(
-            &config.id.pubkey(),
-            &delegate_id,
-        ));
-    }
-    if let Some(authorized_voter_id) = authorized_voter_option {
-        tx.push(VoteInstruction::new_authorize_voter(
-            &config.id.pubkey(),
-            &authorized_voter_id,
-        ));
-    }
-    let mut tx = tx.sign(&[&config.id], recent_blockhash);
-    let signature_str = send_and_confirm_transaction(&rpc_client, &mut tx, &config.id)?;
+    let recent_blockhash = rpc_client.get_recent_blockhash()?;
+    let ixs = vec![vote_instruction::authorize_voter(
+        &config.keypair.pubkey(),
+        &authorized_voter_id,
+    )];
+
+    let mut tx = Transaction::new_signed_instructions(&[&config.keypair], ixs, recent_blockhash);
+    let signature_str = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair)?;
     Ok(signature_str.to_string())
 }
 
@@ -464,13 +362,58 @@ fn process_create_staking(
     rpc_client: &RpcClient,
     config: &WalletConfig,
     voting_account_id: &Pubkey,
+    node_id: &Pubkey,
+    commission: u32,
     lamports: u64,
 ) -> ProcessResult {
-    let recent_blockhash = get_recent_blockhash(&rpc_client)?;
-    let mut tx =
-        VoteTransaction::new_account(&config.id, voting_account_id, recent_blockhash, lamports, 0);
-    let signature_str = send_and_confirm_transaction(&rpc_client, &mut tx, &config.id)?;
+    let recent_blockhash = rpc_client.get_recent_blockhash()?;
+    let ixs = vote_instruction::create_account(
+        &config.keypair.pubkey(),
+        voting_account_id,
+        node_id,
+        commission,
+        lamports,
+    );
+    let mut tx = Transaction::new_signed_instructions(&[&config.keypair], ixs, recent_blockhash);
+    let signature_str = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair)?;
     Ok(signature_str.to_string())
+}
+
+fn process_show_staking(
+    rpc_client: &RpcClient,
+    _config: &WalletConfig,
+    voting_account_id: &Pubkey,
+) -> ProcessResult {
+    use soros_vote_api::vote_state::VoteState;
+    let vote_account_lamports = rpc_client.retry_get_balance(voting_account_id, 5)?;
+    let vote_account_data = rpc_client.get_account_data(voting_account_id)?;
+    let vote_state = VoteState::deserialize(&vote_account_data).unwrap();
+
+    println!("account lamports: {}", vote_account_lamports.unwrap());
+    println!("node id: {}", vote_state.node_id);
+    println!("authorized voter id: {}", vote_state.authorized_voter_id);
+    println!("credits: {}", vote_state.credits());
+    println!(
+        "commission: {}%",
+        f64::from(vote_state.commission) / f64::from(std::u32::MAX)
+    );
+    println!(
+        "root slot: {}",
+        match vote_state.root_slot {
+            Some(slot) => slot.to_string(),
+            None => "~".to_string(),
+        }
+    );
+    if !vote_state.votes.is_empty() {
+        println!("votes:");
+        for vote in vote_state.votes {
+            println!(
+                "- slot={}, confirmation count={}",
+                vote.slot, vote.confirmation_count
+            );
+        }
+    }
+    Ok("".to_string())
 }
 
 fn process_deploy(
@@ -478,7 +421,7 @@ fn process_deploy(
     config: &WalletConfig,
     program_location: &str,
 ) -> ProcessResult {
-    let balance = rpc_client.retry_get_balance(1, &config.id.pubkey(), 5)?;
+    let balance = rpc_client.retry_get_balance(&config.keypair.pubkey(), 5)?;
     if let Some(lamports) = balance {
         if lamports < 1 {
             Err(WalletError::DynamicProgramError(
@@ -487,7 +430,7 @@ fn process_deploy(
         }
     }
 
-    let blockhash = get_recent_blockhash(&rpc_client)?;
+    let blockhash = rpc_client.get_recent_blockhash()?;
     let program_id = Keypair::new();
     let mut file = File::open(program_location).map_err(|err| {
         WalletError::DynamicProgramError(
@@ -501,8 +444,8 @@ fn process_deploy(
         )
     })?;
 
-    let mut tx = SystemTransaction::new_program_account(
-        &config.id,
+    let mut tx = system_transaction::create_account(
+        &config.keypair,
         &program_id.pubkey(),
         blockhash,
         1,
@@ -511,7 +454,8 @@ fn process_deploy(
         0,
     );
     trace!("Creating program account");
-    send_and_confirm_transaction(&rpc_client, &mut tx, &config.id).map_err(|_| {
+    let result = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair);
+    log_instruction_custom_error::<SystemError>(result).map_err(|_| {
         WalletError::DynamicProgramError("Program allocate space failed".to_string())
     })?;
 
@@ -520,23 +464,25 @@ fn process_deploy(
         .chunks(USERDATA_CHUNK_SIZE)
         .zip(0..)
         .map(|(chunk, i)| {
-            LoaderTransaction::new_write(
-                &program_id,
+            let instruction = loader_instruction::write(
+                &program_id.pubkey(),
                 &bpf_loader::id(),
                 (i * USERDATA_CHUNK_SIZE) as u32,
                 chunk.to_vec(),
-                blockhash,
-                0,
-            )
+            );
+            Transaction::new_signed_instructions(&[&program_id], vec![instruction], blockhash)
         })
         .collect();
-    send_and_confirm_transactions(&rpc_client, write_transactions, &program_id)?;
+    rpc_client.send_and_confirm_transactions(write_transactions, &program_id)?;
 
     trace!("Finalizing program account");
-    let mut tx = LoaderTransaction::new_finalize(&program_id, &bpf_loader::id(), blockhash, 0);
-    send_and_confirm_transaction(&rpc_client, &mut tx, &program_id).map_err(|_| {
-        WalletError::DynamicProgramError("Program finalize transaction failed".to_string())
-    })?;
+    let instruction = loader_instruction::finalize(&program_id.pubkey(), &bpf_loader::id());
+    let mut tx = Transaction::new_signed_instructions(&[&program_id], vec![instruction], blockhash);
+    rpc_client
+        .send_and_confirm_transaction(&mut tx, &program_id)
+        .map_err(|_| {
+            WalletError::DynamicProgramError("Program finalize transaction failed".to_string())
+        })?;
 
     Ok(json!({
         "programId": format!("{}", program_id.pubkey()),
@@ -554,33 +500,35 @@ fn process_pay(
     witnesses: &Option<Vec<Pubkey>>,
     cancelable: Option<Pubkey>,
 ) -> ProcessResult {
-    let blockhash = get_recent_blockhash(&rpc_client)?;
+    let blockhash = rpc_client.get_recent_blockhash()?;
 
     if timestamp == None && *witnesses == None {
-        let mut tx = SystemTransaction::new_move(&config.id, to, lamports, blockhash, 0);
-        let signature_str = send_and_confirm_transaction(&rpc_client, &mut tx, &config.id)?;
+        let mut tx = system_transaction::transfer(&config.keypair, to, lamports, blockhash, 0);
+        let result = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair);
+        let signature_str = log_instruction_custom_error::<SystemError>(result)?;
         Ok(signature_str.to_string())
     } else if *witnesses == None {
         let dt = timestamp.unwrap();
         let dt_pubkey = match timestamp_pubkey {
             Some(pubkey) => pubkey,
-            None => config.id.pubkey(),
+            None => config.keypair.pubkey(),
         };
 
         let contract_state = Keypair::new();
 
         // Initializing contract
-        let mut tx = BudgetTransaction::new_on_date(
-            &config.id,
+        let ixs = budget_instruction::on_date(
+            &config.keypair.pubkey(),
             to,
             &contract_state.pubkey(),
             dt,
             &dt_pubkey,
             cancelable,
             lamports,
-            blockhash,
         );
-        let signature_str = send_and_confirm_transaction(&rpc_client, &mut tx, &config.id)?;
+        let mut tx = Transaction::new_signed_instructions(&[&config.keypair], ixs, blockhash);
+        let result = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair);
+        let signature_str = log_instruction_custom_error::<BudgetError>(result)?;
 
         Ok(json!({
             "signature": signature_str,
@@ -588,7 +536,7 @@ fn process_pay(
         })
         .to_string())
     } else if timestamp == None {
-        let blockhash = get_recent_blockhash(&rpc_client)?;
+        let blockhash = rpc_client.get_recent_blockhash()?;
 
         let witness = if let Some(ref witness_vec) = *witnesses {
             witness_vec[0]
@@ -601,16 +549,17 @@ fn process_pay(
         let contract_state = Keypair::new();
 
         // Initializing contract
-        let mut tx = BudgetTransaction::new_when_signed(
-            &config.id,
+        let ixs = budget_instruction::when_signed(
+            &config.keypair.pubkey(),
             to,
             &contract_state.pubkey(),
             &witness,
             cancelable,
             lamports,
-            blockhash,
         );
-        let signature_str = send_and_confirm_transaction(&rpc_client, &mut tx, &config.id)?;
+        let mut tx = Transaction::new_signed_instructions(&[&config.keypair], ixs, blockhash);
+        let result = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair);
+        let signature_str = log_instruction_custom_error::<BudgetError>(result)?;
 
         Ok(json!({
             "signature": signature_str,
@@ -623,23 +572,21 @@ fn process_pay(
 }
 
 fn process_cancel(rpc_client: &RpcClient, config: &WalletConfig, pubkey: &Pubkey) -> ProcessResult {
-    let blockhash = get_recent_blockhash(&rpc_client)?;
-    let mut tx =
-        BudgetTransaction::new_signature(&config.id, pubkey, &config.id.pubkey(), blockhash);
-    let signature_str = send_and_confirm_transaction(&rpc_client, &mut tx, &config.id)?;
+    let blockhash = rpc_client.get_recent_blockhash()?;
+    let ix = budget_instruction::apply_signature(
+        &config.keypair.pubkey(),
+        pubkey,
+        &config.keypair.pubkey(),
+    );
+    let mut tx = Transaction::new_signed_instructions(&[&config.keypair], vec![ix], blockhash);
+    let result = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair);
+    let signature_str = log_instruction_custom_error::<BudgetError>(result)?;
     Ok(signature_str.to_string())
 }
 
 fn process_get_transaction_count(rpc_client: &RpcClient) -> ProcessResult {
-    let transaction_count = rpc_client
-        .retry_make_rpc_request(1, &RpcRequest::GetTransactionCount, None, 5)?
-        .as_u64();
-    match transaction_count {
-        Some(count) => Ok(count.to_string()),
-        None => Err(WalletError::RpcRequestError(
-            "Received result of an unexpected type".to_string(),
-        ))?,
-    }
+    let transaction_count = rpc_client.get_transaction_count()?;
+    Ok(transaction_count.to_string())
 }
 
 fn process_time_elapsed(
@@ -650,16 +597,18 @@ fn process_time_elapsed(
     pubkey: &Pubkey,
     dt: DateTime<Utc>,
 ) -> ProcessResult {
-    let balance = rpc_client.retry_get_balance(1, &config.id.pubkey(), 5)?;
+    let balance = rpc_client.retry_get_balance(&config.keypair.pubkey(), 5)?;
 
     if let Some(0) = balance {
-        request_and_confirm_airdrop(&rpc_client, &drone_addr, &config.id, 1)?;
+        request_and_confirm_airdrop(&rpc_client, &drone_addr, &config.keypair.pubkey(), 1)?;
     }
 
-    let blockhash = get_recent_blockhash(&rpc_client)?;
+    let blockhash = rpc_client.get_recent_blockhash()?;
 
-    let mut tx = BudgetTransaction::new_timestamp(&config.id, pubkey, to, dt, blockhash);
-    let signature_str = send_and_confirm_transaction(&rpc_client, &mut tx, &config.id)?;
+    let ix = budget_instruction::apply_timestamp(&config.keypair.pubkey(), pubkey, to, dt);
+    let mut tx = Transaction::new_signed_instructions(&[&config.keypair], vec![ix], blockhash);
+    let result = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair);
+    let signature_str = log_instruction_custom_error::<BudgetError>(result)?;
 
     Ok(signature_str.to_string())
 }
@@ -671,15 +620,17 @@ fn process_witness(
     to: &Pubkey,
     pubkey: &Pubkey,
 ) -> ProcessResult {
-    let balance = rpc_client.retry_get_balance(1, &config.id.pubkey(), 5)?;
+    let balance = rpc_client.retry_get_balance(&config.keypair.pubkey(), 5)?;
 
     if let Some(0) = balance {
-        request_and_confirm_airdrop(&rpc_client, &drone_addr, &config.id, 1)?;
+        request_and_confirm_airdrop(&rpc_client, &drone_addr, &config.keypair.pubkey(), 1)?;
     }
 
-    let blockhash = get_recent_blockhash(&rpc_client)?;
-    let mut tx = BudgetTransaction::new_signature(&config.id, pubkey, to, blockhash);
-    let signature_str = send_and_confirm_transaction(&rpc_client, &mut tx, &config.id)?;
+    let blockhash = rpc_client.get_recent_blockhash()?;
+    let ix = budget_instruction::apply_signature(&config.keypair.pubkey(), pubkey, to);
+    let mut tx = Transaction::new_signed_instructions(&[&config.keypair], vec![ix], blockhash);
+    let result = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair);
+    let signature_str = log_instruction_custom_error::<BudgetError>(result)?;
 
     Ok(signature_str.to_string())
 }
@@ -687,29 +638,32 @@ fn process_witness(
 pub fn process_command(config: &WalletConfig) -> ProcessResult {
     if let WalletCommand::Address = config.command {
         // Get address of this client
-        return Ok(format!("{}", config.id.pubkey()));
+        return Ok(format!("{}", config.keypair.pubkey()));
     }
 
     let drone_addr = config.drone_addr();
+
+    let mut _rpc_client;
     let rpc_client = if config.rpc_client.is_none() {
         let rpc_addr = config.rpc_addr();
-        RpcClient::new(rpc_addr)
+        _rpc_client = RpcClient::new(rpc_addr);
+        &_rpc_client
     } else {
         // Primarily for testing
-        config.rpc_client.clone().unwrap()
+        config.rpc_client.as_ref().unwrap()
     };
 
     match config.command {
         // Get address of this client
         WalletCommand::Address => unreachable!(),
 
-        // Request an airdrop from Bitconch Drone;
+        // Request an airdrop from Soros Drone;
         WalletCommand::Airdrop(lamports) => {
             process_airdrop(&rpc_client, config, drone_addr, lamports)
         }
 
         // Check client balance
-        WalletCommand::Balance => process_balance(config, &rpc_client),
+        WalletCommand::Balance(pubkey) => process_balance(&pubkey, &rpc_client),
 
         // Cancel a contract by contract Pubkey
         WalletCommand::Cancel(pubkey) => process_cancel(&rpc_client, config, &pubkey),
@@ -718,18 +672,24 @@ pub fn process_command(config: &WalletConfig) -> ProcessResult {
         WalletCommand::Confirm(signature) => process_confirm(&rpc_client, signature),
 
         // Configure staking account already created
-        WalletCommand::ConfigureStakingAccount(delegate_option, authorized_voter_option) => {
-            process_configure_staking(
-                &rpc_client,
-                config,
-                delegate_option,
-                authorized_voter_option,
-            )
+        WalletCommand::AuthorizeVoter(authorized_voter_id) => {
+            process_authorize_voter(&rpc_client, config, authorized_voter_id)
         }
 
         // Create staking account
-        WalletCommand::CreateStakingAccount(voting_account_id, lamports) => {
-            process_create_staking(&rpc_client, config, &voting_account_id, lamports)
+        WalletCommand::CreateVoteAccount(voting_account_id, node_id, commission, lamports) => {
+            process_create_staking(
+                &rpc_client,
+                config,
+                &voting_account_id,
+                &node_id,
+                commission,
+                lamports,
+            )
+        }
+
+        WalletCommand::ShowVoteAccount(voting_account_id) => {
+            process_show_staking(&rpc_client, config, &voting_account_id)
         }
 
         // Deploy a custom program to the chain
@@ -770,238 +730,95 @@ pub fn process_command(config: &WalletConfig) -> ProcessResult {
     }
 }
 
-fn get_recent_blockhash(rpc_client: &RpcClient) -> Result<Hash, Box<dyn error::Error>> {
-    let result = rpc_client.retry_make_rpc_request(1, &RpcRequest::GetRecentBlockhash, None, 5)?;
-    if result.as_str().is_none() {
-        Err(WalletError::RpcRequestError(
-            "Received bad blockhash".to_string(),
-        ))?
-    }
-    let blockhash_str = result.as_str().unwrap();
-    let blockhash_vec = bs58::decode(blockhash_str)
-        .into_vec()
-        .map_err(|_| WalletError::RpcRequestError("Received bad blockhash".to_string()))?;
-    Ok(Hash::new(&blockhash_vec))
+// Quick and dirty Keypair that assumes the client will do retries but not update the
+// blockhash. If the client updates the blockhash, the signature will be invalid.
+// TODO: Parse `msg` and use that data to make a new airdrop request.
+struct DroneKeypair {
+    transaction: Transaction,
 }
 
-fn get_next_blockhash(
-    rpc_client: &RpcClient,
-    previous_blockhash: &Hash,
-) -> Result<Hash, Box<dyn error::Error>> {
-    let mut next_blockhash_retries = 10;
-    loop {
-        let next_blockhash = get_recent_blockhash(rpc_client)?;
-        if cfg!(not(test)) {
-            if next_blockhash != *previous_blockhash {
-                return Ok(next_blockhash);
-            }
-        } else {
-            // When using MockRpcClient, get_recent_blockhash() returns a constant value
-            return Ok(next_blockhash);
-        }
-        if next_blockhash_retries == 0 {
-            Err(WalletError::RpcRequestError(
-                format!(
-                    "Unable to fetch new blockhash, blockhash stuck at {:?}",
-                    next_blockhash
-                )
-                .to_string(),
-            ))?;
-        }
-        next_blockhash_retries -= 1;
-        // Retry ~twice during a slot
-        sleep(Duration::from_millis(
-            500 * DEFAULT_TICKS_PER_SLOT / NUM_TICKS_PER_SECOND,
-        ));
+impl DroneKeypair {
+    fn new_keypair(
+        drone_addr: &SocketAddr,
+        to_pubkey: &Pubkey,
+        lamports: u64,
+        blockhash: Hash,
+    ) -> Result<Self, Box<dyn error::Error>> {
+        let transaction = request_airdrop_transaction(drone_addr, to_pubkey, lamports, blockhash)?;
+        Ok(Self { transaction })
+    }
+
+    fn airdrop_transaction(&self) -> Transaction {
+        self.transaction.clone()
     }
 }
 
-fn send_transaction(
-    rpc_client: &RpcClient,
-    transaction: &Transaction,
-) -> Result<String, Box<dyn error::Error>> {
-    let serialized = serialize(transaction).unwrap();
-    let params = json!([serialized]);
-    let signature =
-        rpc_client.retry_make_rpc_request(2, &RpcRequest::SendTransaction, Some(params), 5)?;
-    if signature.as_str().is_none() {
-        Err(WalletError::RpcRequestError(
-            "Received result of an unexpected type".to_string(),
-        ))?
+impl KeypairUtil for DroneKeypair {
+    fn new() -> Self {
+        unimplemented!();
     }
-    Ok(signature.as_str().unwrap().to_string())
-}
 
-fn confirm_transaction(
-    rpc_client: &RpcClient,
-    signature: &str,
-) -> Result<RpcSignatureStatus, Box<dyn error::Error>> {
-    let params = json!([signature.to_string()]);
-    let signature_status =
-        rpc_client.retry_make_rpc_request(1, &RpcRequest::GetSignatureStatus, Some(params), 5)?;
-    if let Some(status) = signature_status.as_str() {
-        let rpc_status = RpcSignatureStatus::from_str(status).map_err(|_| {
-            WalletError::RpcRequestError("Unable to parse signature status".to_string())
-        })?;
-        Ok(rpc_status)
-    } else {
-        Err(WalletError::RpcRequestError(
-            "Received result of an unexpected type".to_string(),
-        ))?
+    /// Return the public key of the keypair used to sign votes
+    fn pubkey(&self) -> Pubkey {
+        self.transaction.message().account_keys[0]
     }
-}
 
-fn send_and_confirm_transaction(
-    rpc_client: &RpcClient,
-    transaction: &mut Transaction,
-    signer: &Keypair,
-) -> Result<String, Box<dyn error::Error>> {
-    let mut send_retries = 5;
-    loop {
-        let mut status_retries = 4;
-        let signature_str = send_transaction(rpc_client, transaction)?;
-        let status = loop {
-            let status = confirm_transaction(rpc_client, &signature_str)?;
-            if status == RpcSignatureStatus::SignatureNotFound {
-                status_retries -= 1;
-                if status_retries == 0 {
-                    break status;
-                }
-            } else {
-                break status;
-            }
-            if cfg!(not(test)) {
-                // Retry ~twice during a slot
-                sleep(Duration::from_millis(
-                    500 * DEFAULT_TICKS_PER_SLOT / NUM_TICKS_PER_SECOND,
-                ));
-            }
-        };
-        match status {
-            RpcSignatureStatus::AccountInUse | RpcSignatureStatus::SignatureNotFound => {
-                // Fetch a new blockhash and re-sign the transaction before sending it again
-                resign_transaction(rpc_client, transaction, signer)?;
-                send_retries -= 1;
-            }
-            RpcSignatureStatus::Confirmed => {
-                return Ok(signature_str);
-            }
-            _ => {
-                send_retries = 0;
-            }
-        }
-        if send_retries == 0 {
-            Err(WalletError::RpcRequestError(format!(
-                "Transaction {:?} failed: {:?}",
-                signature_str, status
-            )))?;
-        }
+    fn sign_message(&self, _msg: &[u8]) -> Signature {
+        self.transaction.signatures[0]
     }
-}
-
-fn send_and_confirm_transactions(
-    rpc_client: &RpcClient,
-    mut transactions: Vec<Transaction>,
-    signer: &Keypair,
-) -> Result<(), Box<dyn error::Error>> {
-    let mut send_retries = 5;
-    loop {
-        let mut status_retries = 4;
-
-        // Send all transactions
-        let mut transactions_signatures = vec![];
-        for transaction in transactions {
-            if cfg!(not(test)) {
-                // Delay ~1 tick between write transactions in an attempt to reduce AccountInUse errors
-                // since all the write transactions modify the same program account
-                sleep(Duration::from_millis(1000 / NUM_TICKS_PER_SECOND));
-            }
-
-            let signature = send_transaction(&rpc_client, &transaction).ok();
-            transactions_signatures.push((transaction, signature))
-        }
-
-        // Collect statuses for all the transactions, drop those that are confirmed
-        while status_retries > 0 {
-            status_retries -= 1;
-
-            if cfg!(not(test)) {
-                // Retry ~twice during a slot
-                sleep(Duration::from_millis(
-                    500 * DEFAULT_TICKS_PER_SLOT / NUM_TICKS_PER_SECOND,
-                ));
-            }
-
-            transactions_signatures = transactions_signatures
-                .into_iter()
-                .filter(|(_transaction, signature)| {
-                    if let Some(signature) = signature {
-                        if let Ok(status) = confirm_transaction(rpc_client, &signature) {
-                            return status != RpcSignatureStatus::Confirmed;
-                        }
-                    }
-                    true
-                })
-                .collect();
-
-            if transactions_signatures.is_empty() {
-                return Ok(());
-            }
-        }
-
-        if send_retries == 0 {
-            Err(WalletError::RpcRequestError(
-                "Transactions failed".to_string(),
-            ))?;
-        }
-        send_retries -= 1;
-
-        // Re-sign any failed transactions with a new blockhash and retry
-        let blockhash =
-            get_next_blockhash(rpc_client, &transactions_signatures[0].0.recent_blockhash)?;
-        transactions = transactions_signatures
-            .into_iter()
-            .map(|(mut transaction, _)| {
-                transaction.sign(&[signer], blockhash);
-                transaction
-            })
-            .collect();
-    }
-}
-
-fn resign_transaction(
-    rpc_client: &RpcClient,
-    tx: &mut Transaction,
-    signer_key: &Keypair,
-) -> Result<(), Box<dyn error::Error>> {
-    let blockhash = get_next_blockhash(rpc_client, &tx.recent_blockhash)?;
-    tx.sign(&[signer_key], blockhash);
-    Ok(())
 }
 
 pub fn request_and_confirm_airdrop(
     rpc_client: &RpcClient,
     drone_addr: &SocketAddr,
-    signer: &Keypair,
+    to_pubkey: &Pubkey,
     lamports: u64,
 ) -> Result<(), Box<dyn error::Error>> {
-    let blockhash = get_recent_blockhash(rpc_client)?;
-    let mut tx = request_airdrop_transaction(drone_addr, &signer.pubkey(), lamports, blockhash)?;
-    send_and_confirm_transaction(rpc_client, &mut tx, signer)?;
+    let blockhash = rpc_client.get_recent_blockhash()?;
+    let keypair = DroneKeypair::new_keypair(drone_addr, to_pubkey, lamports, blockhash)?;
+    let mut tx = keypair.airdrop_transaction();
+    let result = rpc_client.send_and_confirm_transaction(&mut tx, &keypair);
+    log_instruction_custom_error::<SystemError>(result)?;
     Ok(())
+}
+
+fn log_instruction_custom_error<E>(result: Result<String, ClientError>) -> ProcessResult
+where
+    E: 'static + std::error::Error + DecodeError<E> + FromPrimitive,
+{
+    if result.is_err() {
+        let err = result.unwrap_err();
+        if let ClientError::TransactionError(TransactionError::InstructionError(
+            _,
+            InstructionError::CustomError(code),
+        )) = err
+        {
+            if let Some(specific_error) = E::decode_custom_error_to_enum(code) {
+                error!(
+                    "{:?}: {}::{:?}",
+                    err,
+                    specific_error.type_of(),
+                    specific_error
+                );
+                Err(specific_error)?
+            }
+        }
+        error!("{:?}", err);
+        Err(err)?
+    } else {
+        Ok(result.unwrap())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::{App, Arg, ArgGroup, SubCommand};
+    use clap::{App, Arg, SubCommand};
     use serde_json::Value;
-    use soros::socketaddr;
-    use soros_client::rpc_mock::{PUBKEY, SIGNATURE};
-    use soros_sdk::signature::{gen_keypair_file, read_keypair, read_pkcs8, Keypair, KeypairUtil};
-    use std::fs;
+    use soros_client::mock_rpc_client_request::SIGNATURE;
+    use soros_sdk::transaction::TransactionError;
     use std::net::{Ipv4Addr, SocketAddr};
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     #[test]
     fn test_wallet_config_drone_addr() {
@@ -1073,31 +890,19 @@ mod tests {
                     ),
             )
             .subcommand(
-                SubCommand::with_name("configure-staking-account")
+                SubCommand::with_name("authorize-voter")
                     .about("Configure staking account for node")
-                    .group(
-                        ArgGroup::with_name("options")
-                            .args(&["delegate", "authorize"])
-                            .multiple(true)
-                            .required(true),
-                    )
                     .arg(
-                        Arg::with_name("delegate")
-                            .long("delegate-account")
+                        Arg::with_name("authorized_voter_id")
+                            .index(1)
                             .value_name("PUBKEY")
                             .takes_value(true)
+                            .required(true)
                             .help("Address to delegate this vote account to"),
-                    )
-                    .arg(
-                        Arg::with_name("authorize")
-                            .long("authorize-voter")
-                            .value_name("PUBKEY")
-                            .takes_value(true)
-                            .help("Vote signer to authorize"),
                     ),
             )
             .subcommand(
-                SubCommand::with_name("create-staking-account")
+                SubCommand::with_name("create-vote-account")
                     .about("Create staking account for node")
                     .arg(
                         Arg::with_name("voting_account_id")
@@ -1108,12 +913,27 @@ mod tests {
                             .help("Staking account address to fund"),
                     )
                     .arg(
-                        Arg::with_name("lamports")
+                        Arg::with_name("node_id")
                             .index(2)
+                            .value_name("PUBKEY")
+                            .takes_value(true)
+                            .required(true)
+                            .help("Node that will vote in this account"),
+                    )
+                    .arg(
+                        Arg::with_name("lamports")
+                            .index(3)
                             .value_name("NUM")
                             .takes_value(true)
                             .required(true)
                             .help("The number of lamports to send to staking account"),
+                    )
+                    .arg(
+                        Arg::with_name("commission")
+                            .long("commission")
+                            .value_name("NUM")
+                            .takes_value(true)
+                            .help("The commission taken on reward redemption"),
                     ),
             )
             .subcommand(
@@ -1228,11 +1048,11 @@ mod tests {
                             .help("Optional arbitrary timestamp to apply"),
                     ),
             );
-        let pubkey = Keypair::new().pubkey();
+        let pubkey = Pubkey::new_rand();
         let pubkey_string = format!("{}", pubkey);
-        let witness0 = Keypair::new().pubkey();
+        let witness0 = Pubkey::new_rand();
         let witness0_string = format!("{}", witness0);
-        let witness1 = Keypair::new().pubkey();
+        let witness1 = Pubkey::new_rand();
         let witness1_string = format!("{}", witness1);
         let dt = Utc.ymd(2018, 9, 19).and_hms(17, 30, 59);
 
@@ -1275,50 +1095,43 @@ mod tests {
             .get_matches_from(vec!["test", "confirm", "deadbeef"]);
         assert!(parse_command(&pubkey, &test_bad_signature).is_err());
 
-        // Test ConfigureStakingAccount Subcommand
-        let second_pubkey = Keypair::new().pubkey();
-        let second_pubkey_string = format!("{}", second_pubkey);
-        let test_configure_staking_account = test_commands.clone().get_matches_from(vec![
-            "test",
-            "configure-staking-account",
-            "--delegate-account",
-            &pubkey_string,
-            "--authorize-voter",
-            &second_pubkey_string,
-        ]);
+        // Test AuthorizeVoter Subcommand
+        let test_authorize_voter =
+            test_commands
+                .clone()
+                .get_matches_from(vec!["test", "authorize-voter", &pubkey_string]);
         assert_eq!(
-            parse_command(&pubkey, &test_configure_staking_account).unwrap(),
-            WalletCommand::ConfigureStakingAccount(Some(pubkey), Some(second_pubkey))
-        );
-        let test_configure_staking_account = test_commands.clone().get_matches_from(vec![
-            "test",
-            "configure-staking-account",
-            "--delegate-account",
-            &pubkey_string,
-        ]);
-        assert_eq!(
-            parse_command(&pubkey, &test_configure_staking_account).unwrap(),
-            WalletCommand::ConfigureStakingAccount(Some(pubkey), None)
+            parse_command(&pubkey, &test_authorize_voter).unwrap(),
+            WalletCommand::AuthorizeVoter(pubkey)
         );
 
-        // Test CreateStakingAccount SubCommand
-        let test_create_staking_account = test_commands.clone().get_matches_from(vec![
+        // Test CreateVoteAccount SubCommand
+        let node_id = Pubkey::new_rand();
+        let node_id_string = format!("{}", node_id);
+        let test_create_vote_account = test_commands.clone().get_matches_from(vec![
             "test",
-            "create-staking-account",
+            "create-vote-account",
             &pubkey_string,
+            &node_id_string,
+            "50",
+            "--commission",
+            "10",
+        ]);
+        assert_eq!(
+            parse_command(&pubkey, &test_create_vote_account).unwrap(),
+            WalletCommand::CreateVoteAccount(pubkey, node_id, 10, 50)
+        );
+        let test_create_vote_account2 = test_commands.clone().get_matches_from(vec![
+            "test",
+            "create-vote-account",
+            &pubkey_string,
+            &node_id_string,
             "50",
         ]);
         assert_eq!(
-            parse_command(&pubkey, &test_create_staking_account).unwrap(),
-            WalletCommand::CreateStakingAccount(pubkey, 50)
+            parse_command(&pubkey, &test_create_vote_account2).unwrap(),
+            WalletCommand::CreateVoteAccount(pubkey, node_id, 0, 50)
         );
-        let test_bad_pubkey = test_commands.clone().get_matches_from(vec![
-            "test",
-            "create-staking-account",
-            "deadbeef",
-            "50",
-        ]);
-        assert!(parse_command(&pubkey, &test_bad_pubkey).is_err());
 
         // Test Deploy Subcommand
         let test_deploy =
@@ -1339,10 +1152,6 @@ mod tests {
             parse_command(&pubkey, &test_pay).unwrap(),
             WalletCommand::Pay(50, pubkey, None, None, None, None)
         );
-        let test_bad_pubkey = test_commands
-            .clone()
-            .get_matches_from(vec!["test", "pay", "deadbeef", "50"]);
-        assert!(parse_command(&pubkey, &test_bad_pubkey).is_err());
 
         // Test Pay Subcommand w/ Witness
         let test_pay_multiple_witnesses = test_commands.clone().get_matches_from(vec![
@@ -1453,34 +1262,32 @@ mod tests {
     fn test_wallet_process_command() {
         // Success cases
         let mut config = WalletConfig::default();
-        config.rpc_client = Some(RpcClient::new("succeeds".to_string()));
+        config.rpc_client = Some(RpcClient::new_mock("succeeds".to_string()));
 
         let keypair = Keypair::new();
         let pubkey = keypair.pubkey().to_string();
-        config.id = keypair;
+        config.keypair = keypair;
         config.command = WalletCommand::Address;
         assert_eq!(process_command(&config).unwrap(), pubkey);
 
-        config.command = WalletCommand::Balance;
-        assert_eq!(process_command(&config).unwrap(), "Your balance is: 50");
+        config.command = WalletCommand::Balance(config.keypair.pubkey());
+        assert_eq!(process_command(&config).unwrap(), "50 lamports");
 
-        let process_id = Keypair::new().pubkey();
+        let process_id = Pubkey::new_rand();
         config.command = WalletCommand::Cancel(process_id);
         assert_eq!(process_command(&config).unwrap(), SIGNATURE);
 
         let good_signature = Signature::new(&bs58::decode(SIGNATURE).into_vec().unwrap());
         config.command = WalletCommand::Confirm(good_signature);
         assert_eq!(process_command(&config).unwrap(), "Confirmed");
-        let missing_signature = Signature::new(&bs58::decode("5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW").into_vec().unwrap());
-        config.command = WalletCommand::Confirm(missing_signature);
-        assert_eq!(process_command(&config).unwrap(), "Not found");
 
-        let bob_pubkey = Keypair::new().pubkey();
-        config.command = WalletCommand::ConfigureStakingAccount(None, Some(bob_pubkey));
+        let bob_pubkey = Pubkey::new_rand();
+        config.command = WalletCommand::AuthorizeVoter(bob_pubkey);
         let signature = process_command(&config);
         assert_eq!(signature.unwrap(), SIGNATURE.to_string());
 
-        config.command = WalletCommand::CreateStakingAccount(bob_pubkey, 10);
+        let node_id = Pubkey::new_rand();
+        config.command = WalletCommand::CreateVoteAccount(bob_pubkey, node_id, 0, 10);
         let signature = process_command(&config);
         assert_eq!(signature.unwrap(), SIGNATURE.to_string());
 
@@ -1497,7 +1304,7 @@ mod tests {
             10,
             bob_pubkey,
             Some(dt),
-            Some(config.id.pubkey()),
+            Some(config.keypair.pubkey()),
             None,
             None,
         );
@@ -1513,14 +1320,14 @@ mod tests {
             SIGNATURE.to_string()
         );
 
-        let witness = Keypair::new().pubkey();
+        let witness = Pubkey::new_rand();
         config.command = WalletCommand::Pay(
             10,
             bob_pubkey,
             None,
             None,
             Some(vec![witness]),
-            Some(config.id.pubkey()),
+            Some(config.keypair.pubkey()),
         );
         let result = process_command(&config);
         let json: Value = serde_json::from_str(&result.unwrap()).unwrap();
@@ -1534,12 +1341,12 @@ mod tests {
             SIGNATURE.to_string()
         );
 
-        let process_id = Keypair::new().pubkey();
+        let process_id = Pubkey::new_rand();
         config.command = WalletCommand::TimeElapsed(bob_pubkey, process_id, dt);
         let signature = process_command(&config);
         assert_eq!(signature.unwrap(), SIGNATURE.to_string());
 
-        let witness = Keypair::new().pubkey();
+        let witness = Pubkey::new_rand();
         config.command = WalletCommand::Witness(bob_pubkey, witness);
         let signature = process_command(&config);
         assert_eq!(signature.unwrap(), SIGNATURE.to_string());
@@ -1548,33 +1355,47 @@ mod tests {
         config.command = WalletCommand::Airdrop(50);
         assert!(process_command(&config).is_err());
 
-        config.rpc_client = Some(RpcClient::new("airdrop".to_string()));
+        config.rpc_client = Some(RpcClient::new_mock("airdrop".to_string()));
         config.command = WalletCommand::TimeElapsed(bob_pubkey, process_id, dt);
         let signature = process_command(&config);
         assert_eq!(signature.unwrap(), SIGNATURE.to_string());
 
-        let witness = Keypair::new().pubkey();
+        let witness = Pubkey::new_rand();
         config.command = WalletCommand::Witness(bob_pubkey, witness);
         let signature = process_command(&config);
         assert_eq!(signature.unwrap(), SIGNATURE.to_string());
 
-        // Failture cases
-        config.rpc_client = Some(RpcClient::new("fails".to_string()));
+        // sig_not_found case
+        config.rpc_client = Some(RpcClient::new_mock("sig_not_found".to_string()));
+        let missing_signature = Signature::new(&bs58::decode("5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW").into_vec().unwrap());
+        config.command = WalletCommand::Confirm(missing_signature);
+        assert_eq!(process_command(&config).unwrap(), "Not found");
+
+        // Tx error case
+        config.rpc_client = Some(RpcClient::new_mock("account_in_use".to_string()));
+        let any_signature = Signature::new(&bs58::decode(SIGNATURE).into_vec().unwrap());
+        config.command = WalletCommand::Confirm(any_signature);
+        assert_eq!(
+            process_command(&config).unwrap(),
+            format!(
+                "Transaction failed with error {:?}",
+                TransactionError::AccountInUse
+            )
+        );
+
+        // Failure cases
+        config.rpc_client = Some(RpcClient::new_mock("fails".to_string()));
 
         config.command = WalletCommand::Airdrop(50);
         assert!(process_command(&config).is_err());
 
-        config.command = WalletCommand::Balance;
+        config.command = WalletCommand::Balance(config.keypair.pubkey());
         assert!(process_command(&config).is_err());
 
-        let any_signature = Signature::new(&bs58::decode(SIGNATURE).into_vec().unwrap());
-        config.command = WalletCommand::Confirm(any_signature);
+        config.command = WalletCommand::AuthorizeVoter(bob_pubkey);
         assert!(process_command(&config).is_err());
 
-        config.command = WalletCommand::ConfigureStakingAccount(None, Some(bob_pubkey));
-        assert!(process_command(&config).is_err());
-
-        config.command = WalletCommand::CreateStakingAccount(bob_pubkey, 10);
+        config.command = WalletCommand::CreateVoteAccount(bob_pubkey, node_id, 0, 10);
         assert!(process_command(&config).is_err());
 
         config.command = WalletCommand::GetTransactionCount;
@@ -1587,7 +1408,7 @@ mod tests {
             10,
             bob_pubkey,
             Some(dt),
-            Some(config.id.pubkey()),
+            Some(config.keypair.pubkey()),
             None,
             None,
         );
@@ -1599,7 +1420,7 @@ mod tests {
             None,
             None,
             Some(vec![witness]),
-            Some(config.id.pubkey()),
+            Some(config.keypair.pubkey()),
         );
         assert!(process_command(&config).is_err());
 
@@ -1618,7 +1439,7 @@ mod tests {
 
         // Success case
         let mut config = WalletConfig::default();
-        config.rpc_client = Some(RpcClient::new("succeeds".to_string()));
+        config.rpc_client = Some(RpcClient::new_mock("succeeds".to_string()));
 
         config.command = WalletCommand::Deploy(pathbuf.to_str().unwrap().to_string());
         let result = process_command(&config);
@@ -1634,150 +1455,10 @@ mod tests {
         assert_eq!(program_id_vec.len(), mem::size_of::<Pubkey>());
 
         // Failure cases
-        config.rpc_client = Some(RpcClient::new("airdrop".to_string()));
+        config.rpc_client = Some(RpcClient::new_mock("airdrop".to_string()));
         assert!(process_command(&config).is_err());
 
         config.command = WalletCommand::Deploy("bad/file/location.so".to_string());
         assert!(process_command(&config).is_err());
-    }
-
-    fn tmp_file_path(name: &str) -> String {
-        use std::env;
-        let out_dir = env::var("OUT_DIR").unwrap_or_else(|_| "target".to_string());
-        let keypair = Keypair::new();
-
-        format!("{}/tmp/{}-{}", out_dir, name, keypair.pubkey()).to_string()
-    }
-
-    #[test]
-    fn test_wallet_gen_keypair_file() {
-        let outfile = tmp_file_path("test_gen_keypair_file.json");
-        let serialized_keypair = gen_keypair_file(outfile.to_string()).unwrap();
-        let keypair_vec: Vec<u8> = serde_json::from_str(&serialized_keypair).unwrap();
-        assert!(Path::new(&outfile).exists());
-        assert_eq!(keypair_vec, read_pkcs8(&outfile).unwrap());
-        read_keypair(&outfile).unwrap();
-        assert_eq!(
-            read_keypair(&outfile).unwrap().pubkey().as_ref().len(),
-            mem::size_of::<Pubkey>()
-        );
-        fs::remove_file(&outfile).unwrap();
-        assert!(!Path::new(&outfile).exists());
-    }
-
-    #[test]
-    fn test_wallet_get_recent_blockhash() {
-        let rpc_client = RpcClient::new("succeeds".to_string());
-
-        let vec = bs58::decode(PUBKEY).into_vec().unwrap();
-        let expected_blockhash = Hash::new(&vec);
-
-        let blockhash = get_recent_blockhash(&rpc_client);
-        assert_eq!(blockhash.unwrap(), expected_blockhash);
-
-        let rpc_client = RpcClient::new("fails".to_string());
-
-        let blockhash = get_recent_blockhash(&rpc_client);
-        assert!(blockhash.is_err());
-    }
-
-    #[test]
-    fn test_wallet_send_transaction() {
-        let rpc_client = RpcClient::new("succeeds".to_string());
-
-        let key = Keypair::new();
-        let to = Keypair::new().pubkey();
-        let blockhash = Hash::default();
-        let tx = SystemTransaction::new_account(&key, &to, 50, blockhash, 0);
-
-        let signature = send_transaction(&rpc_client, &tx);
-        assert_eq!(signature.unwrap(), SIGNATURE.to_string());
-
-        let rpc_client = RpcClient::new("fails".to_string());
-
-        let signature = send_transaction(&rpc_client, &tx);
-        assert!(signature.is_err());
-    }
-
-    #[test]
-    fn test_wallet_confirm_transaction() {
-        let rpc_client = RpcClient::new("succeeds".to_string());
-        let signature = "good_signature";
-        let status = confirm_transaction(&rpc_client, &signature);
-        assert_eq!(status.unwrap(), RpcSignatureStatus::Confirmed);
-
-        let rpc_client = RpcClient::new("bad_sig_status".to_string());
-        let signature = "bad_status";
-        let status = confirm_transaction(&rpc_client, &signature);
-        assert!(status.is_err());
-
-        let rpc_client = RpcClient::new("fails".to_string());
-        let signature = "bad_status_fmt";
-        let status = confirm_transaction(&rpc_client, &signature);
-        assert!(status.is_err());
-    }
-
-    #[test]
-    fn test_wallet_send_and_confirm_transaction() {
-        let rpc_client = RpcClient::new("succeeds".to_string());
-
-        let key = Keypair::new();
-        let to = Keypair::new().pubkey();
-        let blockhash = Hash::default();
-        let mut tx = SystemTransaction::new_account(&key, &to, 50, blockhash, 0);
-
-        let signer = Keypair::new();
-
-        let result = send_and_confirm_transaction(&rpc_client, &mut tx, &signer);
-        result.unwrap();
-
-        let rpc_client = RpcClient::new("account_in_use".to_string());
-        let result = send_and_confirm_transaction(&rpc_client, &mut tx, &signer);
-        assert!(result.is_err());
-
-        let rpc_client = RpcClient::new("fails".to_string());
-        let result = send_and_confirm_transaction(&rpc_client, &mut tx, &signer);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_wallet_resign_transaction() {
-        let rpc_client = RpcClient::new("succeeds".to_string());
-
-        let key = Keypair::new();
-        let to = Keypair::new().pubkey();
-        let vec = bs58::decode("HUu3LwEzGRsUkuJS121jzkPJW39Kq62pXCTmTa1F9jDL")
-            .into_vec()
-            .unwrap();
-        let blockhash = Hash::new(&vec);
-        let prev_tx = SystemTransaction::new_account(&key, &to, 50, blockhash, 0);
-        let mut tx = SystemTransaction::new_account(&key, &to, 50, blockhash, 0);
-
-        resign_transaction(&rpc_client, &mut tx, &key).unwrap();
-
-        assert_ne!(prev_tx, tx);
-        assert_ne!(prev_tx.signatures, tx.signatures);
-        assert_ne!(prev_tx.recent_blockhash, tx.recent_blockhash);
-        assert_eq!(prev_tx.fee, tx.fee);
-        assert_eq!(prev_tx.account_keys, tx.account_keys);
-        assert_eq!(prev_tx.instructions, tx.instructions);
-    }
-
-    #[test]
-    fn test_request_and_confirm_airdrop() {
-        let rpc_client = RpcClient::new("succeeds".to_string());
-        let drone_addr = socketaddr!(0, 0);
-        let keypair = Keypair::new();
-        let lamports = 50;
-        assert_eq!(
-            request_and_confirm_airdrop(&rpc_client, &drone_addr, &keypair, lamports).unwrap(),
-            ()
-        );
-
-        let rpc_client = RpcClient::new("account_in_use".to_string());
-        assert!(request_and_confirm_airdrop(&rpc_client, &drone_addr, &keypair, lamports).is_err());
-
-        let lamports = 0;
-        assert!(request_and_confirm_airdrop(&rpc_client, &drone_addr, &keypair, lamports).is_err());
     }
 }

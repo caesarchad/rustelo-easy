@@ -94,28 +94,23 @@ mod tests {
     use crate::blocktree::Blocktree;
     use crate::chacha::chacha_cbc_encrypt_ledger;
     use crate::entry::Entry;
-    use ring::signature::Ed25519KeyPair;
+    use crate::gen_keys::GenKeys;
     use soros_sdk::hash::{hash, Hash, Hasher};
     use soros_sdk::signature::KeypairUtil;
-    use soros_sdk::system_transaction::SystemTransaction;
+    use soros_sdk::system_transaction;
     use std::fs::remove_file;
     use std::fs::File;
     use std::io::Read;
     use std::path::Path;
     use std::sync::Arc;
-    use untrusted::Input;
 
     fn make_tiny_deterministic_test_entries(num: usize) -> Vec<Entry> {
         let zero = Hash::default();
         let one = hash(&zero.as_ref());
-        let pkcs = [
-            48, 83, 2, 1, 1, 48, 5, 6, 3, 43, 101, 112, 4, 34, 4, 32, 109, 148, 235, 20, 97, 127,
-            43, 194, 109, 43, 121, 76, 54, 38, 234, 14, 108, 68, 209, 227, 137, 191, 167, 144, 177,
-            174, 57, 182, 79, 198, 196, 93, 161, 35, 3, 33, 0, 116, 121, 255, 78, 31, 95, 179, 172,
-            30, 125, 206, 87, 88, 78, 46, 145, 25, 154, 161, 252, 3, 58, 235, 116, 39, 148, 193,
-            150, 111, 61, 20, 226,
-        ];
-        let keypair = Ed25519KeyPair::from_pkcs8(Input::from(&pkcs)).unwrap();
+
+        let seed = [2u8; 32];
+        let mut rnd = GenKeys::new(seed);
+        let keypair = rnd.gen_keypair();
 
         let mut id = one;
         let mut num_hashes = 0;
@@ -124,7 +119,7 @@ mod tests {
                 Entry::new_mut(
                     &mut id,
                     &mut num_hashes,
-                    vec![SystemTransaction::new_account(
+                    vec![system_transaction::create_user_account(
                         &keypair,
                         &keypair.pubkey(),
                         1,
@@ -142,11 +137,13 @@ mod tests {
         let ledger_dir = "chacha_test_encrypt_file";
         let ledger_path = get_tmp_ledger_path(ledger_dir);
         let ticks_per_slot = 16;
-        let blocktree = Arc::new(Blocktree::open_config(&ledger_path, ticks_per_slot).unwrap());
+        let blocktree = Arc::new(Blocktree::open(&ledger_path).unwrap());
         let out_path = Path::new("test_chacha_encrypt_file_output.txt.enc");
 
         let entries = make_tiny_deterministic_test_entries(32);
-        blocktree.write_entries(0, 0, 0, &entries).unwrap();
+        blocktree
+            .write_entries(0, 0, 0, ticks_per_slot, &entries)
+            .unwrap();
 
         let mut key = hex!(
             "abcd1234abcd1234abcd1234abcd1234 abcd1234abcd1234abcd1234abcd1234
@@ -162,7 +159,7 @@ mod tests {
         use bs58;
         //  golden needs to be updated if blob stuff changes....
         let golden = Hash::new(
-            &bs58::decode("B33zQ8Kc3Wr3vZAbB6GcWaB3sSGeG98nvm4QB9URpJhR")
+            &bs58::decode("5Pz5KQyNht2nqkJhVd8F9zTFxzoDvbQSzaxQbtCPiyCo")
                 .into_vec()
                 .unwrap(),
         );

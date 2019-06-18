@@ -1,24 +1,30 @@
 [package]
 name = "soros-netutil"
-version = "0.12.3"
-description = "Bitconch Network Utilities"
-authors = ["Bitconch Dev Team"]
-repository = "https://github.com/bitconch/bus"
+version = "0.14.2"
+description = "Soros Network Utilities"
+authors = ["Soros Maintainers <maintainers@soros.com>"]
+repository = "https://github.com/soros-labs/soros"
 license = "Apache-2.0"
-homepage = "https://bitconch.io"
+homepage = "https://soros.com/"
 edition = "2018"
 
 [dependencies]
+bincode = "1.1.3"
+clap = "2.33.0"
 log = "0.4.2"
-ipnetwork = "0.12.7"
 nix = "0.12.0"
-pnet_datalink = "0.21.0"
 rand = "0.6.1"
-reqwest = "0.9.0"
 socket2 = "0.3.8"
-
-[dev-dependencies]
-soros-logger = { path = "../logger", version = "0.12.3" }
+soros-logger = { path = "../logger", version = "0.14.2"   }
+tokio = "0.1"
 
 [lib]
 name = "soros_netutil"
+
+[[bin]]
+name = "soros-ip-address"
+path = "src/bin/ip_address.rs"
+
+[[bin]]
+name = "soros-ip-address-server"
+path = "src/bin/ip_address_server.rs"

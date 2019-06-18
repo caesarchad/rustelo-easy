@@ -1,4 +1,4 @@
-//! The `soros` library implements the Bitconch high-performance blockchain architecture.
+//! The `soros` library implements the Soros high-performance blockchain architecture.
 //! It includes a full Rust implementation of the architecture (see
 //! [Fullnode](server/struct.Fullnode.html)) as well as hooks to GPU implementations of its most
 //! paralellizable components (i.e. [SigVerify](sigverify/index.html)).  It also includes
@@ -30,17 +30,14 @@ pub mod blocktree_processor;
 pub mod cluster;
 pub mod cluster_info;
 pub mod cluster_tests;
-pub mod db_window;
 pub mod entry;
-#[cfg(feature = "erasure")]
 pub mod erasure;
 pub mod fetch_stage;
 pub mod fullnode;
 pub mod gen_keys;
 pub mod gossip_service;
-#[cfg(feature = "kvstore")]
-pub mod kvstore;
 pub mod leader_schedule;
+pub mod leader_schedule_cache;
 pub mod leader_schedule_utils;
 pub mod local_cluster;
 pub mod local_vote_signer_service;
@@ -59,7 +56,6 @@ pub mod rpc;
 pub mod rpc_pubsub;
 pub mod rpc_pubsub_service;
 pub mod rpc_service;
-pub mod rpc_status;
 pub mod rpc_subscriptions;
 pub mod service;
 pub mod sigverify;
@@ -71,8 +67,6 @@ pub mod test_tx;
 pub mod tpu;
 pub mod tvu;
 pub mod voting_keypair;
-#[cfg(test)]
-pub mod window;
 pub mod window_service;
 
 #[cfg(test)]

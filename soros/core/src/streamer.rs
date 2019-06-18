@@ -2,45 +2,33 @@
 //!
 
 use crate::packet::{
-    deserialize_packets_in_blob, Blob, Meta, Packets, SharedBlobs, SharedPackets, PACKET_DATA_SIZE,
+    deserialize_packets_in_blob, Blob, Meta, Packets, SharedBlobs, PACKET_DATA_SIZE,
 };
 use crate::result::{Error, Result};
 use bincode;
-use soros_metrics::{influxdb, submit};
 use soros_sdk::timing::duration_as_ms;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::thread::{Builder, JoinHandle};
 use std::time::{Duration, Instant};
 
-pub type PacketReceiver = Receiver<SharedPackets>;
-pub type PacketSender = Sender<SharedPackets>;
+pub type PacketReceiver = Receiver<Packets>;
+pub type PacketSender = Sender<Packets>;
 pub type BlobSender = Sender<SharedBlobs>;
 pub type BlobReceiver = Receiver<SharedBlobs>;
 
-fn recv_loop(
-    sock: &UdpSocket,
-    exit: Arc<AtomicBool>,
-    channel: &PacketSender,
-    channel_tag: &'static str,
-) -> Result<()> {
+fn recv_loop(sock: &UdpSocket, exit: Arc<AtomicBool>, channel: &PacketSender) -> Result<()> {
     loop {
-        let msgs = SharedPackets::default();
+        let mut msgs = Packets::default();
         loop {
             // Check for exit signal, even if socket is busy
             // (for instance the leader trasaction socket)
             if exit.load(Ordering::Relaxed) {
                 return Ok(());
             }
-            if msgs.write().unwrap().recv_from(sock).is_ok() {
-                let len = msgs.read().unwrap().packets.len();
-                submit(
-                    influxdb::Point::new(channel_tag)
-                        .add_field("count", influxdb::Value::Integer(len as i64))
-                        .to_owned(),
-                );
+            if let Ok(_len) = msgs.recv_from(sock) {
                 channel.send(msgs)?;
                 break;
             }
@@ -52,7 +40,6 @@ pub fn receiver(
     sock: Arc<UdpSocket>,
     exit: &Arc<AtomicBool>,
     packet_sender: PacketSender,
-    sender_tag: &'static str,
 ) -> JoinHandle<()> {
     let res = sock.set_read_timeout(Some(Duration::new(1, 0)));
     if res.is_err() {
@@ -62,7 +49,7 @@ pub fn receiver(
     Builder::new()
         .name("soros-receiver".to_string())
         .spawn(move || {
-            let _ = recv_loop(&sock, exit, &packet_sender, sender_tag);
+            let _ = recv_loop(&sock, exit, &packet_sender);
         })
         .unwrap()
 }
@@ -74,19 +61,19 @@ fn recv_send(sock: &UdpSocket, r: &BlobReceiver) -> Result<()> {
     Ok(())
 }
 
-pub fn recv_batch(recvr: &PacketReceiver) -> Result<(Vec<SharedPackets>, usize, u64)> {
+pub fn recv_batch(recvr: &PacketReceiver, max_batch: usize) -> Result<(Vec<Packets>, usize, u64)> {
     let timer = Duration::new(1, 0);
     let msgs = recvr.recv_timeout(timer)?;
     let recv_start = Instant::now();
     trace!("got msgs");
-    let mut len = msgs.read().unwrap().packets.len();
+    let mut len = msgs.packets.len();
     let mut batch = vec![msgs];
     while let Ok(more) = recvr.try_recv() {
         trace!("got more msgs");
-        len += more.read().unwrap().packets.len();
+        len += more.packets.len();
         batch.push(more);
 
-        if len > 100_000 {
+        if len > max_batch {
             break;
         }
     }
@@ -167,7 +154,7 @@ fn recv_blob_packets(sock: &UdpSocket, s: &PacketSender) -> Result<()> {
         }
 
         let packets = packets?;
-        s.send(Arc::new(RwLock::new(Packets::new(packets))))?;
+        s.send(Packets::new(packets))?;
     }
 
     Ok(())
@@ -208,17 +195,18 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
 
-    fn get_msgs(r: PacketReceiver, num: &mut usize) {
-        for _t in 0..5 {
-            let timer = Duration::new(1, 0);
-            match r.recv_timeout(timer) {
-                Ok(m) => *num += m.read().unwrap().packets.len(),
-                _ => info!("get_msgs error"),
-            }
-            if *num == 10 {
+    fn get_msgs(r: PacketReceiver, num: &mut usize) -> Result<()> {
+        for _ in 0..10 {
+            let m = r.recv_timeout(Duration::new(1, 0))?;
+
+            *num -= m.packets.len();
+
+            if *num == 0 {
                 break;
             }
         }
+
+        Ok(())
     }
     #[test]
     fn streamer_debug() {
@@ -235,12 +223,12 @@ mod test {
         let send = UdpSocket::bind("127.0.0.1:0").expect("bind");
         let exit = Arc::new(AtomicBool::new(false));
         let (s_reader, r_reader) = channel();
-        let t_receiver = receiver(Arc::new(read), &exit, s_reader, "streamer-test");
+        let t_receiver = receiver(Arc::new(read), &exit, s_reader);
         let t_responder = {
             let (s_responder, r_responder) = channel();
             let t_responder = responder("streamer_send_test", Arc::new(send), r_responder);
             let mut msgs = Vec::new();
-            for i in 0..10 {
+            for i in 0..5 {
                 let b = SharedBlob::default();
                 {
                     let mut w = b.write().unwrap();
@@ -254,9 +242,9 @@ mod test {
             t_responder
         };
 
-        let mut num = 0;
-        get_msgs(r_reader, &mut num);
-        assert_eq!(num, 10);
+        let mut num = 5;
+        get_msgs(r_reader, &mut num).expect("get_msgs");
+        assert_eq!(num, 0);
         exit.store(true, Ordering::Relaxed);
         t_receiver.join().expect("join");
         t_responder.join().expect("join");

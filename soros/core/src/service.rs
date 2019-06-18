@@ -9,8 +9,8 @@
 //! street. It processes messages from its input channel and then sends the processed data to an
 //! output channel. Stages can be composed to form a linear chain called a pipeline.
 //!
-//! The approach to creating a pipeline stage in Rust may be unique to Bitconch. We haven't seen the
-//! same technique used in other Rust projects and there may be better ways to do it. The Bitconch
+//! The approach to creating a pipeline stage in Rust may be unique to Soros. We haven't seen the
+//! same technique used in other Rust projects and there may be better ways to do it. The Soros
 //! approach defines a stage as an object that communicates to its previous stage and the next
 //! stage using channels. By convention, each stage accepts a *receiver* for input and creates a
 //! second output channel. The second channel is used to pass data to the next stage, and so its

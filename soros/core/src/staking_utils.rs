@@ -42,7 +42,7 @@ pub fn vote_account_balances_at_epoch(
     node_staked_accounts.map(|epoch_state| epoch_state.map(|(id, stake, _)| (*id, stake)).collect())
 }
 
-/// At the specified epoch, collect the delgate account balance and vote states for delegates
+/// At the specified epoch, collect the delegate account balance and vote states for delegates
 /// that have non-zero balance in any of their managed staking accounts
 pub fn delegated_stakes_at_epoch(bank: &Bank, epoch_height: u64) -> Option<HashMap<Pubkey, u64>> {
     let node_staked_accounts = node_staked_accounts_at_epoch(bank, epoch_height);
@@ -53,9 +53,11 @@ pub fn delegated_stakes_at_epoch(bank: &Bank, epoch_height: u64) -> Option<HashM
 /// Collect the node account balance and vote states for nodes have non-zero balance in
 /// their corresponding staking accounts
 fn node_staked_accounts(bank: &Bank) -> impl Iterator<Item = (Pubkey, u64, Account)> {
-    bank.vote_accounts().filter_map(|(account_id, account)| {
-        filter_zero_balances(&account).map(|stake| (account_id, stake, account))
-    })
+    bank.vote_accounts()
+        .into_iter()
+        .filter_map(|(account_id, account)| {
+            filter_zero_balances(&account).map(|stake| (account_id, stake, account))
+        })
 }
 
 pub fn node_staked_accounts_at_epoch(
@@ -74,7 +76,7 @@ pub fn node_staked_accounts_at_epoch(
 
 fn filter_no_delegate(account_id: &Pubkey, account: &Account) -> bool {
     VoteState::deserialize(&account.data)
-        .map(|vote_state| vote_state.delegate_id != *account_id)
+        .map(|vote_state| vote_state.node_id != *account_id)
         .unwrap_or(false)
 }
 
@@ -102,7 +104,7 @@ fn to_delegated_stakes(
 ) -> HashMap<Pubkey, u64> {
     let mut map: HashMap<Pubkey, u64> = HashMap::new();
     node_staked_accounts.for_each(|(stake, state)| {
-        let delegate = &state.delegate_id;
+        let delegate = &state.node_id;
         map.entry(*delegate)
             .and_modify(|s| *s += stake)
             .or_insert(stake);
@@ -160,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_bank_staked_nodes_at_epoch() {
-        let pubkey = Keypair::new().pubkey();
+        let pubkey = Pubkey::new_rand();
         let bootstrap_lamports = 2;
         let (genesis_block, _) =
             GenesisBlock::new_with_leader(bootstrap_lamports, &pubkey, bootstrap_lamports);
@@ -193,12 +195,12 @@ mod tests {
         // Give the validator some stake but don't setup a staking account
         // Validator has no lamports staked, so they get filtered out. Only the bootstrap leader
         // created by the genesis block will get included
-        bank.transfer(1, &mint_keypair, &validator.pubkey(), genesis_block.hash())
+        bank.transfer(1, &mint_keypair, &validator.pubkey())
             .unwrap();
 
         // Make a mint vote account. Because the mint has nonzero stake, this
         // should show up in the active set
-        voting_keypair_tests::new_vote_account_with_delegate(
+        voting_keypair_tests::new_vote_account(
             &mint_keypair,
             &bank_voter,
             &mint_keypair.pubkey(),
@@ -276,16 +278,16 @@ mod tests {
     #[test]
     fn test_to_delegated_stakes() {
         let mut stakes = Vec::new();
-        let delegate1 = Keypair::new().pubkey();
-        let delegate2 = Keypair::new().pubkey();
+        let delegate1 = Pubkey::new_rand();
+        let delegate2 = Pubkey::new_rand();
 
         // Delegate 1 has stake of 3
         for i in 0..3 {
-            stakes.push((i, VoteState::new(&delegate1)));
+            stakes.push((i, VoteState::new(&Pubkey::new_rand(), &delegate1, 0)));
         }
 
         // Delegate 1 has stake of 5
-        stakes.push((5, VoteState::new(&delegate2)));
+        stakes.push((5, VoteState::new(&Pubkey::new_rand(), &delegate2, 0)));
 
         let result = to_delegated_stakes(stakes.into_iter());
         assert_eq!(result.len(), 2);

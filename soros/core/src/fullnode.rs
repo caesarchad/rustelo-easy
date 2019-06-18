@@ -8,8 +8,8 @@ use crate::contact_info::ContactInfo;
 use crate::entry::create_ticks;
 use crate::entry::next_entry_mut;
 use crate::entry::Entry;
-use crate::gossip_service::GossipService;
-use crate::leader_schedule_utils;
+use crate::gossip_service::{discover_nodes, GossipService};
+use crate::leader_schedule_cache::LeaderScheduleCache;
 use crate::poh_recorder::PohRecorder;
 use crate::poh_service::{PohService, PohServiceConfig};
 use crate::rpc::JsonRpcConfig;
@@ -25,19 +25,18 @@ use soros_sdk::genesis_block::GenesisBlock;
 use soros_sdk::hash::Hash;
 use soros_sdk::pubkey::Pubkey;
 use soros_sdk::signature::{Keypair, KeypairUtil};
-use soros_sdk::system_transaction::SystemTransaction;
+use soros_sdk::system_transaction;
 use soros_sdk::timing::timestamp;
-use soros_vote_api::vote_transaction::VoteTransaction;
+use soros_sdk::transaction::Transaction;
+use soros_vote_api::vote_instruction;
+use soros_vote_api::vote_state::Vote;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::sleep;
-use std::thread::JoinHandle;
-use std::thread::{spawn, Result};
-use std::time::Duration;
+use std::thread::Result;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FullnodeConfig {
     pub sigverify_disabled: bool,
     pub voting_disabled: bool,
@@ -70,12 +69,12 @@ pub struct Fullnode {
     exit: Arc<AtomicBool>,
     rpc_service: Option<JsonRpcService>,
     rpc_pubsub_service: Option<PubSubService>,
-    rpc_working_bank_handle: JoinHandle<()>,
     gossip_service: GossipService,
     poh_recorder: Arc<Mutex<PohRecorder>>,
     poh_service: PohService,
     tpu: Tpu,
     tvu: Tvu,
+    ip_echo_server: soros_netutil::IpEchoServer,
 }
 
 impl Fullnode {
@@ -96,30 +95,35 @@ impl Fullnode {
         let id = keypair.pubkey();
         assert_eq!(id, node.info.id);
 
-        let (bank_forks, bank_forks_info, blocktree, ledger_signal_receiver) =
+        let (bank_forks, bank_forks_info, blocktree, ledger_signal_receiver, leader_schedule_cache) =
             new_banks_from_blocktree(ledger_path, config.account_paths.clone());
 
+        let leader_schedule_cache = Arc::new(leader_schedule_cache);
         let exit = Arc::new(AtomicBool::new(false));
         let bank_info = &bank_forks_info[0];
         let bank = bank_forks[bank_info.bank_slot].clone();
+        let genesis_blockhash = bank.last_blockhash();
 
         info!(
             "starting PoH... {} {}",
             bank.tick_height(),
             bank.last_blockhash(),
         );
-        let (poh_recorder, entry_receiver) = PohRecorder::new(
+        let blocktree = Arc::new(blocktree);
+
+        let (poh_recorder, entry_receiver) = PohRecorder::new_with_clear_signal(
             bank.tick_height(),
             bank.last_blockhash(),
             bank.slot(),
-            leader_schedule_utils::next_leader_slot(&id, bank.slot(), &bank),
+            leader_schedule_cache.next_leader_slot(&id, bank.slot(), &bank, Some(&blocktree)),
             bank.ticks_per_slot(),
             &id,
+            &blocktree,
+            blocktree.new_blobs_signals.first().cloned(),
+            &leader_schedule_cache,
         );
         let poh_recorder = Arc::new(Mutex::new(poh_recorder));
         let poh_service = PohService::new(poh_recorder.clone(), &config.tick_config, &exit);
-        poh_recorder.lock().unwrap().clear_bank_signal =
-            blocktree.new_blobs_signals.first().cloned();
         assert_eq!(
             blocktree.new_blobs_signals.len(),
             1,
@@ -133,7 +137,6 @@ impl Fullnode {
             node.sockets.gossip.local_addr().unwrap()
         );
 
-        let blocktree = Arc::new(blocktree);
         let bank_forks = Arc::new(RwLock::new(bank_forks));
 
         node.info.wallclock = timestamp();
@@ -144,23 +147,35 @@ impl Fullnode {
 
         let storage_state = StorageState::new();
 
-        let rpc_service = JsonRpcService::new(
-            &cluster_info,
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), node.info.rpc.port()),
-            storage_state.clone(),
-            config.rpc_config.clone(),
-            &exit,
-        );
+        let rpc_service = if node.info.rpc.port() == 0 {
+            None
+        } else {
+            Some(JsonRpcService::new(
+                &cluster_info,
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), node.info.rpc.port()),
+                storage_state.clone(),
+                config.rpc_config.clone(),
+                bank_forks.clone(),
+                &exit,
+            ))
+        };
+
+        let ip_echo_server =
+            soros_netutil::ip_echo_server(node.sockets.gossip.local_addr().unwrap().port());
 
         let subscriptions = Arc::new(RpcSubscriptions::default());
-        let rpc_pubsub_service = PubSubService::new(
-            &subscriptions,
-            SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-                node.info.rpc_pubsub.port(),
-            ),
-            &exit,
-        );
+        let rpc_pubsub_service = if node.info.rpc_pubsub.port() == 0 {
+            None
+        } else {
+            Some(PubSubService::new(
+                &subscriptions,
+                SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+                    node.info.rpc_pubsub.port(),
+                ),
+                &exit,
+            ))
+        };
 
         let gossip_service = GossipService::new(
             &cluster_info,
@@ -205,7 +220,9 @@ impl Fullnode {
             Some(Arc::new(voting_keypair))
         };
 
-        // Setup channel for rotation indications
+        // Setup channel for sending entries to storage stage
+        let (sender, receiver) = channel();
+
         let tvu = Tvu::new(
             vote_account,
             voting_keypair,
@@ -220,8 +237,17 @@ impl Fullnode {
             ledger_signal_receiver,
             &subscriptions,
             &poh_recorder,
+            sender.clone(),
+            receiver,
+            &leader_schedule_cache,
             &exit,
+            &genesis_blockhash,
         );
+
+        if config.sigverify_disabled {
+            warn!("signature verification disabled");
+        }
+
         let tpu = Tpu::new(
             &id,
             &cluster_info,
@@ -232,34 +258,24 @@ impl Fullnode {
             node.sockets.broadcast,
             config.sigverify_disabled,
             &blocktree,
+            sender,
+            &leader_schedule_cache,
             &exit,
+            &genesis_blockhash,
         );
-        let exit_ = exit.clone();
-        let bank_forks_ = bank_forks.clone();
-        let rpc_service_rp = rpc_service.request_processor.clone();
-        let rpc_working_bank_handle = spawn(move || loop {
-            if exit_.load(Ordering::Relaxed) {
-                break;
-            }
-            let bank = bank_forks_.read().unwrap().working_bank();
-            trace!("rpc working bank {} {}", bank.slot(), bank.last_blockhash());
-            rpc_service_rp.write().unwrap().set_bank(&bank);
-            let timer = Duration::from_millis(100);
-            sleep(timer);
-        });
 
         inc_new_counter_info!("fullnode-new", 1);
         Self {
             id,
             gossip_service,
-            rpc_service: Some(rpc_service),
-            rpc_pubsub_service: Some(rpc_pubsub_service),
-            rpc_working_bank_handle,
+            rpc_service,
+            rpc_pubsub_service,
             tpu,
             tvu,
             exit,
             poh_service,
             poh_recorder,
+            ip_echo_server,
         }
     }
 
@@ -277,15 +293,20 @@ impl Fullnode {
 pub fn new_banks_from_blocktree(
     blocktree_path: &str,
     account_paths: Option<String>,
-) -> (BankForks, Vec<BankForksInfo>, Blocktree, Receiver<bool>) {
+) -> (
+    BankForks,
+    Vec<BankForksInfo>,
+    Blocktree,
+    Receiver<bool>,
+    LeaderScheduleCache,
+) {
     let genesis_block =
         GenesisBlock::load(blocktree_path).expect("Expected to successfully open genesis block");
 
-    let (blocktree, ledger_signal_receiver) =
-        Blocktree::open_with_config_signal(blocktree_path, genesis_block.ticks_per_slot)
-            .expect("Expected to successfully open database ledger");
+    let (blocktree, ledger_signal_receiver) = Blocktree::open_with_signal(blocktree_path)
+        .expect("Expected to successfully open database ledger");
 
-    let (bank_forks, bank_forks_info) =
+    let (bank_forks, bank_forks_info, leader_schedule_cache) =
         blocktree_processor::process_blocktree(&genesis_block, &blocktree, account_paths)
             .expect("process_blocktree failed");
 
@@ -294,6 +315,7 @@ pub fn new_banks_from_blocktree(
         bank_forks_info,
         blocktree,
         ledger_signal_receiver,
+        leader_schedule_cache,
     )
 }
 
@@ -310,10 +332,10 @@ impl Service for Fullnode {
             rpc_pubsub_service.join()?;
         }
 
-        self.rpc_working_bank_handle.join()?;
         self.gossip_service.join()?;
         self.tpu.join()?;
         self.tvu.join()?;
+        self.ip_echo_server.shutdown_now();
 
         Ok(())
     }
@@ -330,7 +352,7 @@ pub fn make_active_set_entries(
     num_ending_ticks: u64,
 ) -> (Vec<Entry>, Keypair) {
     // 1) Assume the active_keypair node has no lamports staked
-    let transfer_tx = SystemTransaction::new_account(
+    let transfer_tx = system_transaction::create_user_account(
         &lamport_source,
         &active_keypair.pubkey(),
         stake,
@@ -344,23 +366,25 @@ pub fn make_active_set_entries(
     let voting_keypair = Keypair::new();
     let vote_account_id = voting_keypair.pubkey();
 
-    let new_vote_account_tx = VoteTransaction::new_account(
-        active_keypair,
+    let new_vote_account_ixs = vote_instruction::create_account(
+        &active_keypair.pubkey(),
         &vote_account_id,
-        *blockhash,
+        &active_keypair.pubkey(),
+        0,
         stake.saturating_sub(2),
-        1,
+    );
+    let new_vote_account_tx = Transaction::new_signed_instructions(
+        &[active_keypair.as_ref()],
+        new_vote_account_ixs,
+        *blockhash,
     );
     let new_vote_account_entry = next_entry_mut(&mut last_entry_hash, 1, vec![new_vote_account_tx]);
 
     // 3) Create vote entry
-    let vote_tx = VoteTransaction::new_vote(
-        &voting_keypair.pubkey(),
-        &voting_keypair,
-        slot_to_vote_on,
-        *blockhash,
-        0,
-    );
+    let vote_ix =
+        vote_instruction::vote(&voting_keypair.pubkey(), vec![Vote::new(slot_to_vote_on)]);
+    let vote_tx =
+        Transaction::new_signed_instructions(&[&voting_keypair], vec![vote_ix], *blockhash);
     let vote_entry = next_entry_mut(&mut last_entry_hash, 1, vec![vote_tx]);
 
     // 4) Create `num_ending_ticks` empty ticks
@@ -379,7 +403,12 @@ pub fn new_fullnode_for_tests() -> (Fullnode, ContactInfo, Keypair, String) {
     let node = Node::new_localhost_with_pubkey(&node_keypair.pubkey());
     let contact_info = node.info.clone();
 
-    let (genesis_block, mint_keypair) = GenesisBlock::new_with_leader(10_000, &contact_info.id, 42);
+    let (mut genesis_block, mint_keypair) =
+        GenesisBlock::new_with_leader(10_000, &contact_info.id, 42);
+    genesis_block
+        .native_instruction_processors
+        .push(("soros_budget_program".to_string(), soros_budget_api::id()));
+
     let (ledger_path, _blockhash) = create_new_tmp_ledger!(&genesis_block);
 
     let voting_keypair = Keypair::new();
@@ -392,7 +421,7 @@ pub fn new_fullnode_for_tests() -> (Fullnode, ContactInfo, Keypair, String) {
         None,
         &FullnodeConfig::default(),
     );
-
+    discover_nodes(&contact_info.gossip, 1).expect("Node startup failed");
     (node, contact_info, mint_keypair, ledger_path)
 }
 

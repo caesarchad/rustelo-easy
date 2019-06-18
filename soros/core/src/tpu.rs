@@ -6,10 +6,13 @@ use crate::blocktree::Blocktree;
 use crate::broadcast_stage::BroadcastStage;
 use crate::cluster_info::ClusterInfo;
 use crate::cluster_info_vote_listener::ClusterInfoVoteListener;
+use crate::entry::EntrySender;
 use crate::fetch_stage::FetchStage;
+use crate::leader_schedule_cache::LeaderScheduleCache;
 use crate::poh_recorder::{PohRecorder, WorkingBankEntries};
 use crate::service::Service;
 use crate::sigverify_stage::SigVerifyStage;
+use soros_sdk::hash::Hash;
 use soros_sdk::pubkey::Pubkey;
 use std::net::UdpSocket;
 use std::sync::atomic::AtomicBool;
@@ -37,7 +40,10 @@ impl Tpu {
         broadcast_socket: UdpSocket,
         sigverify_disabled: bool,
         blocktree: &Arc<Blocktree>,
+        storage_entry_sender: EntrySender,
+        leader_schedule_cache: &Arc<LeaderScheduleCache>,
         exit: &Arc<AtomicBool>,
+        genesis_blockhash: &Hash,
     ) -> Self {
         cluster_info.write().unwrap().set_leader(id);
 
@@ -46,15 +52,30 @@ impl Tpu {
             transactions_sockets,
             tpu_via_blobs_sockets,
             &exit,
-            &packet_sender.clone(),
+            &packet_sender,
+            &poh_recorder,
         );
-        let cluster_info_vote_listener =
-            ClusterInfoVoteListener::new(&exit, cluster_info.clone(), packet_sender);
+        let (verified_sender, verified_receiver) = channel();
 
-        let (sigverify_stage, verified_receiver) =
-            SigVerifyStage::new(packet_receiver, sigverify_disabled);
+        let sigverify_stage =
+            SigVerifyStage::new(packet_receiver, sigverify_disabled, verified_sender.clone());
 
-        let banking_stage = BankingStage::new(&cluster_info, poh_recorder, verified_receiver);
+        let (verified_vote_sender, verified_vote_receiver) = channel();
+        let cluster_info_vote_listener = ClusterInfoVoteListener::new(
+            &exit,
+            cluster_info.clone(),
+            sigverify_disabled,
+            verified_vote_sender,
+            &poh_recorder,
+        );
+
+        let banking_stage = BankingStage::new(
+            &cluster_info,
+            poh_recorder,
+            verified_receiver,
+            verified_vote_receiver,
+            leader_schedule_cache,
+        );
 
         let broadcast_stage = BroadcastStage::new(
             broadcast_socket,
@@ -62,6 +83,8 @@ impl Tpu {
             entry_receiver,
             &exit,
             blocktree,
+            storage_entry_sender,
+            genesis_blockhash,
         );
 
         Self {

@@ -1,10 +1,10 @@
 #[cfg(any(feature = "bpf_c", feature = "bpf_rust"))]
 mod bpf {
     use soros_runtime::bank::Bank;
-    use soros_runtime::loader_utils::load_program;
+    use soros_runtime::bank_client::BankClient;
+    use soros_runtime::loader_utils::{create_invoke_instruction, load_program};
     use soros_sdk::genesis_block::GenesisBlock;
     use soros_sdk::native_loader;
-    use soros_sdk::transaction::Transaction;
     use std::env;
     use std::fs::File;
     use std::path::PathBuf;
@@ -28,6 +28,8 @@ mod bpf {
     mod bpf_c {
         use super::*;
         use soros_sdk::bpf_loader;
+        use soros_sdk::client::SyncClient;
+        use soros_sdk::signature::KeypairUtil;
         use std::io::Read;
 
         #[test]
@@ -38,21 +40,16 @@ mod bpf {
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
 
-            let (genesis_block, mint_keypair) = GenesisBlock::new(50);
+            let (genesis_block, alice_keypair) = GenesisBlock::new(50);
             let bank = Bank::new(&genesis_block);
+            let bank_client = BankClient::new(bank);
 
             // Call user program
-            let program_id = load_program(&bank, &mint_keypair, &bpf_loader::id(), elf);
-            let tx = Transaction::new(
-                &mint_keypair,
-                &[],
-                &program_id,
-                &vec![1u8],
-                bank.last_blockhash(),
-                0,
-            );
-            bank.process_transaction(&tx).unwrap();
-            assert_eq!(bank.get_signature_status(&tx.signatures[0]), Some(Ok(())));
+            let program_id = load_program(&bank_client, &alice_keypair, &bpf_loader::id(), elf);
+            let instruction = create_invoke_instruction(alice_keypair.pubkey(), program_id, &1u8);
+            bank_client
+                .send_instruction(&alice_keypair, instruction)
+                .unwrap();
         }
 
         #[test]
@@ -74,28 +71,24 @@ mod bpf {
                 let mut elf = Vec::new();
                 file.read_to_end(&mut elf).unwrap();
 
-                let (genesis_block, mint_keypair) = GenesisBlock::new(50);
+                let (genesis_block, alice_keypair) = GenesisBlock::new(50);
                 let bank = Bank::new(&genesis_block);
+                let bank_client = BankClient::new(bank);
 
                 let loader_id = load_program(
-                    &bank,
-                    &mint_keypair,
+                    &bank_client,
+                    &alice_keypair,
                     &native_loader::id(),
                     "soros_bpf_loader".as_bytes().to_vec(),
                 );
 
                 // Call user program
-                let program_id = load_program(&bank, &mint_keypair, &loader_id, elf);
-                let tx = Transaction::new(
-                    &mint_keypair,
-                    &[],
-                    &program_id,
-                    &vec![1u8],
-                    bank.last_blockhash(),
-                    0,
-                );
-                bank.process_transaction(&tx).unwrap();
-                assert_eq!(bank.get_signature_status(&tx.signatures[0]), Some(Ok(())));
+                let program_id = load_program(&bank_client, &alice_keypair, &loader_id, elf);
+                let instruction =
+                    create_invoke_instruction(alice_keypair.pubkey(), program_id, &1u8);
+                bank_client
+                    .send_instruction(&alice_keypair, instruction)
+                    .unwrap();
             }
         }
     }
@@ -107,6 +100,8 @@ mod bpf {
     #[cfg(feature = "bpf_rust")]
     mod bpf_rust {
         use super::*;
+        use soros_sdk::client::SyncClient;
+        use soros_sdk::signature::KeypairUtil;
         use std::io::Read;
 
         #[test]
@@ -121,27 +116,24 @@ mod bpf {
                 let mut elf = Vec::new();
                 file.read_to_end(&mut elf).unwrap();
 
-                let (genesis_block, mint_keypair) = GenesisBlock::new(50);
+                let (genesis_block, alice_keypair) = GenesisBlock::new(50);
                 let bank = Bank::new(&genesis_block);
+                let bank_client = BankClient::new(bank);
+
                 let loader_id = load_program(
-                    &bank,
-                    &mint_keypair,
+                    &bank_client,
+                    &alice_keypair,
                     &native_loader::id(),
                     "soros_bpf_loader".as_bytes().to_vec(),
                 );
 
                 // Call user program
-                let program_id = load_program(&bank, &mint_keypair, &loader_id, elf);
-                let tx = Transaction::new(
-                    &mint_keypair,
-                    &[],
-                    &program_id,
-                    &vec![1u8],
-                    bank.last_blockhash(),
-                    0,
-                );
-                bank.process_transaction(&tx).unwrap();
-                assert_eq!(bank.get_signature_status(&tx.signatures[0]), Some(Ok(())));
+                let program_id = load_program(&bank_client, &alice_keypair, &loader_id, elf);
+                let instruction =
+                    create_invoke_instruction(alice_keypair.pubkey(), program_id, &1u8);
+                bank_client
+                    .send_instruction(&alice_keypair, instruction)
+                    .unwrap();
             }
         }
     }

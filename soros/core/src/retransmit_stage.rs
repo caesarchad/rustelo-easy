@@ -3,10 +3,9 @@
 use crate::bank_forks::BankForks;
 use crate::blocktree::Blocktree;
 use crate::cluster_info::{
-    compute_retransmit_peers, ClusterInfo, DATA_PLANE_FANOUT, GROW_LAYER_CAPACITY,
-    NEIGHBORHOOD_SIZE,
+    compute_retransmit_peers, ClusterInfo, GROW_LAYER_CAPACITY, NEIGHBORHOOD_SIZE,
 };
-use crate::packet::SharedBlob;
+use crate::leader_schedule_cache::LeaderScheduleCache;
 use crate::result::{Error, Result};
 use crate::service::Service;
 use crate::staking_utils;
@@ -14,6 +13,7 @@ use crate::streamer::BlobReceiver;
 use crate::window_service::WindowService;
 use soros_metrics::counter::Counter;
 use soros_metrics::{influxdb, submit};
+use soros_sdk::hash::Hash;
 use std::net::UdpSocket;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::channel;
@@ -24,45 +24,42 @@ use std::time::Duration;
 
 fn retransmit(
     bank_forks: &Arc<RwLock<BankForks>>,
+    leader_schedule_cache: &Arc<LeaderScheduleCache>,
     cluster_info: &Arc<RwLock<ClusterInfo>>,
     r: &BlobReceiver,
     sock: &UdpSocket,
 ) -> Result<()> {
     let timer = Duration::new(1, 0);
-    let mut dq = r.recv_timeout(timer)?;
+    let mut blobs = r.recv_timeout(timer)?;
     while let Ok(mut nq) = r.try_recv() {
-        dq.append(&mut nq);
+        blobs.append(&mut nq);
     }
 
     submit(
         influxdb::Point::new("retransmit-stage")
-            .add_field("count", influxdb::Value::Integer(dq.len() as i64))
+            .add_field("count", influxdb::Value::Integer(blobs.len() as i64))
             .to_owned(),
     );
+    let r_bank = bank_forks.read().unwrap().working_bank();
+    let bank_epoch = r_bank.get_stakers_epoch(r_bank.slot());
     let (neighbors, children) = compute_retransmit_peers(
-        &staking_utils::delegated_stakes(&bank_forks.read().unwrap().working_bank()),
+        &staking_utils::delegated_stakes_at_epoch(&r_bank, bank_epoch).unwrap(),
         cluster_info,
-        DATA_PLANE_FANOUT,
+        NEIGHBORHOOD_SIZE,
         NEIGHBORHOOD_SIZE,
         GROW_LAYER_CAPACITY,
     );
-    for b in &dq {
-        if b.read().unwrap().should_forward() {
-            ClusterInfo::retransmit_to(&cluster_info, &neighbors, &copy_for_neighbors(b), sock)?;
+    for blob in &blobs {
+        let leader = leader_schedule_cache
+            .slot_leader_at_else_compute(blob.read().unwrap().slot(), r_bank.as_ref());
+        if blob.read().unwrap().meta.forward {
+            ClusterInfo::retransmit_to(&cluster_info, &neighbors, blob, leader, sock, true)?;
+            ClusterInfo::retransmit_to(&cluster_info, &children, blob, leader, sock, false)?;
+        } else {
+            ClusterInfo::retransmit_to(&cluster_info, &children, blob, leader, sock, true)?;
         }
-        // Always send blobs to children
-        ClusterInfo::retransmit_to(&cluster_info, &children, b, sock)?;
     }
     Ok(())
-}
-
-/// Modifies a blob for neighbors nodes
-#[inline]
-fn copy_for_neighbors(b: &SharedBlob) -> SharedBlob {
-    let mut blob = b.read().unwrap().clone();
-    // Disable blob forwarding for neighbors
-    blob.forward(false);
-    Arc::new(RwLock::new(blob))
 }
 
 /// Service to retransmit messages from the leader or layer 1 to relevant peer nodes.
@@ -76,15 +73,24 @@ fn copy_for_neighbors(b: &SharedBlob) -> SharedBlob {
 fn retransmitter(
     sock: Arc<UdpSocket>,
     bank_forks: Arc<RwLock<BankForks>>,
+    leader_schedule_cache: &Arc<LeaderScheduleCache>,
     cluster_info: Arc<RwLock<ClusterInfo>>,
     r: BlobReceiver,
 ) -> JoinHandle<()> {
+    let bank_forks = bank_forks.clone();
+    let leader_schedule_cache = leader_schedule_cache.clone();
     Builder::new()
         .name("soros-retransmitter".to_string())
         .spawn(move || {
             trace!("retransmitter started");
             loop {
-                if let Err(e) = retransmit(&bank_forks, &cluster_info, &r, &sock) {
+                if let Err(e) = retransmit(
+                    &bank_forks,
+                    &leader_schedule_cache,
+                    &cluster_info,
+                    &r,
+                    &sock,
+                ) {
                     match e {
                         Error::RecvTimeoutError(RecvTimeoutError::Disconnected) => break,
                         Error::RecvTimeoutError(RecvTimeoutError::Timeout) => (),
@@ -107,29 +113,36 @@ pub struct RetransmitStage {
 impl RetransmitStage {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
-        bank_forks: &Arc<RwLock<BankForks>>,
+        bank_forks: Arc<RwLock<BankForks>>,
+        leader_schedule_cache: &Arc<LeaderScheduleCache>,
         blocktree: Arc<Blocktree>,
         cluster_info: &Arc<RwLock<ClusterInfo>>,
         retransmit_socket: Arc<UdpSocket>,
         repair_socket: Arc<UdpSocket>,
         fetch_stage_receiver: BlobReceiver,
         exit: &Arc<AtomicBool>,
+        genesis_blockhash: &Hash,
     ) -> Self {
         let (retransmit_sender, retransmit_receiver) = channel();
 
         let t_retransmit = retransmitter(
             retransmit_socket,
             bank_forks.clone(),
+            leader_schedule_cache,
             cluster_info.clone(),
             retransmit_receiver,
         );
         let window_service = WindowService::new(
+            Some(bank_forks),
+            Some(leader_schedule_cache.clone()),
             blocktree,
             cluster_info.clone(),
             fetch_stage_receiver,
             retransmit_sender,
             repair_socket,
             exit,
+            None,
+            genesis_blockhash,
         );
 
         let thread_hdls = vec![t_retransmit];
@@ -149,19 +162,5 @@ impl Service for RetransmitStage {
         }
         self.window_service.join()?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Test that blobs always come out with forward unset for neighbors
-    #[test]
-    fn test_blob_for_neighbors() {
-        let blob = SharedBlob::default();
-        blob.write().unwrap().forward(true);
-        let for_hoodies = copy_for_neighbors(&blob);
-        assert!(!for_hoodies.read().unwrap().should_forward());
     }
 }
