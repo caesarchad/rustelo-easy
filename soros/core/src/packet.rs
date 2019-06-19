@@ -71,6 +71,9 @@ impl Default for Packet {
 
 impl PartialEq for Packet {
     fn eq(&self, other: &Packet) -> bool {
+        //self.meta == other.meta && self.data.as_ref() == other.data.as_ref()
+        //using trait As_Ref will failed in "type annotations required: cannot resolve `[u8]:std::convert::AsRef<_>`"
+        //use workaround iter() here
         self.data.iter().zip(other.data.iter()).all(|(a, b)| a == b) && self.meta == other.meta
     }
 }
@@ -149,6 +152,9 @@ pub struct Blob {
 
 impl PartialEq for Blob {
     fn eq(&self, other: &Blob) -> bool {
+        //self.data.as_ref() == other.data.as_ref()
+        // using trait As_Ref will faied in "type annotations required: cannot resolve `[u8]: std::convert::AsRef<_>`";
+        // using workaound here
         self.data.iter().zip(other.data.iter()).all(|(a, b)| a == b) && self.meta == other.meta
     }
 }
