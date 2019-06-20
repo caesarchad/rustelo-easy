@@ -1,8 +1,8 @@
 language: rust
 rust:
-  - 1.32.0
+  - 1.35.0
 script:
-  - cd buffett && cargo build 
+  - cd soros && cargo build --all
   - cargo build --all --verbose
   - cargo test --verbose --all
  
