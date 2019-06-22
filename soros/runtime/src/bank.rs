@@ -328,21 +328,28 @@ impl Bank {
         assert!(genesis_block.mint_id != Pubkey::default());
         assert!(genesis_block.bootstrap_leader_id != Pubkey::default());
         assert!(genesis_block.bootstrap_leader_vote_account_id != Pubkey::default());
-        assert!(genesis_block.lamports >= genesis_block.bootstrap_leader_lamports);
-        assert!(genesis_block.bootstrap_leader_lamports >= 2);
+        // assert!(genesis_block.lamports >= genesis_block.bootstrap_leader_lamports);
+        assert!(genesis_block.dif >= genesis_block.bootstrap_leader_dif);
+        // assert!(genesis_block.bootstrap_leader_lamports >= 2);
+        assert!(genesis_block.bootstrap_leader_dif >= 2);
 
         // Bootstrap leader collects fees until `new_from_parent` is called.
         self.collector_id = genesis_block.bootstrap_leader_id;
 
-        let mint_lamports = genesis_block.lamports - genesis_block.bootstrap_leader_lamports;
-        self.deposit(&genesis_block.mint_id, mint_lamports);
+        // let mint_lamports = genesis_block.lamports - genesis_block.bootstrap_leader_lamports;
+        let mint_dif = genesis_block.dif - genesis_block.bootstrap_leader_dif;
+        // self.deposit(&genesis_block.mint_id, mint_lamports);
+        self.deposit(&genesis_block.mint_id, mint_dif);
 
-        let bootstrap_leader_lamports = 1;
+        // let bootstrap_leader_lamports = 1;
+        let bootstrap_leader_dif = 1;
         let bootstrap_leader_stake =
-            genesis_block.bootstrap_leader_lamports - bootstrap_leader_lamports;
+            // genesis_block.bootstrap_leader_lamports - bootstrap_leader_lamports;
+            genesis_block.bootstrap_leader_dif - bootstrap_leader_dif;
         self.deposit(
             &genesis_block.bootstrap_leader_id,
-            bootstrap_leader_lamports,
+            // bootstrap_leader_lamports,
+            bootstrap_leader_dif,
         );
 
         // Construct a vote account for the bootstrap_leader such that the leader_scheduler
@@ -812,7 +819,7 @@ impl Bank {
     }
 
     /// Create, sign, and process a Transaction from `keypair` to `to` of
-    /// `n` lamports where `blockhash` is the last Entry ID observed by the client.
+    /// `n` dif where `blockhash` is the last Entry ID observed by the client.
     pub fn transfer(&self, n: u64, keypair: &Keypair, to: &Pubkey) -> Result<Signature> {
         let blockhash = self.last_blockhash();
         let tx = system_transaction::create_user_account(keypair, to, n, blockhash, 0);
@@ -821,7 +828,8 @@ impl Bank {
     }
 
     pub fn read_balance(account: &Account) -> u64 {
-        account.lamports
+        // account.lamports
+        account.dif
     }
     /// Each program would need to be able to introspect its own state
     /// this is hard-coded to the Budget language
@@ -846,7 +854,8 @@ impl Bank {
         self.accounts.store_slow(self.slot(), pubkey, account);
         if soros_vote_api::check_id(&account.owner) {
             let mut vote_accounts = self.vote_accounts.write().unwrap();
-            if account.lamports != 0 {
+            // if account.lamports != 0 {
+            if account.dif != 0 {
                 vote_accounts.insert(*pubkey, account.clone());
             } else {
                 vote_accounts.remove(pubkey);
@@ -854,14 +863,17 @@ impl Bank {
         }
     }
 
-    pub fn withdraw(&self, pubkey: &Pubkey, lamports: u64) -> Result<()> {
+    // pub fn withdraw(&self, pubkey: &Pubkey, lamports: u64) -> Result<()> {
+    pub fn withdraw(&self, pubkey: &Pubkey, dif: u64) -> Result<()> {
         match self.get_account(pubkey) {
             Some(mut account) => {
-                if lamports > account.lamports {
+                // if lamports > account.lamports {
+                if dif > account.dif {
                     return Err(TransactionError::InsufficientFundsForFee);
                 }
 
-                account.lamports -= lamports;
+                // account.lamports -= lamports;
+                account.dif -= dif;
                 self.store(pubkey, &account);
 
                 Ok(())
@@ -870,9 +882,11 @@ impl Bank {
         }
     }
 
-    pub fn deposit(&self, pubkey: &Pubkey, lamports: u64) {
+    // pub fn deposit(&self, pubkey: &Pubkey, lamports: u64) {
+    pub fn deposit(&self, pubkey: &Pubkey, dif: u64) {
         let mut account = self.get_account(pubkey).unwrap_or_default();
-        account.lamports += lamports;
+        // account.lamports += lamports;
+        account.dif += dif;
         self.store(pubkey, &account);
     }
 
@@ -981,7 +995,8 @@ impl Bank {
                 .zip(acc.0.iter())
                 .filter(|(_, account)| soros_vote_api::check_id(&account.owner))
             {
-                if account.lamports != 0 {
+                // if account.lamports != 0 {
+                if account.dif != 0 {
                     vote_accounts.insert(*key, account.clone());
                 } else {
                     vote_accounts.remove(key);
@@ -1038,7 +1053,8 @@ impl Drop for Bank {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soros_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_LAMPORTS};
+    // use soros_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_LAMPORTS};
+    use soros_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_DIF};
     use soros_sdk::hash;
     use soros_sdk::instruction::InstructionError;
     use soros_sdk::signature::{Keypair, KeypairUtil};
@@ -1061,21 +1077,27 @@ mod tests {
     #[test]
     fn test_bank_new_with_leader() {
         let dummy_leader_id = Pubkey::new_rand();
-        let dummy_leader_lamports = BOOTSTRAP_LEADER_LAMPORTS;
+        // let dummy_leader_lamports = BOOTSTRAP_LEADER_LAMPORTS;
+        let dummy_leader_dif = BOOTSTRAP_LEADER_DIF;
         let (genesis_block, _) =
-            GenesisBlock::new_with_leader(10_000, &dummy_leader_id, dummy_leader_lamports);
+            // GenesisBlock::new_with_leader(10_000, &dummy_leader_id, dummy_leader_lamports);
+            GenesisBlock::new_with_leader(10_000, &dummy_leader_id, dummy_leader_dif);
         assert_eq!(
-            genesis_block.bootstrap_leader_lamports,
-            dummy_leader_lamports
+            // genesis_block.bootstrap_leader_lamports,
+            genesis_block.bootstrap_leader_dif,
+            // dummy_leader_lamports
+            dummy_leader_dif            
         );
         let bank = Bank::new(&genesis_block);
         assert_eq!(
             bank.get_balance(&genesis_block.mint_id),
-            10_000 - dummy_leader_lamports
+            // 10_000 - dummy_leader_lamports
+            10_000 - dummy_leader_dif
         );
         assert_eq!(
             bank.get_balance(&dummy_leader_id),
-            dummy_leader_lamports - 1 /* 1 token goes to the vote account associated with dummy_leader_lamports */
+            // dummy_leader_lamports - 1 /* 1 token goes to the vote account associated with dummy_leader_lamports */
+            dummy_leader_dif - 1 /* 1 token goes to the vote account associated with dummy_leader_dif */
         );
     }
 
@@ -1134,7 +1156,8 @@ mod tests {
             bank.process_transaction(&tx).unwrap_err(),
             TransactionError::InstructionError(
                 1,
-                InstructionError::new_result_with_negative_lamports(),
+                // InstructionError::new_result_with_negative_lamports(),
+                InstructionError::new_result_with_negative_dif(),
             )
         );
         assert_eq!(bank.get_balance(&mint_keypair.pubkey()), 1);
@@ -1166,7 +1189,8 @@ mod tests {
     fn test_detect_failed_duplicate_transactions() {
         let (genesis_block, mint_keypair) = GenesisBlock::new(2);
         let mut bank = Bank::new(&genesis_block);
-        bank.fee_calculator.lamports_per_signature = 1;
+        // bank.fee_calculator.lamports_per_signature = 1;
+        bank.fee_calculator.dif_per_signature = 1;
 
         let dest = Keypair::new();
 
@@ -1185,11 +1209,12 @@ mod tests {
             bank.process_transaction(&tx),
             Err(TransactionError::InstructionError(
                 0,
-                InstructionError::new_result_with_negative_lamports(),
+                // InstructionError::new_result_with_negative_lamports(),
+                InstructionError::new_result_with_negative_dif(),
             ))
         );
 
-        // The lamports didn't move, but the from address paid the transaction fee.
+        // The dif didn't move, but the from address paid the transaction fee.
         assert_eq!(bank.get_balance(&dest.pubkey()), 0);
 
         // This should be the original balance minus the transaction fee.
@@ -1220,7 +1245,8 @@ mod tests {
             bank.transfer(10_001, &mint_keypair, &pubkey),
             Err(TransactionError::InstructionError(
                 0,
-                InstructionError::new_result_with_negative_lamports(),
+                // InstructionError::new_result_with_negative_lamports(),
+                InstructionError::new_result_with_negative_dif(),
             ))
         );
         assert_eq!(bank.transaction_count(), 1);
@@ -1285,7 +1311,8 @@ mod tests {
         let leader = Pubkey::new_rand();
         let (genesis_block, mint_keypair) = GenesisBlock::new_with_leader(100, &leader, 3);
         let mut bank = Bank::new(&genesis_block);
-        bank.fee_calculator.lamports_per_signature = 3;
+        // bank.fee_calculator.lamports_per_signature = 3;
+        bank.fee_calculator.dif_per_signature = 3;
 
         let key1 = Keypair::new();
         let key2 = Keypair::new();
@@ -1298,7 +1325,8 @@ mod tests {
         assert_eq!(bank.get_balance(&key1.pubkey()), 2);
         assert_eq!(bank.get_balance(&mint_keypair.pubkey()), 100 - 5 - 3);
 
-        bank.fee_calculator.lamports_per_signature = 1;
+        // bank.fee_calculator.lamports_per_signature = 1;
+        bank.fee_calculator.dif_per_signature = 1;
         let tx = system_transaction::transfer(&key1, &key2.pubkey(), 1, genesis_block.hash(), 0);
 
         assert_eq!(bank.process_transaction(&tx), Ok(()));
@@ -1335,11 +1363,13 @@ mod tests {
             Ok(()),
             Err(TransactionError::InstructionError(
                 1,
-                InstructionError::new_result_with_negative_lamports(),
+                // InstructionError::new_result_with_negative_lamports(),
+                InstructionError::new_result_with_negative_dif(),
             )),
         ];
 
-        bank.fee_calculator.lamports_per_signature = 2;
+        // bank.fee_calculator.lamports_per_signature = 2;
+        bank.fee_calculator.dif_per_signature = 2;
         let initial_balance = bank.get_balance(&leader);
         let results = bank.filter_program_errors_and_collect_fee(&vec![tx1, tx2], &results);
         assert_eq!(bank.get_balance(&leader), initial_balance + 2 + 2);
@@ -1377,9 +1407,11 @@ mod tests {
     #[test]
     fn test_process_genesis() {
         let dummy_leader_id = Pubkey::new_rand();
-        let dummy_leader_lamports = 2;
+        // let dummy_leader_lamports = 2;
+        let dummy_leader_dif = 2;
         let (genesis_block, _) =
-            GenesisBlock::new_with_leader(5, &dummy_leader_id, dummy_leader_lamports);
+            // GenesisBlock::new_with_leader(5, &dummy_leader_id, dummy_leader_lamports);
+            GenesisBlock::new_with_leader(5, &dummy_leader_id, dummy_leader_dif);
         let bank = Bank::new(&genesis_block);
         assert_eq!(bank.get_balance(&genesis_block.mint_id), 3);
         assert_eq!(bank.get_balance(&dummy_leader_id), 1);
@@ -1647,8 +1679,10 @@ mod tests {
     #[test]
     fn test_bank_epoch_vote_accounts() {
         let leader_id = Pubkey::new_rand();
-        let leader_lamports = 3;
-        let (mut genesis_block, _) = GenesisBlock::new_with_leader(5, &leader_id, leader_lamports);
+        // let leader_lamports = 3;
+        let leader_dif = 3;
+        // let (mut genesis_block, _) = GenesisBlock::new_with_leader(5, &leader_id, leader_lamports);
+        let (mut genesis_block, _) = GenesisBlock::new_with_leader(5, &leader_id, leader_dif);
 
         // set this up weird, forces future generation, odd mod(), etc.
         //  this says: "stakes for slot X should be generated at slot index 3 in slot X-2...
@@ -1711,7 +1745,8 @@ mod tests {
         soros_logger::setup();
         let (genesis_block, mint_keypair) = GenesisBlock::new(500);
         let mut bank = Bank::new(&genesis_block);
-        bank.fee_calculator.lamports_per_signature = 2;
+        // bank.fee_calculator.lamports_per_signature = 2;
+        bank.fee_calculator.dif_per_signature = 2;
         let key = Keypair::new();
 
         let mut transfer_instruction =
@@ -1945,7 +1980,8 @@ mod tests {
             bank.transfer(10_001, &mint_keypair, &Pubkey::new_rand()),
             Err(TransactionError::InstructionError(
                 0,
-                InstructionError::new_result_with_negative_lamports(),
+                // InstructionError::new_result_with_negative_lamports(),
+                InstructionError::new_result_with_negative_dif(),
             ))
         );
 

@@ -392,7 +392,8 @@ mod tests {
            "params": {
                "result": {
                    "owner": budget_program_id,
-                   "lamports": 51,
+                //    "lamports": 51,
+                    "dif": 51,
                    "data": expected_data,
                     "executable": executable,
                },

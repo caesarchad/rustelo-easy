@@ -29,9 +29,9 @@ pub trait SyncClient {
     /// a single signer. Then send it to the server, retrying as-needed.
     fn send_instruction(&self, keypair: &Keypair, instruction: Instruction) -> Result<Signature>;
 
-    /// Transfer lamports from `keypair` to `pubkey`, retrying until the
+    /// Transfer dif from `keypair` to `pubkey`, retrying until the
     /// transfer completes or produces and error.
-    fn transfer(&self, lamports: u64, keypair: &Keypair, pubkey: &Pubkey) -> Result<Signature>;
+    fn transfer(&self, dif: u64, keypair: &Keypair, pubkey: &Pubkey) -> Result<Signature>;
 
     /// Get an account or None if not found.
     fn get_account_data(&self, pubkey: &Pubkey) -> Result<Option<Vec<u8>>>;
@@ -87,10 +87,11 @@ pub trait AsyncClient {
         recent_blockhash: Hash,
     ) -> io::Result<Signature>;
 
-    /// Attempt to transfer lamports from `keypair` to `pubkey`, but don't wait to confirm.
+    /// Attempt to transfer dif from `keypair` to `pubkey`, but don't wait to confirm.
     fn async_transfer(
         &self,
-        lamports: u64,
+        // lamports: u64,
+        dif: u64,
         keypair: &Keypair,
         pubkey: &Pubkey,
         recent_blockhash: Hash,

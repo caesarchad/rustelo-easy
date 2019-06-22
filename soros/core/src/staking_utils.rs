@@ -163,9 +163,11 @@ mod tests {
     #[test]
     fn test_bank_staked_nodes_at_epoch() {
         let pubkey = Pubkey::new_rand();
-        let bootstrap_lamports = 2;
+        // let bootstrap_lamports = 2;
+        let bootstrap_dif = 2;
         let (genesis_block, _) =
-            GenesisBlock::new_with_leader(bootstrap_lamports, &pubkey, bootstrap_lamports);
+            // GenesisBlock::new_with_leader(bootstrap_lamports, &pubkey, bootstrap_lamports);
+            GenesisBlock::new_with_leader(bootstrap_dif, &pubkey, bootstrap_dif);
         let bank = Bank::new(&genesis_block);
 
         // Epoch doesn't exist
@@ -193,7 +195,7 @@ mod tests {
         let bank_voter = Keypair::new();
 
         // Give the validator some stake but don't setup a staking account
-        // Validator has no lamports staked, so they get filtered out. Only the bootstrap leader
+        // Validator has no dif staked, so they get filtered out. Only the bootstrap leader
         // created by the genesis block will get included
         bank.transfer(1, &mint_keypair, &validator.pubkey())
             .unwrap();

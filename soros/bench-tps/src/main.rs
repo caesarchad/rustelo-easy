@@ -2,7 +2,8 @@ mod bench;
 mod cli;
 
 use crate::bench::{
-    airdrop_lamports, do_bench_tps, fund_keys, generate_keypairs, Config, NUM_LAMPORTS_PER_ACCOUNT,
+    //airdrop_lamports, do_bench_tps, fund_keys, generate_keypairs, Config, NUM_LAMPORTS_PER_ACCOUNT,
+    airdrop_dif, do_bench_tps, fund_keys, generate_keypairs, Config, NUM_DIF_PER_ACCOUNT,
 };
 use soros::cluster_info::FULLNODE_PORT_RANGE;
 use soros::contact_info::ContactInfo;
@@ -62,19 +63,24 @@ fn main() {
     println!("Creating {} keypairs...", tx_count * 2);
     let keypairs = generate_keypairs(&id, tx_count);
 
-    println!("Get lamports...");
+    //println!("Get lamports...");
+    println!("Get dif...");
 
-    // Sample the first keypair, see if it has lamports, if so then resume.
+    // Sample the first keypair, see if it has dif, if so then resume.
     // This logic is to prevent lamport loss on repeated soros-bench-tps executions
     let keypair0_balance = clients[0]
         .get_balance(&keypairs.last().unwrap().pubkey())
         .unwrap_or(0);
-
-    if NUM_LAMPORTS_PER_ACCOUNT > keypair0_balance {
-        let extra = NUM_LAMPORTS_PER_ACCOUNT - keypair0_balance;
+    //if NUM_LAMPORTS_PER_ACCOUNT > keypair0_balance {
+    if NUM_DIF_PER_ACCOUNT > keypair0_balance {
+        //let extra = NUM_LAMPORTS_PER_ACCOUNT - keypair0_balance;
+        let extra = NUM_DIF_PER_ACCOUNT - keypair0_balance;
         let total = extra * (keypairs.len() as u64);
-        airdrop_lamports(&clients[0], &drone_addr, &id, total);
-        println!("adding more lamports {}", extra);
+        //airdrop_lamports(&clients[0], &drone_addr, &id, total);
+        airdrop_dif(&clients[0], &drone_addr, &id, total);
+        //println!("adding more lamports {}", extra);
+        println!("adding more dif {}", extra);
+
         fund_keys(&clients[0], &id, &keypairs, extra);
     }
 

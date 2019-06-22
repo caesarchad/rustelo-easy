@@ -14,7 +14,7 @@ fi
 extra_fullnode_args=()
 
 blockstream=/tmp/bitconch-blockstream.sock # Default to location used by the block explorer
-stake=43 # number of lamports to assign as stake (plus transaction fee to setup the stake)
+stake=43 # number of dif to assign as stake (plus transaction fee to setup the stake)
 poll_for_new_genesis_block=0
 label=
 fullnode_id_path=

@@ -4,8 +4,10 @@ here=$(dirname "$0")
 # shellcheck source=multinode-demo/common.sh
 source "$here"/common.sh
 
-lamports=100000000000000
-bootstrap_leader_lamports=
+# lamports=100000000000000
+dif=100000000000000
+# bootstrap_leader_lamports=
+bootstrap_leader_dif=
 
 usage () {
   exitcode=0
@@ -14,12 +16,12 @@ usage () {
     echo "Error: $*"
   fi
   cat <<EOF
-usage: $0 [-n lamports] [-b lamports]
+usage: $0 [-n dif] [-b dif]
 
 Create a cluster configuration
 
- -n lamports    - Number of lamports to create [default: $lamports]
- -b lamports    - Override the number of lamports for the bootstrap leader's stake
+ -n dif    - Number of dif to create [default: $dif]
+ -b dif    - Override the number of dif for the bootstrap leader's stake
 
 EOF
   exit $exitcode
@@ -32,10 +34,12 @@ while getopts "h?n:b:" opt; do
     exit 0
     ;;
   n)
-    lamports="$OPTARG"
+    # lamports="$OPTARG"
+    dif="$OPTARG"
     ;;
   b)
-    bootstrap_leader_lamports="$OPTARG"
+    # bootstrap_leader_lamports="$OPTARG"
+    bootstrap_leader_dif="$OPTARG"
     ;;
   *)
     usage "Error: unhandled option: $opt"
@@ -57,11 +61,14 @@ args=(
   --bootstrap-vote-keypair "$SOROS_CONFIG_DIR"/bootstrap-leader-vote-id.json
   --ledger "$SOROS_RSYNC_CONFIG_DIR"/ledger
   --mint "$SOROS_CONFIG_DIR"/mint-id.json
-  --lamports "$lamports"
+  # --lamports "$lamports"
+  --dif "$dif"
 )
 
-if [[ -n $bootstrap_leader_lamports ]]; then
-  args+=(--bootstrap-leader-lamports "$bootstrap_leader_lamports")
+# if [[ -n $bootstrap_leader_lamports ]]; then
+if [[ -n $bootstrap_leader_dif ]]; then
+  # args+=(--bootstrap-leader-lamports "$bootstrap_leader_lamports")
+  args+=(--bootstrap-leader-dif "$bootstrap_leader_dif")
 fi
 
 $soros_genesis "${args[@]}"

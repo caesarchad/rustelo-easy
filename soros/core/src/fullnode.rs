@@ -351,7 +351,7 @@ pub fn make_active_set_entries(
     blockhash: &Hash,
     num_ending_ticks: u64,
 ) -> (Vec<Entry>, Keypair) {
-    // 1) Assume the active_keypair node has no lamports staked
+    // 1) Assume the active_keypair node has no dif staked
     let transfer_tx = system_transaction::create_user_account(
         &lamport_source,
         &active_keypair.pubkey(),

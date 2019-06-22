@@ -50,7 +50,8 @@ leaderVoteAccountPubkey=$(\
 )
 
 soros-genesis \
-  --lamports 1000000000 \
+  # --lamports 1000000000 \
+  --dif 1000000000 \
   --mint "$dataDir"/config/drone-keypair.json \
   --bootstrap-leader-keypair "$dataDir"/config/leader-keypair.json \
   --bootstrap-vote-keypair "$dataDir"/config/leader-vote-account-keypair.json \

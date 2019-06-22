@@ -57,7 +57,7 @@ impl StakeState {
             * (vote_state.credits() - credits_observed) as f64
             / CREDITS_PER_YEAR;
 
-        // don't bother trying to collect fractional lamports
+        // don't bother trying to collect fractional dif
         if total_rewards < 1f64 {
             return None;
         }
@@ -65,7 +65,7 @@ impl StakeState {
         let (voter_rewards, staker_rewards, is_split) = vote_state.commission_split(total_rewards);
 
         if (voter_rewards < 1f64 || staker_rewards < 1f64) && is_split {
-            // don't bother trying to collect fractional lamports
+            // don't bother trying to collect fractional dif
             return None;
         }
 
@@ -124,15 +124,20 @@ impl<'a> StakeAccount for KeyedAccount<'a> {
 
             if let Some((stakers_reward, voters_reward)) = StakeState::calculate_rewards(
                 credits_observed,
-                stake_account.account.lamports,
+                // stake_account.account.lamports,
+                stake_account.account.dif,
                 &vote_state,
             ) {
-                if self.account.lamports < (stakers_reward + voters_reward) {
+                // if self.account.lamports < (stakers_reward + voters_reward) {
+                if self.account.dif < (stakers_reward + voters_reward) {
                     return Err(InstructionError::UnbalancedInstruction);
                 }
-                self.account.lamports -= stakers_reward + voters_reward;
-                stake_account.account.lamports += stakers_reward;
-                vote_account.account.lamports += voters_reward;
+                // self.account.lamports -= stakers_reward + voters_reward;
+                self.account.dif -= stakers_reward + voters_reward;
+                // stake_account.account.lamports += stakers_reward;
+                stake_account.account.dif += stakers_reward;
+                // vote_account.account.lamports += voters_reward;
+                vote_account.account.dif += voters_reward;
 
                 stake_account.set_state(&StakeState::Delegate {
                     voter_id,
@@ -299,7 +304,7 @@ mod tests {
         vote_state.process_vote(&Vote::new(1000));
         vote_keyed_account.set_state(&vote_state).unwrap();
 
-        // now, no lamports in the pool!
+        // now, no dif in the pool!
         assert_eq!(
             mining_pool_keyed_account
                 .redeem_vote_credits(&mut stake_keyed_account, &mut vote_keyed_account),
@@ -307,15 +312,17 @@ mod tests {
         );
 
         // add a lamport to pool
-        mining_pool_keyed_account.account.lamports = 2;
+        // mining_pool_keyed_account.account.lamports = 2;
+        mining_pool_keyed_account.account.dif = 2;
         assert!(mining_pool_keyed_account
             .redeem_vote_credits(&mut stake_keyed_account, &mut vote_keyed_account)
             .is_ok()); // yay
 
-        // lamports only shifted around, none made or lost
+        // dif only shifted around, none made or lost
         assert_eq!(
             2 + 100 + STAKE_GETS_PAID_EVERY_VOTE,
-            mining_pool_account.lamports + vote_account.lamports + stake_account.lamports
+            // mining_pool_account.lamports + vote_account.lamports + stake_account.lamports
+            mining_pool_account.dif + vote_account.dif + stake_account.dif
         );
     }
 

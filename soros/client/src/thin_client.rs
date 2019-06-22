@@ -180,12 +180,14 @@ impl SyncClient for ThinClient {
 
     fn transfer(
         &self,
-        lamports: u64,
+        // lamports: u64,
+        dif: u64,
         keypair: &Keypair,
         pubkey: &Pubkey,
     ) -> TransportResult<Signature> {
         let transfer_instruction =
-            system_instruction::transfer(&keypair.pubkey(), pubkey, lamports);
+            // system_instruction::transfer(&keypair.pubkey(), pubkey, lamports);
+            system_instruction::transfer(&keypair.pubkey(), pubkey, dif);
         self.send_instruction(keypair, transfer_instruction)
     }
 
@@ -271,13 +273,15 @@ impl AsyncClient for ThinClient {
     }
     fn async_transfer(
         &self,
-        lamports: u64,
+        // lamports: u64,
+        dif: u64,
         keypair: &Keypair,
         pubkey: &Pubkey,
         recent_blockhash: Hash,
     ) -> io::Result<Signature> {
         let transfer_instruction =
-            system_instruction::transfer(&keypair.pubkey(), pubkey, lamports);
+            // system_instruction::transfer(&keypair.pubkey(), pubkey, lamports);
+            system_instruction::transfer(&keypair.pubkey(), pubkey, dif);
         self.async_send_instruction(keypair, transfer_instruction, recent_blockhash)
     }
 }

@@ -157,7 +157,7 @@ impl VoteState {
     }
 
     /// Number of "credits" owed to this account from the mining pool. Submit this
-    /// VoteState to the Rewards program to trade credits for lamports.
+    /// VoteState to the Rewards program to trade credits for dif.
     pub fn credits(&self) -> u64 {
         self.credits
     }
@@ -258,9 +258,11 @@ pub fn create_account(
     vote_id: &Pubkey,
     node_id: &Pubkey,
     commission: u32,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
 ) -> Account {
-    let mut vote_account = Account::new(lamports, VoteState::size_of(), &id());
+    // let mut vote_account = Account::new(lamports, VoteState::size_of(), &id());
+    let mut vote_account = Account::new(dif, VoteState::size_of(), &id());
 
     initialize_account(
         &mut KeyedAccount::new(vote_id, false, &mut vote_account),

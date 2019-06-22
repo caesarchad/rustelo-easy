@@ -57,9 +57,10 @@ pub struct AccountInfo {
     /// offset into the storage
     offset: usize,
 
-    /// lamports in the account used when squashing kept for optimization
+    /// dif in the account used when squashing kept for optimization
     /// purposes to remove accounts with zero balance.
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
 }
 /// An offset into the AccountsDB::storage vector
 type AppendVecId = usize;
@@ -316,7 +317,8 @@ impl AccountsDB {
             .iter()
             .map(|(pubkey, account)| {
                 let write_version = self.write_version.fetch_add(1, Ordering::Relaxed) as u64;
-                let data_len = if account.lamports == 0 {
+                // let data_len = if account.lamports == 0 {
+                let data_len = if account.dif == 0 {
                     0
                 } else {
                     account.data.len() as u64
@@ -341,7 +343,8 @@ impl AccountsDB {
                 infos.push(AccountInfo {
                     id: storage.id,
                     offset: *offset,
-                    lamports: account.lamports,
+                    // lamports: account.lamports,
+                    dif: account.dif,
                 });
             }
         }
@@ -537,11 +540,11 @@ mod tests {
 
         // now we have:
         //
-        //                       root0 -> key.lamports==1
+        //                       root0 -> key.dif==1
         //                        / \
         //                       /   \
-        //  key.lamports==0 <- fork1    \
-        //                             fork2 -> key.lamports==1
+        //  key.dif==0 <- fork1    \
+        //                             fork2 -> key.dif==1
         //                                       (via root0)
 
         // store value 0 in one child
@@ -578,7 +581,8 @@ mod tests {
             let ancestors = vec![(0, 0)].into_iter().collect();
             let account = db.load_slow(&ancestors, &pubkeys[idx]).unwrap();
             let mut default_account = Account::default();
-            default_account.lamports = (idx + 1) as u64;
+            // default_account.lamports = (idx + 1) as u64;
+            default_account.dif = (idx + 1) as u64;
             assert_eq!(default_account, account);
         }
 
@@ -592,7 +596,8 @@ mod tests {
             let ancestors = vec![(1, 1)].into_iter().collect();
             let account1 = db.load_slow(&ancestors, &pubkeys[idx]).unwrap();
             let mut default_account = Account::default();
-            default_account.lamports = (idx + 1) as u64;
+            // default_account.lamports = (idx + 1) as u64;
+            default_account.dif = (idx + 1) as u64;
             assert_eq!(&default_account, &account0);
             assert_eq!(&default_account, &account1);
         }
@@ -643,7 +648,7 @@ mod tests {
         let account0 = Account::new(1, 0, &key);
         db0.store(0, &[(&key, &account0)]);
 
-        // 0 lamports in the child
+        // 0 dif in the child
         let account1 = Account::new(0, 0, &key);
         db0.store(1, &[(&key, &account1)]);
 
@@ -686,14 +691,17 @@ mod tests {
             let idx = thread_rng().gen_range(0, range);
             let ancestors = vec![(fork, 0)].into_iter().collect();
             if let Some(mut account) = accounts.load_slow(&ancestors, &pubkeys[idx]) {
-                account.lamports = account.lamports + 1;
+                // account.lamports = account.lamports + 1;
+                account.dif = account.dif + 1;
                 accounts.store(fork, &[(&pubkeys[idx], &account)]);
-                if account.lamports == 0 {
+                // if account.lamports == 0 {
+                if account.dif == 0 {
                     let ancestors = vec![(fork, 0)].into_iter().collect();
                     assert!(accounts.load_slow(&ancestors, &pubkeys[idx]).is_none());
                 } else {
                     let mut default_account = Account::default();
-                    default_account.lamports = account.lamports;
+                    // default_account.lamports = account.lamports;
+                    default_account.dif = account.dif;
                     assert_eq!(default_account, account);
                 }
             }
@@ -713,7 +721,8 @@ mod tests {
             let ancestors = vec![(fork, 0)].into_iter().collect();
             let account = accounts.load_slow(&ancestors, &pubkeys[idx]).unwrap();
             let mut default_account = Account::default();
-            default_account.lamports = (idx + 1) as u64;
+            // default_account.lamports = (idx + 1) as u64;
+            default_account.dif = (idx + 1) as u64;
             assert_eq!(default_account, account);
         }
     }
@@ -727,7 +736,8 @@ mod tests {
         let ancestors = vec![(0, 0)].into_iter().collect();
         let account = accounts.load_slow(&ancestors, &pubkeys[0]).unwrap();
         let mut default_account = Account::default();
-        default_account.lamports = 1;
+        // default_account.lamports = 1;
+        default_account.dif = 1;
         assert_eq!(default_account, account);
     }
 
@@ -765,7 +775,8 @@ mod tests {
         for (i, key) in keys.iter().enumerate() {
             let ancestors = vec![(0, 0)].into_iter().collect();
             assert_eq!(
-                accounts.load_slow(&ancestors, &key).unwrap().lamports,
+                // accounts.load_slow(&ancestors, &key).unwrap().lamports,
+                accounts.load_slow(&ancestors, &key).unwrap().dif,
                 (i as u64) + 1
             );
         }

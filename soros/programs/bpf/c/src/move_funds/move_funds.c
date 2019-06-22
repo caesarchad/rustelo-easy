@@ -24,10 +24,14 @@ extern bool entrypoint(const uint8_t *input) {
     return false;
   }
 
-  int64_t lamports = *(int64_t *)params.data;
-  if (*params.ka[0].lamports >= lamports) {
-    *params.ka[0].lamports -= lamports;
-    *params.ka[2].lamports += lamports;
+  // int64_t lamports = *(int64_t *)params.data;
+  int64_t dif = *(int64_t *)params.data;
+  // if (*params.ka[0].lamports >= lamports) {
+  if (*params.ka[0].dif >= dif) {
+    // *params.ka[0].lamports -= lamports;
+    *params.ka[0].dif -= dif;
+    // *params.ka[2].lamports += lamports;
+    *params.ka[2].dif += dif;
     // sol_log_64(0, 0, *ka[0].lamports, *ka[2].lamports, lamports);
   } else {
     // sol_log_64(0, 0, 0xFF, *ka[0].lamports, lamports);

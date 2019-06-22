@@ -26,8 +26,10 @@ fn apply_signature(
         if let Some(key) = keyed_accounts[0].signer_key() {
             if &payment.to == key {
                 budget_state.pending_budget = None;
-                keyed_accounts[1].account.lamports -= payment.lamports;
-                keyed_accounts[0].account.lamports += payment.lamports;
+                // keyed_accounts[1].account.lamports -= payment.lamports;
+                keyed_accounts[1].account.dif -= payment.dif;
+                // keyed_accounts[0].account.lamports += payment.lamports;
+                keyed_accounts[0].account.dif += payment.dif;
                 return Ok(());
             }
         }
@@ -36,8 +38,10 @@ fn apply_signature(
             return Err(BudgetError::DestinationMissing);
         }
         budget_state.pending_budget = None;
-        keyed_accounts[1].account.lamports -= payment.lamports;
-        keyed_accounts[2].account.lamports += payment.lamports;
+        // keyed_accounts[1].account.lamports -= payment.lamports;
+        keyed_accounts[1].account.dif -= payment.dif;
+        // keyed_accounts[2].account.lamports += payment.lamports;
+        keyed_accounts[2].account.dif += payment.dif;
     }
     Ok(())
 }
@@ -64,8 +68,10 @@ fn apply_timestamp(
             return Err(BudgetError::DestinationMissing);
         }
         budget_state.pending_budget = None;
-        keyed_accounts[1].account.lamports -= payment.lamports;
-        keyed_accounts[2].account.lamports += payment.lamports;
+        // keyed_accounts[1].account.lamports -= payment.lamports;
+        keyed_accounts[1].account.dif -= payment.dif;
+        // keyed_accounts[2].account.lamports += payment.lamports;
+        keyed_accounts[2].account.dif += payment.dif;
     }
     Ok(())
 }
@@ -87,8 +93,10 @@ pub fn process_instruction(
         BudgetInstruction::InitializeAccount(expr) => {
             let expr = expr.clone();
             if let Some(payment) = expr.final_payment() {
-                keyed_accounts[1].account.lamports = 0;
-                keyed_accounts[0].account.lamports += payment.lamports;
+                // keyed_accounts[1].account.lamports = 0;
+                keyed_accounts[1].account.dif = 0;
+                // keyed_accounts[0].account.lamports += payment.lamports;
+                keyed_accounts[0].account.dif += payment.dif;
                 return Ok(());
             }
             let existing = BudgetState::deserialize(&keyed_accounts[0].account.data).ok();
@@ -154,8 +162,10 @@ mod tests {
     use soros_sdk::signature::{Keypair, KeypairUtil};
     use soros_sdk::transaction::TransactionError;
 
-    fn create_bank(lamports: u64) -> (Bank, Keypair) {
-        let (genesis_block, mint_keypair) = GenesisBlock::new(lamports);
+    // fn create_bank(lamports: u64) -> (Bank, Keypair) {
+    fn create_bank(dif: u64) -> (Bank, Keypair) {
+        // let (genesis_block, mint_keypair) = GenesisBlock::new(lamports);
+        let (genesis_block, mint_keypair) = GenesisBlock::new(dif);
         let mut bank = Bank::new(&genesis_block);
         bank.add_instruction_processor(id(), process_instruction);
         (bank, mint_keypair)
@@ -371,7 +381,7 @@ mod tests {
         let budget_state = BudgetState::deserialize(&contract_account).unwrap();
         assert!(budget_state.is_pending());
 
-        // Attack! try to put the lamports into the wrong account with cancel
+        // Attack! try to put the dif into the wrong account with cancel
         let mallory_keypair = Keypair::new();
         let mallory_pubkey = mallory_keypair.pubkey();
         bank_client

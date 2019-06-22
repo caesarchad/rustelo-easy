@@ -121,8 +121,10 @@ pub fn sol_log_params(ka: &[SolKeyedAccount], data: &[u8]) {
         sol_log_64(0, 0, 0, 0, k.is_signer as u64);
         sol_log("- Key");
         sol_log_key(&k.key);
-        sol_log("- Lamports");
-        sol_log_64(0, 0, 0, 0, k.lamports);
+        // sol_log("- Lamports");
+        sol_log("- dif");
+        // sol_log_64(0, 0, 0, 0, k.lamports);
+        sol_log_64(0, 0, 0, 0, k.dif);
         sol_log("- AccountData");
         sol_log_slice(k.data);
         sol_log("- Owner");
@@ -145,8 +147,9 @@ pub struct SolKeyedAccount<'a> {
     pub key: SolPubkey<'a>,
     /// Public key of the account
     pub is_signer: u64,
-    /// Number of lamports owned by this account
-    pub lamports: u64,
+    /// Number of dif owned by this account
+    // pub lamports: u64,
+    pub dif: u64,
     /// On-chain data within this account
     pub data: &'a [u8],
     /// Program that owns this account
@@ -193,10 +196,13 @@ pub extern "C" fn entrypoint(input: *mut u8) -> bool {
     let key = SolPubkey { key: &key_slice };
     offset += SIZE_PUBKEY;
 
-    let lamports = unsafe {
+    // let lamports = unsafe {
+    let dif = unsafe {
         #[allow(clippy::cast_ptr_alignment)]
-        let lamports_ptr: *const u64 = input.add(offset) as *const u64;
-        *lamports_ptr
+        // let lamports_ptr: *const u64 = input.add(offset) as *const u64;
+        let dif_ptr: *const u64 = input.add(offset) as *const u64;
+        // *lamports_ptr
+        *dif_ptr
     };
     offset += size_of::<u64>();
 
@@ -217,7 +223,8 @@ pub extern "C" fn entrypoint(input: *mut u8) -> bool {
     let mut ka = [SolKeyedAccount {
         key,
         is_signer,
-        lamports,
+        // lamports,
+        dif,
         data,
         owner,
     }];
@@ -385,7 +392,8 @@ mod tests {
         ];
         assert_eq!(SIZE_PUBKEY, ka[0].key.key.len());
         assert_eq!(key, ka[0].key.key);
-        assert_eq!(48, ka[0].lamports);
+        // assert_eq!(48, ka[0].lamports);
+        assert_eq!(48, ka[0].dif);
         assert_eq!(1, ka[0].data.len());
         let owner = [0; 32];
         assert_eq!(SIZE_PUBKEY, ka[0].owner.key.len());

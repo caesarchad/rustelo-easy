@@ -55,16 +55,18 @@ impl AsyncClient for BankClient {
         self.async_send_message(&[keypair], message, recent_blockhash)
     }
 
-    /// Transfer `lamports` from `keypair` to `pubkey`
+    /// Transfer `dif` from `keypair` to `pubkey`
     fn async_transfer(
         &self,
-        lamports: u64,
+        // lamports: u64,
+        dif: u64,
         keypair: &Keypair,
         pubkey: &Pubkey,
         recent_blockhash: Hash,
     ) -> io::Result<Signature> {
         let transfer_instruction =
-            system_instruction::transfer(&keypair.pubkey(), pubkey, lamports);
+            // system_instruction::transfer(&keypair.pubkey(), pubkey, lamports);
+            system_instruction::transfer(&keypair.pubkey(), pubkey, dif);
         self.async_send_instruction(keypair, transfer_instruction, recent_blockhash)
     }
 }
@@ -83,10 +85,12 @@ impl SyncClient for BankClient {
         self.send_message(&[keypair], message)
     }
 
-    /// Transfer `lamports` from `keypair` to `pubkey`
-    fn transfer(&self, lamports: u64, keypair: &Keypair, pubkey: &Pubkey) -> Result<Signature> {
+    /// Transfer `dif` from `keypair` to `pubkey`
+    // fn transfer(&self, lamports: u64, keypair: &Keypair, pubkey: &Pubkey) -> Result<Signature> {
+    fn transfer(&self, dif: u64, keypair: &Keypair, pubkey: &Pubkey) -> Result<Signature> {
         let transfer_instruction =
-            system_instruction::transfer(&keypair.pubkey(), pubkey, lamports);
+            // system_instruction::transfer(&keypair.pubkey(), pubkey, lamports);
+            system_instruction::transfer(&keypair.pubkey(), pubkey, dif);
         self.send_instruction(keypair, transfer_instruction)
     }
 

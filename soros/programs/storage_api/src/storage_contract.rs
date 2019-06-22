@@ -238,8 +238,8 @@ impl<'a> StorageAccount<'a> {
         {
             let claims_index = get_segment_from_entry(entry_height);
             let _num_validations = count_valid_proofs(&reward_validations[claims_index]);
-            // TODO can't just create lamports out of thin air
-            // self.account.lamports += TOTAL_VALIDATOR_REWARDS * num_validations;
+            // TODO can't just create dif out of thin air
+            // self.account.dif += TOTAL_VALIDATOR_REWARDS * num_validations;
             reward_validations.clear();
             self.account.set_state(storage_contract)
         } else if let StorageContract::ReplicatorStorage {
@@ -260,8 +260,8 @@ impl<'a> StorageAccount<'a> {
                 return Err(InstructionError::InvalidArgument);
             }
             let _num_validations = count_valid_proofs(&reward_validations[claims_index]);
-            // TODO can't just create lamports out of thin air
-            // self.account.lamports += num_validations
+            // TODO can't just create dif out of thin air
+            // self.account.dif += num_validations
             //     * TOTAL_REPLICATOR_REWARDS
             //     * (num_validations / reward_validations[claims_index].len() as u64);
             reward_validations.clear();
@@ -371,7 +371,8 @@ mod tests {
     fn test_process_validation() {
         let mut account = StorageAccount {
             account: &mut Account {
-                lamports: 0,
+                // lamports: 0,
+                dif: 0,
                 data: vec![],
                 owner: id(),
                 executable: false,

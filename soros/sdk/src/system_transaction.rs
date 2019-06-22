@@ -12,14 +12,16 @@ pub fn create_account(
     from_keypair: &Keypair,
     to: &Pubkey,
     recent_blockhash: Hash,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
     space: u64,
     program_id: &Pubkey,
     _fee: u64,
 ) -> Transaction {
     let from_pubkey = from_keypair.pubkey();
     let create_instruction =
-        system_instruction::create_account(&from_pubkey, to, lamports, space, program_id);
+        // system_instruction::create_account(&from_pubkey, to, lamports, space, program_id);
+        system_instruction::create_account(&from_pubkey, to, dif, space, program_id);
     let instructions = vec![create_instruction];
     Transaction::new_signed_instructions(&[from_keypair], instructions, recent_blockhash)
 }
@@ -28,7 +30,8 @@ pub fn create_account(
 pub fn create_user_account(
     from_keypair: &Keypair,
     to: &Pubkey,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
     recent_blockhash: Hash,
     fee: u64,
 ) -> Transaction {
@@ -37,7 +40,8 @@ pub fn create_user_account(
         from_keypair,
         to,
         recent_blockhash,
-        lamports,
+        // lamports,
+        dif,
         0,
         &program_id,
         fee,
@@ -61,12 +65,14 @@ pub fn assign(
 pub fn transfer(
     from_keypair: &Keypair,
     to: &Pubkey,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
     recent_blockhash: Hash,
     _fee: u64,
 ) -> Transaction {
     let from_pubkey = from_keypair.pubkey();
-    let transfer_instruction = system_instruction::transfer(&from_pubkey, to, lamports);
+    // let transfer_instruction = system_instruction::transfer(&from_pubkey, to, lamports);
+    let transfer_instruction = system_instruction::transfer(&from_pubkey, to, dif);
     let instructions = vec![transfer_instruction];
     Transaction::new_signed_instructions(&[from_keypair], instructions, recent_blockhash)
 }
