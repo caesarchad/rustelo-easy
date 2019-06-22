@@ -182,7 +182,7 @@ impl MessageProcessor {
         let pre_total: u64 = program_accounts.iter().map(|a| a.dif).sum();
         let pre_data: Vec<_> = program_accounts
             .iter_mut()
-            // .map(|a| (a.owner, a.dif, a.data.clone()))
+            .map(|a| (a.owner, a.dif, a.data.clone()))
             .collect();
 
         self.process_instruction(
@@ -194,17 +194,17 @@ impl MessageProcessor {
         )?;
 
         // Verify the instruction
-        // for ((pre_program_id, pre_dif, pre_data), post_account) in
-        //     pre_data.iter().zip(program_accounts.iter())
-        // {
-        //     verify_instruction(
-        //         &program_id,
-        //         pre_program_id,
-        //         *pre_dif,
-        //         pre_data,
-        //         post_account,
-        //     )?;
-        // }
+        for ((pre_program_id, pre_dif, pre_data), post_account) in
+            pre_data.iter().zip(program_accounts.iter())
+        {
+            verify_instruction(
+                &program_id,
+                pre_program_id,
+                *pre_dif,
+                pre_data,
+                post_account,
+            )?;
+        }
         // The total sum of all the dif in all the accounts cannot change.
         // let post_total: u64 = program_accounts.iter().map(|a| a.lamports).sum();
         let post_total: u64 = program_accounts.iter().map(|a| a.dif).sum();
