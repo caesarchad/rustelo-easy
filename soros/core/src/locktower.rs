@@ -407,7 +407,8 @@ mod test {
 
     fn gen_accounts(stake_votes: &[(u64, &[u64])]) -> Vec<(Pubkey, Account)> {
         let mut accounts = vec![];
-        for (lamports, votes) in stake_votes {
+        //for (lamports, votes) in stake_votes {
+        for (dif, votes) in stake_votes {
             let mut account = Account::default();
             account.data = vec![0; 1024];
             // account.lamports = *lamports;
