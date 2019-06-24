@@ -286,7 +286,7 @@ mod tests {
             // BOOTSTRAP_LEADER_LAMPORTS,
             BOOTSTRAP_LEADER_DIF,
             &pubkey,
-            BOOTSTRAP_LEADER_LAMPORTS,
+            //BOOTSTRAP_LEADER_LAMPORTS,
             BOOTSTRAP_LEADER_DIF,
         )
         .0;
