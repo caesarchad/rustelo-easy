@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+PATH=$PWD/bin:$PATH
 here=$(dirname "$0")
 # shellcheck source=multinode-demo/common.sh
 source "$here"/common.sh
@@ -52,9 +52,9 @@ set -e
 "$here"/clear-fullnode-config.sh
 
 # Create genesis ledger
-$soros_keygen -o "$SOROS_CONFIG_DIR"/mint-id.json
-$soros_keygen -o "$SOROS_CONFIG_DIR"/bootstrap-leader-id.json
-$soros_keygen -o "$SOROS_CONFIG_DIR"/bootstrap-leader-vote-id.json
+soros-keygen -o "$SOROS_CONFIG_DIR"/mint-id.json
+soros-keygen -o "$SOROS_CONFIG_DIR"/bootstrap-leader-id.json
+soros-keygen -o "$SOROS_CONFIG_DIR"/bootstrap-leader-vote-id.json
 
 args=(
   --bootstrap-leader-keypair "$SOROS_CONFIG_DIR"/bootstrap-leader-id.json
@@ -71,5 +71,5 @@ if [[ -n $bootstrap_leader_dif ]]; then
   args+=(--bootstrap-leader-dif "$bootstrap_leader_dif")
 fi
 
-$soros_genesis "${args[@]}"
+soros-genesis "${args[@]}"
 cp -a "$SOROS_RSYNC_CONFIG_DIR"/ledger "$SOROS_CONFIG_DIR"/bootstrap-leader-ledger

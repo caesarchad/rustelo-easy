@@ -3,7 +3,7 @@
 extern crate test;
 
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use soros_rbpf::EbpfVmRaw;
+use bvm_filter::EbpfVmRaw;
 use std::env;
 use std::fs::File;
 use std::io::Error;

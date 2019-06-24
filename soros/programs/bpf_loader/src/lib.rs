@@ -3,7 +3,7 @@ pub mod bpf_verifier;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use libc::c_char;
 use log::*;
-use soros_rbpf::{EbpfVmRaw, MemoryRegion};
+use bvm_filter::{EbpfVmRaw, MemoryRegion};
 use soros_sdk::account::KeyedAccount;
 use soros_sdk::instruction::InstructionError;
 use soros_sdk::loader_instruction::LoaderInstruction;
