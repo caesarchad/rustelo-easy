@@ -22,11 +22,13 @@ pub enum StakeInstruction {
     RedeemVoteCredits,
 }
 
-pub fn create_account(from_id: &Pubkey, staker_id: &Pubkey, lamports: u64) -> Vec<Instruction> {
+// pub fn create_account(from_id: &Pubkey, staker_id: &Pubkey, lamports: u64) -> Vec<Instruction> {
+pub fn create_account(from_id: &Pubkey, staker_id: &Pubkey, dif: u64) -> Vec<Instruction> {
     vec![system_instruction::create_account(
         from_id,
         staker_id,
-        lamports,
+        // lamports,
+        dif,
         std::mem::size_of::<StakeState>() as u64,
         &id(),
     )]

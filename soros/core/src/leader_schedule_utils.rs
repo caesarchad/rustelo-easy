@@ -57,15 +57,19 @@ fn sort_stakes(stakes: &mut Vec<(Pubkey, u64)>) {
 mod tests {
     use super::*;
     use crate::staking_utils;
-    use soros_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_LAMPORTS};
+    // use soros_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_LAMPORTS};
+    use soros_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_DIF};
+
 
     #[test]
     fn test_leader_schedule_via_bank() {
         let pubkey = Pubkey::new_rand();
         let (genesis_block, _mint_keypair) = GenesisBlock::new_with_leader(
-            BOOTSTRAP_LEADER_LAMPORTS,
+            // BOOTSTRAP_LEADER_LAMPORTS,
+            BOOTSTRAP_LEADER_DIF,
             &pubkey,
-            BOOTSTRAP_LEADER_LAMPORTS,
+            // BOOTSTRAP_LEADER_LAMPORTS,
+            BOOTSTRAP_LEADER_DIF,
         );
         let bank = Bank::new(&genesis_block);
 
@@ -87,9 +91,11 @@ mod tests {
     fn test_leader_scheduler1_basic() {
         let pubkey = Pubkey::new_rand();
         let genesis_block = GenesisBlock::new_with_leader(
-            BOOTSTRAP_LEADER_LAMPORTS,
+            // BOOTSTRAP_LEADER_LAMPORTS,
+            BOOTSTRAP_LEADER_DIF,
             &pubkey,
-            BOOTSTRAP_LEADER_LAMPORTS,
+            // BOOTSTRAP_LEADER_LAMPORTS,
+            BOOTSTRAP_LEADER_DIF,
         )
         .0;
         let bank = Bank::new(&genesis_block);

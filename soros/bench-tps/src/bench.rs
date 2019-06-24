@@ -30,7 +30,8 @@ pub struct NodeStats {
 }
 
 pub const MAX_SPENDS_PER_TX: usize = 4;
-pub const NUM_LAMPORTS_PER_ACCOUNT: u64 = 20;
+// pub const NUM_LAMPORTS_PER_ACCOUNT: u64 = 20;
+pub const NUM_DIF_PER_ACCOUNT: u64 = 20;
 
 pub type SharedTransactions = Arc<RwLock<VecDeque<Vec<(Transaction, u64)>>>>;
 
@@ -134,7 +135,8 @@ pub fn do_bench_tps<T>(
 
     // generate and send transactions for the specified duration
     let start = Instant::now();
-    let mut reclaim_lamports_back_to_source_account = false;
+    // let mut reclaim_lamports_back_to_source_account = false;
+    let mut reclaim_dif_back_to_source_account = false;
     let mut i = keypair0_balance;
     while start.elapsed() < duration {
         let balance = client.get_balance(&id.pubkey()).unwrap_or(0);
@@ -149,7 +151,8 @@ pub fn do_bench_tps<T>(
             &keypairs[..len],
             &keypairs[len..],
             threads,
-            reclaim_lamports_back_to_source_account,
+            // reclaim_lamports_back_to_source_account,
+            reclaim_dif_back_to_source_account,
             &client,
         );
         // In sustained mode overlap the transfers with generation
@@ -162,8 +165,10 @@ pub fn do_bench_tps<T>(
         }
 
         i += 1;
-        if should_switch_directions(NUM_LAMPORTS_PER_ACCOUNT, i) {
-            reclaim_lamports_back_to_source_account = !reclaim_lamports_back_to_source_account;
+        // if should_switch_directions(NUM_LAMPORTS_PER_ACCOUNT, i) {
+        if should_switch_directions(NUM_DIF_PER_ACCOUNT, i) {
+            // reclaim_lamports_back_to_source_account = !reclaim_lamports_back_to_source_account;
+            reclaim_dif_back_to_source_account = !reclaim_dif_back_to_source_account;
         }
     }
 
@@ -394,8 +399,10 @@ fn verify_funding_transfer<T: Client>(client: &T, tx: &Transaction, amount: u64)
 /// fund the dests keys by spending all of the source keys into MAX_SPENDS_PER_TX
 /// on every iteration.  This allows us to replay the transfers because the source is either empty,
 /// or full
-pub fn fund_keys<T: Client>(client: &T, source: &Keypair, dests: &[Keypair], lamports: u64) {
-    let total = lamports * dests.len() as u64;
+//pub fn fund_keys<T: Client>(client: &T, source: &Keypair, dests: &[Keypair], lamports: u64) {
+pub fn fund_keys<T: Client>(client: &T, source: &Keypair, dests: &[Keypair], dif: u64) {
+    // let total = lamports * dests.len() as u64;
+    let total = dif * dests.len() as u64;
     let mut funded: Vec<(&Keypair, u64)> = vec![(source, total)];
     let mut notfunded: Vec<&Keypair> = dests.iter().collect();
 
@@ -496,7 +503,8 @@ pub fn fund_keys<T: Client>(client: &T, source: &Keypair, dests: &[Keypair], lam
     }
 }
 
-pub fn airdrop_lamports<T: Client>(
+// pub fn airdrop_lamports<T: Client>(
+pub fn airdrop_dif<T: Client>(
     client: &T,
     drone_addr: &SocketAddr,
     id: &Keypair,
@@ -509,7 +517,8 @@ pub fn airdrop_lamports<T: Client>(
     if starting_balance < tx_count {
         let airdrop_amount = tx_count - starting_balance;
         println!(
-            "Airdropping {:?} lamports from {} for {}",
+            // "Airdropping {:?} lamports from {} for {}",
+            "Airdropping {:?} dif from {} for {}",
             airdrop_amount,
             drone_addr,
             id.pubkey(),
@@ -616,11 +625,12 @@ fn compute_and_report_stats(
     );
 }
 
-// First transfer 3/4 of the lamports to the dest accounts
-// then ping-pong 1/4 of the lamports back to the other account
+// First transfer 3/4 of the dif to the dest accounts
+// then ping-pong 1/4 of the dif back to the other account
 // this leaves 1/4 lamport buffer in each account
-fn should_switch_directions(num_lamports_per_account: u64, i: u64) -> bool {
-    i % (num_lamports_per_account / 4) == 0 && (i >= (3 * num_lamports_per_account) / 4)
+//fn should_switch_directions(num_lamports_per_account: u64, i: u64) -> bool {
+fn should_switch_directions(num_dif_per_account: u64, i: u64) -> bool {
+    i % (num_dif_per_account / 4) == 0 && (i >= (3 * num_dif_per_account) / 4)
 }
 
 pub fn generate_keypairs(id: &Keypair, tx_count: usize) -> Vec<Keypair> {
@@ -672,7 +682,8 @@ mod tests {
         const NUM_NODES: usize = 1;
         let cluster = LocalCluster::new(&ClusterConfig {
             node_stakes: vec![999_990; NUM_NODES],
-            cluster_lamports: 2_000_000,
+            //cluster_lamports: 2_000_000,
+            cluster_dif: 2_000_000,
             fullnode_config,
             ..ClusterConfig::default()
         });

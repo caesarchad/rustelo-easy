@@ -7,7 +7,8 @@ use num_derive::FromPrimitive;
 #[derive(Serialize, Debug, Clone, PartialEq, FromPrimitive)]
 pub enum SystemError {
     AccountAlreadyInUse,
-    ResultWithNegativeLamports,
+    // ResultWithNegativeLamports,
+    ResultWithNegativeDif,
     SourceNotSystemAccount,
 }
 
@@ -29,27 +30,30 @@ pub enum SystemInstruction {
     /// Create a new account
     /// * Transaction::keys[0] - source
     /// * Transaction::keys[1] - new account key
-    /// * lamports - number of lamports to transfer to the new account
+    /// * dif - number of dif to transfer to the new account
     /// * space - memory to allocate if greater then zero
     /// * program_id - the program id of the new account
     CreateAccount {
-        lamports: u64,
+        // lamports: u64,
+        dif: u64,
         space: u64,
         program_id: Pubkey,
     },
     /// Assign account to a program
     /// * Transaction::keys[0] - account to assign
     Assign { program_id: Pubkey },
-    /// Transfer lamports
+    /// Transfer dif
     /// * Transaction::keys[0] - source
     /// * Transaction::keys[1] - destination
-    Transfer { lamports: u64 },
+    // Transfer { lamports: u64 },
+    Transfer { dif: u64 },
 }
 
 pub fn create_account(
     from_id: &Pubkey,
     to_id: &Pubkey,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
     space: u64,
     program_id: &Pubkey,
 ) -> Instruction {
@@ -60,7 +64,8 @@ pub fn create_account(
     Instruction::new(
         system_program::id(),
         &SystemInstruction::CreateAccount {
-            lamports,
+            // lamports,
+            dif,
             space,
             program_id: *program_id,
         },
@@ -69,9 +74,11 @@ pub fn create_account(
 }
 
 /// Create and sign a transaction to create a system account
-pub fn create_user_account(from_id: &Pubkey, to_id: &Pubkey, lamports: u64) -> Instruction {
+// pub fn create_user_account(from_id: &Pubkey, to_id: &Pubkey, lamports: u64) -> Instruction {
+pub fn create_user_account(from_id: &Pubkey, to_id: &Pubkey, dif: u64) -> Instruction {
     let program_id = system_program::id();
-    create_account(from_id, to_id, lamports, 0, &program_id)
+    // create_account(from_id, to_id, lamports, 0, &program_id)
+    create_account(from_id, to_id, dif, 0, &program_id)
 }
 
 pub fn assign(from_id: &Pubkey, program_id: &Pubkey) -> Instruction {
@@ -85,23 +92,28 @@ pub fn assign(from_id: &Pubkey, program_id: &Pubkey) -> Instruction {
     )
 }
 
-pub fn transfer(from_id: &Pubkey, to_id: &Pubkey, lamports: u64) -> Instruction {
+// pub fn transfer(from_id: &Pubkey, to_id: &Pubkey, lamports: u64) -> Instruction {
+pub fn transfer(from_id: &Pubkey, to_id: &Pubkey, dif: u64) -> Instruction {
     let account_metas = vec![
         AccountMeta::new(*from_id, true),
         AccountMeta::new(*to_id, false),
     ];
     Instruction::new(
         system_program::id(),
-        &SystemInstruction::Transfer { lamports },
+        // &SystemInstruction::Transfer { lamports },
+        &SystemInstruction::Transfer { dif },
         account_metas,
     )
 }
 
 /// Create and sign new SystemInstruction::Transfer transaction to many destinations
-pub fn transfer_many(from_id: &Pubkey, to_lamports: &[(Pubkey, u64)]) -> Vec<Instruction> {
-    to_lamports
+// pub fn transfer_many(from_id: &Pubkey, to_lamports: &[(Pubkey, u64)]) -> Vec<Instruction> {
+pub fn transfer_many(from_id: &Pubkey, to_dif: &[(Pubkey, u64)]) -> Vec<Instruction> {
+    // to_lamports
+    to_dif
         .iter()
-        .map(|(to_id, lamports)| transfer(from_id, to_id, *lamports))
+        // .map(|(to_id, lamports)| transfer(from_id, to_id, *lamports))
+        .map(|(to_id, dif)| transfer(from_id, to_id, *dif))
         .collect()
 }
 
@@ -118,9 +130,11 @@ mod tests {
         let alice_pubkey = Pubkey::new_rand();
         let bob_pubkey = Pubkey::new_rand();
         let carol_pubkey = Pubkey::new_rand();
-        let to_lamports = vec![(bob_pubkey, 1), (carol_pubkey, 2)];
+        // let to_lamports = vec![(bob_pubkey, 1), (carol_pubkey, 2)];
+        let to_dif = vec![(bob_pubkey, 1), (carol_pubkey, 2)];
 
-        let instructions = transfer_many(&alice_pubkey, &to_lamports);
+        // let instructions = transfer_many(&alice_pubkey, &to_lamports);
+        let instructions = transfer_many(&alice_pubkey, &to_dif);
         assert_eq!(instructions.len(), 2);
         assert_eq!(get_keys(&instructions[0]), vec![alice_pubkey, bob_pubkey]);
         assert_eq!(get_keys(&instructions[1]), vec![alice_pubkey, carol_pubkey]);

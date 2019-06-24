@@ -7,14 +7,16 @@ use soros_sdk::signature::{read_keypair, KeypairUtil};
 use std::error;
 
 /**
- * Bootstrap leader gets two lamports:
- * - 42 lamports to use as stake
+ * Bootstrap leader gets two dif:
+ * - 42 dif to use as stake
  * - One lamport to keep the node identity public key valid
  */
-pub const BOOTSTRAP_LEADER_LAMPORTS: u64 = 43;
+// pub const BOOTSTRAP_LEADER_LAMPORTS: u64 = 43;
+pub const BOOTSTRAP_LEADER_DIF: u64 = 43;
 
 fn main() -> Result<(), Box<dyn error::Error>> {
-    let default_bootstrap_leader_lamports = &BOOTSTRAP_LEADER_LAMPORTS.to_string();
+    // let default_bootstrap_leader_lamports = &BOOTSTRAP_LEADER_LAMPORTS.to_string();
+    let default_bootstrap_leader_dif = &BOOTSTRAP_LEADER_DIF.to_string();
     let matches = App::new(crate_name!())
         .about(crate_description!())
         .version(crate_version!())
@@ -37,13 +39,17 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .help("Use directory as persistent ledger location"),
         )
         .arg(
-            Arg::with_name("lamports")
+            // Arg::with_name("lamports")
+            Arg::with_name("dif")
                 .short("t")
-                .long("lamports")
-                .value_name("LAMPORTS")
+                // .long("lamports")
+                .long("dif")
+                // .value_name("LAMPORTS")
+                .value_name("DIF")
                 .takes_value(true)
                 .required(true)
-                .help("Number of lamports to create in the mint"),
+                // .help("Number of lamports to create in the mint"),
+                .help("Number of dif to create in the mint"),
         )
         .arg(
             Arg::with_name("mint_keypair_file")
@@ -64,13 +70,18 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .help("Path to file containing the bootstrap leader's staking keypair"),
         )
         .arg(
-            Arg::with_name("bootstrap_leader_lamports")
-                .long("bootstrap-leader-lamports")
-                .value_name("LAMPORTS")
+            // Arg::with_name("bootstrap_leader_lamports")
+            Arg::with_name("bootstrap_leader_dif")
+                // .long("bootstrap-leader-lamports")
+                .long("bootstrap-leader-dif")
+                // .value_name("LAMPORTS")
+                .value_name("DIF")
                 .takes_value(true)
-                .default_value(default_bootstrap_leader_lamports)
+                // .default_value(default_bootstrap_leader_lamports)
+                .default_value(default_bootstrap_leader_dif)
                 .required(true)
-                .help("Number of lamports to assign to the bootstrap leader"),
+                // .help("Number of lamports to assign to the bootstrap leader"),
+                .help("Number of dif to assign to the bootstrap leader"),
         )
         .get_matches();
 
@@ -78,17 +89,21 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let bootstrap_vote_keypair_file = matches.value_of("bootstrap_vote_keypair_file").unwrap();
     let ledger_path = matches.value_of("ledger_path").unwrap();
     let mint_keypair_file = matches.value_of("mint_keypair_file").unwrap();
-    let lamports = value_t_or_exit!(matches, "lamports", u64);
-    let bootstrap_leader_lamports = value_t_or_exit!(matches, "bootstrap_leader_lamports", u64);
+    // let lamports = value_t_or_exit!(matches, "lamports", u64);
+    let dif = value_t_or_exit!(matches, "dif", u64);
+    // let bootstrap_leader_lamports = value_t_or_exit!(matches, "bootstrap_leader_lamports", u64);
+    let bootstrap_leader_dif = value_t_or_exit!(matches, "bootstrap_leader_dif", u64);
 
     let bootstrap_leader_keypair = read_keypair(bootstrap_leader_keypair_file)?;
     let bootstrap_vote_keypair = read_keypair(bootstrap_vote_keypair_file)?;
     let mint_keypair = read_keypair(mint_keypair_file)?;
 
     let (mut genesis_block, _mint_keypair) = GenesisBlock::new_with_leader(
-        lamports,
+        // lamports,
+        dif,
         &bootstrap_leader_keypair.pubkey(),
-        bootstrap_leader_lamports,
+        // bootstrap_leader_lamports,
+        bootstrap_leader_dif,
     );
     genesis_block.mint_id = mint_keypair.pubkey();
     genesis_block.bootstrap_leader_vote_account_id = bootstrap_vote_keypair.pubkey();

@@ -872,7 +872,7 @@ mod tests {
         let (genesis_block, mint_keypair) = GenesisBlock::new(2);
         let (verified_sender, verified_receiver) = channel();
 
-        // Process a batch that includes a transaction that receives two lamports.
+        // Process a batch that includes a transaction that receives two dif.
         let alice = Keypair::new();
         let tx = system_transaction::create_user_account(
             &mint_keypair,
@@ -1000,7 +1000,8 @@ mod tests {
             // InstructionErrors should still be recorded
             results[0] = Err(TransactionError::InstructionError(
                 1,
-                InstructionError::new_result_with_negative_lamports(),
+                // InstructionError::new_result_with_negative_lamports(),
+                InstructionError::new_result_with_negative_dif(),
             ));
             BankingStage::record_transactions(bank.slot(), &transactions, &results, &poh_recorder)
                 .unwrap();

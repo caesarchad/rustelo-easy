@@ -8,12 +8,14 @@ use soros_sdk::system_instruction;
 pub fn create_account<T: ConfigState>(
     from_account_pubkey: &Pubkey,
     config_account_pubkey: &Pubkey,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
 ) -> Instruction {
     system_instruction::create_account(
         from_account_pubkey,
         config_account_pubkey,
-        lamports,
+        // lamports,
+        dif,
         T::max_space(),
         &id(),
     )

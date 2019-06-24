@@ -5,8 +5,9 @@ use std::{cmp, fmt};
 #[repr(C)]
 #[derive(Serialize, Deserialize, Clone, Default, Eq, PartialEq)]
 pub struct Account {
-    /// lamports in the account
-    pub lamports: u64,
+    /// dif in the account
+    // pub lamports: u64,
+    pub dif: u64,
     /// data held in this account
     pub data: Vec<u8>,
     /// the program that owns this account. If executable, the program that loads this account.
@@ -25,8 +26,9 @@ impl fmt::Debug for Account {
         };
         write!(
             f,
-            "Account {{ lamports: {} data.len: {} owner: {} executable: {}{} }}",
-            self.lamports,
+            "Account {{ dif: {} data.len: {} owner: {} executable: {}{} }}",
+            // self.lamports,
+            self.dif,
             self.data.len(),
             self.owner,
             self.executable,
@@ -37,9 +39,11 @@ impl fmt::Debug for Account {
 
 impl Account {
     // TODO do we want to add executable and leader_owner even though they should always be false/default?
-    pub fn new(lamports: u64, space: usize, owner: &Pubkey) -> Account {
+    // pub fn new(lamports: u64, space: usize, owner: &Pubkey) -> Account {
+    pub fn new(dif: u64, space: usize, owner: &Pubkey) -> Account {
         Account {
-            lamports,
+            // lamports,
+            dif,
             data: vec![0u8; space],
             owner: *owner,
             executable: false,

@@ -38,10 +38,12 @@ pub fn create_account(
     vote_id: &Pubkey,
     node_id: &Pubkey,
     commission: u32,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
 ) -> Vec<Instruction> {
     let space = VoteState::size_of() as u64;
-    let create_ix = system_instruction::create_account(&from_id, vote_id, lamports, space, &id());
+    // let create_ix = system_instruction::create_account(&from_id, vote_id, lamports, space, &id());
+    let create_ix = system_instruction::create_account(&from_id, vote_id, dif, space, &id());
     let init_ix = initialize_account(vote_id, node_id, commission);
     vec![create_ix, init_ix]
 }
@@ -113,8 +115,10 @@ mod tests {
     use soros_sdk::system_instruction;
     use soros_sdk::transaction::{Result, TransactionError};
 
-    fn create_bank(lamports: u64) -> (Bank, Keypair) {
-        let (genesis_block, mint_keypair) = GenesisBlock::new(lamports);
+    // fn create_bank(lamports: u64) -> (Bank, Keypair) {
+    fn create_bank(dif: u64) -> (Bank, Keypair) {
+        // let (genesis_block, mint_keypair) = GenesisBlock::new(lamports);
+        let (genesis_block, mint_keypair) = GenesisBlock::new(dif);
         let mut bank = Bank::new(&genesis_block);
         bank.add_instruction_processor(id(), process_instruction);
         (bank, mint_keypair)
@@ -124,14 +128,16 @@ mod tests {
         bank_client: &BankClient,
         from_keypair: &Keypair,
         vote_id: &Pubkey,
-        lamports: u64,
+        // lamports: u64,
+        dif: u64,
     ) -> Result<()> {
         let ixs = vote_instruction::create_account(
             &from_keypair.pubkey(),
             vote_id,
             &Pubkey::new_rand(),
             0,
-            lamports,
+            // lamports,
+            dif,
         );
         let message = Message::new(ixs);
         bank_client

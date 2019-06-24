@@ -47,7 +47,7 @@ pub enum WalletCommand {
     ShowVoteAccount(Pubkey),
     Deploy(String),
     GetTransactionCount,
-    // Pay(lamports, to, timestamp, timestamp_pubkey, witness(es), cancelable)
+    // Pay(dif, to, timestamp, timestamp_pubkey, witness(es), cancelable)
     Pay(
         u64,
         Pubkey,
@@ -147,8 +147,10 @@ pub fn parse_command(
     let response = match matches.subcommand() {
         ("address", Some(_address_matches)) => Ok(WalletCommand::Address),
         ("airdrop", Some(airdrop_matches)) => {
-            let lamports = airdrop_matches.value_of("lamports").unwrap().parse()?;
-            Ok(WalletCommand::Airdrop(lamports))
+            // let lamports = airdrop_matches.value_of("lamports").unwrap().parse()?;
+            let dif = airdrop_matches.value_of("dif").unwrap().parse()?;
+            // Ok(WalletCommand::Airdrop(lamports))
+            Ok(WalletCommand::Airdrop(dif))
         }
         ("balance", Some(balance_matches)) => {
             let pubkey = pubkey_of(&balance_matches, "pubkey").unwrap_or(*pubkey);
@@ -183,12 +185,14 @@ pub fn parse_command(
             } else {
                 0
             };
-            let lamports = matches.value_of("lamports").unwrap().parse()?;
+            // let lamports = matches.value_of("lamports").unwrap().parse()?;
+            let dif = matches.value_of("dif").unwrap().parse()?;
             Ok(WalletCommand::CreateVoteAccount(
                 voting_account_id,
                 node_id,
                 commission,
-                lamports,
+                // lamports,
+                dif,
             ))
         }
         ("show-vote-account", Some(matches)) => {
@@ -203,7 +207,8 @@ pub fn parse_command(
         )),
         ("get-transaction-count", Some(_matches)) => Ok(WalletCommand::GetTransactionCount),
         ("pay", Some(pay_matches)) => {
-            let lamports = pay_matches.value_of("lamports").unwrap().parse()?;
+            // let lamports = pay_matches.value_of("lamports").unwrap().parse()?;
+            let dif = pay_matches.value_of("dif").unwrap().parse()?;
             let to = pubkey_of(&pay_matches, "to").unwrap_or(*pubkey);
             let timestamp = if pay_matches.is_present("timestamp") {
                 // Parse input for serde_json
@@ -225,7 +230,8 @@ pub fn parse_command(
             };
 
             Ok(WalletCommand::Pay(
-                lamports,
+                // lamports,
+                dif,
                 to,
                 timestamp,
                 timestamp_pubkey,
@@ -275,20 +281,24 @@ fn process_airdrop(
     rpc_client: &RpcClient,
     config: &WalletConfig,
     drone_addr: SocketAddr,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
 ) -> ProcessResult {
     println!(
-        "Requesting airdrop of {:?} lamports from {}",
-        lamports, drone_addr
+        "Requesting airdrop of {:?} dif from {}",
+        // lamports, drone_addr
+        dif, drone_addr
     );
     let previous_balance = match rpc_client.retry_get_balance(&config.keypair.pubkey(), 5)? {
-        Some(lamports) => lamports,
+        // Some(lamports) => lamports,
+        Some(dif) => dif,
         None => Err(WalletError::RpcRequestError(
             "Received result of an unexpected type".to_string(),
         ))?,
     };
 
-    request_and_confirm_airdrop(&rpc_client, &drone_addr, &config.keypair.pubkey(), lamports)?;
+    // request_and_confirm_airdrop(&rpc_client, &drone_addr, &config.keypair.pubkey(), lamports)?;
+    request_and_confirm_airdrop(&rpc_client, &drone_addr, &config.keypair.pubkey(), dif)?;
 
     let current_balance = rpc_client
         .retry_get_balance(&config.keypair.pubkey(), 5)?
@@ -300,11 +310,13 @@ fn process_airdrop(
             current_balance, previous_balance
         ))?;
     }
-    if current_balance - previous_balance < lamports {
+    // if current_balance - previous_balance < lamports {
+    if current_balance - previous_balance < dif {
         Err(format!(
             "Airdrop failed: Account balance increased by {} instead of {}",
             current_balance - previous_balance,
-            lamports
+            // lamports
+            dif
         ))?;
     }
     Ok(format!("Your balance is: {:?}", current_balance))
@@ -313,9 +325,11 @@ fn process_airdrop(
 fn process_balance(pubkey: &Pubkey, rpc_client: &RpcClient) -> ProcessResult {
     let balance = rpc_client.retry_get_balance(pubkey, 5)?;
     match balance {
-        Some(lamports) => {
-            let ess = if lamports == 1 { "" } else { "s" };
-            Ok(format!("{:?} lamport{}", lamports, ess))
+        // Some(lamports) => {
+        Some(dif) => {
+            // let ess = if lamports == 1 { "" } else { "s" };
+            let ess = if dif == 1 { "" } else { "s" };
+            Ok(format!("{:?} dif{}", dif, ess))
         }
         None => Err(WalletError::RpcRequestError(
             "Received result of an unexpected type".to_string(),
@@ -364,7 +378,8 @@ fn process_create_staking(
     voting_account_id: &Pubkey,
     node_id: &Pubkey,
     commission: u32,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
 ) -> ProcessResult {
     let recent_blockhash = rpc_client.get_recent_blockhash()?;
     let ixs = vote_instruction::create_account(
@@ -372,7 +387,8 @@ fn process_create_staking(
         voting_account_id,
         node_id,
         commission,
-        lamports,
+        // lamports,
+        dif,
     );
     let mut tx = Transaction::new_signed_instructions(&[&config.keypair], ixs, recent_blockhash);
     let signature_str = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair)?;
@@ -385,11 +401,13 @@ fn process_show_staking(
     voting_account_id: &Pubkey,
 ) -> ProcessResult {
     use soros_vote_api::vote_state::VoteState;
-    let vote_account_lamports = rpc_client.retry_get_balance(voting_account_id, 5)?;
+    // let vote_account_lamports = rpc_client.retry_get_balance(voting_account_id, 5)?;
+    let vote_account_dif = rpc_client.retry_get_balance(voting_account_id, 5)?;
     let vote_account_data = rpc_client.get_account_data(voting_account_id)?;
     let vote_state = VoteState::deserialize(&vote_account_data).unwrap();
 
-    println!("account lamports: {}", vote_account_lamports.unwrap());
+    // println!("account lamports: {}", vote_account_lamports.unwrap());
+    println!("account dif: {}", vote_account_dif.unwrap());
     println!("node id: {}", vote_state.node_id);
     println!("authorized voter id: {}", vote_state.authorized_voter_id);
     println!("credits: {}", vote_state.credits());
@@ -422,8 +440,10 @@ fn process_deploy(
     program_location: &str,
 ) -> ProcessResult {
     let balance = rpc_client.retry_get_balance(&config.keypair.pubkey(), 5)?;
-    if let Some(lamports) = balance {
-        if lamports < 1 {
+    // if let Some(lamports) = balance {
+    if let Some(dif) = balance {
+        // if lamports < 1 {
+        if dif < 1 {
             Err(WalletError::DynamicProgramError(
                 "Insufficient funds".to_string(),
             ))?
@@ -493,7 +513,8 @@ fn process_deploy(
 fn process_pay(
     rpc_client: &RpcClient,
     config: &WalletConfig,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
     to: &Pubkey,
     timestamp: Option<DateTime<Utc>>,
     timestamp_pubkey: Option<Pubkey>,
@@ -503,7 +524,8 @@ fn process_pay(
     let blockhash = rpc_client.get_recent_blockhash()?;
 
     if timestamp == None && *witnesses == None {
-        let mut tx = system_transaction::transfer(&config.keypair, to, lamports, blockhash, 0);
+        // let mut tx = system_transaction::transfer(&config.keypair, to, lamports, blockhash, 0);
+        let mut tx = system_transaction::transfer(&config.keypair, to, dif, blockhash, 0);
         let result = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair);
         let signature_str = log_instruction_custom_error::<SystemError>(result)?;
         Ok(signature_str.to_string())
@@ -524,7 +546,8 @@ fn process_pay(
             dt,
             &dt_pubkey,
             cancelable,
-            lamports,
+            // lamports,
+            dif,
         );
         let mut tx = Transaction::new_signed_instructions(&[&config.keypair], ixs, blockhash);
         let result = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair);
@@ -555,7 +578,8 @@ fn process_pay(
             &contract_state.pubkey(),
             &witness,
             cancelable,
-            lamports,
+            // lamports,
+            dif,
         );
         let mut tx = Transaction::new_signed_instructions(&[&config.keypair], ixs, blockhash);
         let result = rpc_client.send_and_confirm_transaction(&mut tx, &config.keypair);
@@ -658,8 +682,10 @@ pub fn process_command(config: &WalletConfig) -> ProcessResult {
         WalletCommand::Address => unreachable!(),
 
         // Request an airdrop from Soros Drone;
-        WalletCommand::Airdrop(lamports) => {
-            process_airdrop(&rpc_client, config, drone_addr, lamports)
+        // WalletCommand::Airdrop(lamports) => {
+        WalletCommand::Airdrop(dif) => {
+            // process_airdrop(&rpc_client, config, drone_addr, lamports)
+            process_airdrop(&rpc_client, config, drone_addr, dif)
         }
 
         // Check client balance
@@ -677,14 +703,16 @@ pub fn process_command(config: &WalletConfig) -> ProcessResult {
         }
 
         // Create staking account
-        WalletCommand::CreateVoteAccount(voting_account_id, node_id, commission, lamports) => {
+        // WalletCommand::CreateVoteAccount(voting_account_id, node_id, commission, lamports) => {
+        WalletCommand::CreateVoteAccount(voting_account_id, node_id, commission, dif) => {
             process_create_staking(
                 &rpc_client,
                 config,
                 &voting_account_id,
                 &node_id,
                 commission,
-                lamports,
+                // lamports,
+                dif,
             )
         }
 
@@ -699,9 +727,10 @@ pub fn process_command(config: &WalletConfig) -> ProcessResult {
 
         WalletCommand::GetTransactionCount => process_get_transaction_count(&rpc_client),
 
-        // If client has positive balance, pay lamports to another address
+        // If client has positive balance, pay dif to another address
         WalletCommand::Pay(
-            lamports,
+            // lamports,
+            dif,
             to,
             timestamp,
             timestamp_pubkey,
@@ -710,7 +739,8 @@ pub fn process_command(config: &WalletConfig) -> ProcessResult {
         ) => process_pay(
             &rpc_client,
             config,
-            lamports,
+            // lamports,
+            dif,
             &to,
             timestamp,
             timestamp_pubkey,
@@ -741,10 +771,12 @@ impl DroneKeypair {
     fn new_keypair(
         drone_addr: &SocketAddr,
         to_pubkey: &Pubkey,
-        lamports: u64,
+        // lamports: u64,
+        dif: u64,
         blockhash: Hash,
     ) -> Result<Self, Box<dyn error::Error>> {
-        let transaction = request_airdrop_transaction(drone_addr, to_pubkey, lamports, blockhash)?;
+        // let transaction = request_airdrop_transaction(drone_addr, to_pubkey, lamports, blockhash)?;
+        let transaction = request_airdrop_transaction(drone_addr, to_pubkey, dif, blockhash)?;
         Ok(Self { transaction })
     }
 
@@ -772,10 +804,12 @@ pub fn request_and_confirm_airdrop(
     rpc_client: &RpcClient,
     drone_addr: &SocketAddr,
     to_pubkey: &Pubkey,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
 ) -> Result<(), Box<dyn error::Error>> {
     let blockhash = rpc_client.get_recent_blockhash()?;
-    let keypair = DroneKeypair::new_keypair(drone_addr, to_pubkey, lamports, blockhash)?;
+    // let keypair = DroneKeypair::new_keypair(drone_addr, to_pubkey, lamports, blockhash)?;
+    let keypair = DroneKeypair::new_keypair(drone_addr, to_pubkey, dif, blockhash)?;
     let mut tx = keypair.airdrop_transaction();
     let result = rpc_client.send_and_confirm_transaction(&mut tx, &keypair);
     log_instruction_custom_error::<SystemError>(result)?;
@@ -854,14 +888,14 @@ mod tests {
             .subcommand(SubCommand::with_name("address").about("Get your public key"))
             .subcommand(
                 SubCommand::with_name("airdrop")
-                    .about("Request a batch of lamports")
+                    .about("Request a batch of dif")
                     .arg(
-                        Arg::with_name("lamports")
+                        Arg::with_name("dif")
                             .index(1)
                             .value_name("NUM")
                             .takes_value(true)
                             .required(true)
-                            .help("The number of lamports to request"),
+                            .help("The number of dif to request"),
                     ),
             )
             .subcommand(SubCommand::with_name("balance").about("Get your balance"))
@@ -921,12 +955,12 @@ mod tests {
                             .help("Node that will vote in this account"),
                     )
                     .arg(
-                        Arg::with_name("lamports")
+                        Arg::with_name("dif")
                             .index(3)
                             .value_name("NUM")
                             .takes_value(true)
                             .required(true)
-                            .help("The number of lamports to send to staking account"),
+                            .help("The number of dif to send to staking account"),
                     )
                     .arg(
                         Arg::with_name("commission")
@@ -964,12 +998,12 @@ mod tests {
                             .help("The pubkey of recipient"),
                     )
                     .arg(
-                        Arg::with_name("lamports")
+                        Arg::with_name("dif")
                             .index(2)
                             .value_name("NUM")
                             .takes_value(true)
                             .required(true)
-                            .help("The number of lamports to send"),
+                            .help("The number of dif to send"),
                     )
                     .arg(
                         Arg::with_name("timestamp")
@@ -993,7 +1027,7 @@ mod tests {
                             .takes_value(true)
                             .multiple(true)
                             .use_delimiter(true)
-                            .help("Any third party signatures required to unlock the lamports"),
+                            .help("Any third party signatures required to unlock the dif"),
                     )
                     .arg(
                         Arg::with_name("cancelable")
@@ -1271,7 +1305,7 @@ mod tests {
         assert_eq!(process_command(&config).unwrap(), pubkey);
 
         config.command = WalletCommand::Balance(config.keypair.pubkey());
-        assert_eq!(process_command(&config).unwrap(), "50 lamports");
+        assert_eq!(process_command(&config).unwrap(), "50 dif");
 
         let process_id = Pubkey::new_rand();
         config.command = WalletCommand::Cancel(process_id);

@@ -166,14 +166,17 @@ impl Accounts {
                     AccountsDB::load(storage, ancestors, accounts_index, key).unwrap_or_default(),
                 );
             }
-            if called_accounts.is_empty() || called_accounts[0].lamports == 0 {
+            // if called_accounts.is_empty() || called_accounts[0].lamports == 0 {
+            if called_accounts.is_empty() || called_accounts[0].dif == 0 {
                 error_counters.account_not_found += 1;
                 Err(TransactionError::AccountNotFound)
-            } else if called_accounts[0].lamports < fee {
+            // } else if called_accounts[0].lamports < fee {
+            } else if called_accounts[0].dif < fee {
                 error_counters.insufficient_funds += 1;
                 Err(TransactionError::InsufficientFundsForFee)
             } else {
-                called_accounts[0].lamports -= fee;
+                // called_accounts[0].lamports -= fee;
+                called_accounts[0].dif -= fee;
                 Ok(called_accounts)
             }
         }
@@ -292,7 +295,8 @@ impl Accounts {
     pub fn load_slow(&self, ancestors: &HashMap<Fork, usize>, pubkey: &Pubkey) -> Option<Account> {
         self.accounts_db
             .load_slow(ancestors, pubkey)
-            .filter(|acc| acc.lamports != 0)
+            // .filter(|acc| acc.lamports != 0)
+            .filter(|acc| acc.dif != 0)
     }
 
     pub fn load_by_program(&self, fork: Fork, program_id: &Pubkey) -> Vec<(Pubkey, Account)> {

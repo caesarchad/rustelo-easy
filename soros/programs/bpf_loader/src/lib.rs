@@ -147,7 +147,8 @@ fn serialize_parameters(
         v.write_u64::<LittleEndian>(info.signer_key().is_some() as u64)
             .unwrap();
         v.write_all(info.unsigned_key().as_ref()).unwrap();
-        v.write_u64::<LittleEndian>(info.account.lamports).unwrap();
+        // v.write_u64::<LittleEndian>(info.account.lamports).unwrap();
+        v.write_u64::<LittleEndian>(info.account.dif).unwrap();
         v.write_u64::<LittleEndian>(info.account.data.len() as u64)
             .unwrap();
         v.write_all(&info.account.data).unwrap();
@@ -167,9 +168,10 @@ fn deserialize_parameters(keyed_accounts: &mut [KeyedAccount], buffer: &[u8]) {
     for info in keyed_accounts.iter_mut() {
         start += mem::size_of::<u64>(); // skip signer_key boolean
         start += mem::size_of::<Pubkey>(); // skip pubkey
-        info.account.lamports = LittleEndian::read_u64(&buffer[start..]);
+        // info.account.lamports = LittleEndian::read_u64(&buffer[start..]);
+        info.account.dif = LittleEndian::read_u64(&buffer[start..]);
 
-        start += mem::size_of::<u64>() // skip lamports
+        start += mem::size_of::<u64>() // skip dif
                   + mem::size_of::<u64>(); // skip length tag
         let end = start + info.account.data.len();
         info.account.data.clone_from_slice(&buffer[start..end]);

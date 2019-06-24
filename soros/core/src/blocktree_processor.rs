@@ -516,7 +516,7 @@ mod tests {
             entries.push(entry);
 
             // Add a second Transaction that will produce a
-            // InstructionError<0, ResultWithNegativeLamports> error when processed
+            // InstructionError<0, ResultWithNegativeDif> error when processed
             let keypair2 = Keypair::new();
             let tx = system_transaction::create_user_account(
                 &keypair,
@@ -892,7 +892,8 @@ mod tests {
             bank.transfer(10_001, &mint_keypair, &pubkey),
             Err(TransactionError::InstructionError(
                 0,
-                InstructionError::new_result_with_negative_lamports(),
+                // InstructionError::new_result_with_negative_lamports(),
+                InstructionError::new_result_with_negative_dif(),
             ))
         );
         assert_eq!(

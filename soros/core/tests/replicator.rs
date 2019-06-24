@@ -109,7 +109,8 @@ fn run_replicator_startup_basic(num_nodes: usize, num_replicators: usize) {
         fullnode_config,
         num_replicators: num_replicators as u64,
         node_stakes: vec![100; num_nodes],
-        cluster_lamports: 10_000,
+        // cluster_lamports: 10_000,
+        cluster_dif: 10_000,
         ..ClusterConfig::default()
     };
     let cluster = LocalCluster::new(&config);
@@ -223,7 +224,8 @@ fn test_account_setup() {
         fullnode_config,
         num_replicators,
         node_stakes: vec![100; num_nodes],
-        cluster_lamports: 10_000,
+        // cluster_lamports: 10_000,
+        cluster_dif: 10_000,
         ..ClusterConfig::default()
     };
     let cluster = LocalCluster::new(&config);

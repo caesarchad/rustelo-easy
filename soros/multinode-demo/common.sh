@@ -112,7 +112,7 @@ fullnode_usage() {
     echo
   fi
   cat <<EOF
-usage: $0 [--blockstream PATH] [--init-complete-file FILE] [--label LABEL] [--stake LAMPORTS] [--no-voting] [--rpc-port port] [rsync network path to bootstrap leader configuration] [network entry point]
+usage: $0 [--blockstream PATH] [--init-complete-file FILE] [--label LABEL] [--stake DIF] [--no-voting] [--rpc-port port] [rsync network path to bootstrap leader configuration] [network entry point]
 
 Start a full node
 
@@ -120,7 +120,7 @@ Start a full node
   --init-complete-file FILE - create this file, if it doesn't already exist, once node initialization is complete
   --label LABEL             - Append the given label to the fullnode configuration files, useful when running
                               multiple fullnodes from the same filesystem location
-  --stake LAMPORTS          - Number of lamports to stake
+  --stake DIF          - Number of dif to stake
   --no-voting               - start node without vote signer
   --rpc-port port           - custom RPC port for this node
 

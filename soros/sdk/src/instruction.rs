@@ -43,8 +43,9 @@ pub enum InstructionError {
     /// Program modified an account's program id
     ModifiedProgramId,
 
-    /// Program spent the lamports of an account that doesn't belong to it
-    ExternalAccountLamportSpend,
+    /// Program spent the dif of an account that doesn't belong to it
+    // ExternalAccountLamportSpend,
+    ExternalAccountDifSpend,
 
     /// Program modified the data of an account that doesn't belong to it
     ExternalAccountDataModified,
@@ -59,8 +60,10 @@ pub enum InstructionError {
 }
 
 impl InstructionError {
-    pub fn new_result_with_negative_lamports() -> Self {
-        InstructionError::CustomError(SystemError::ResultWithNegativeLamports as u32)
+    // pub fn new_result_with_negative_lamports() -> Self {
+    pub fn new_result_with_negative_dif() -> Self {
+        // InstructionError::CustomError(SystemError::ResultWithNegativeLamports as u32)
+        InstructionError::CustomError(SystemError::ResultWithNegativeDif as u32)
     }
 }
 

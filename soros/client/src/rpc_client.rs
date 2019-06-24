@@ -257,8 +257,10 @@ impl RpcClient {
                 let account: Account =
                     serde_json::from_value(account_json).expect("deserialize account");
                 trace!("Response account {:?} {:?}", pubkey, account);
-                trace!("get_balance {:?}", account.lamports);
-                Ok(account.lamports)
+                //trace!("get_balance {:?}", account.lamports);
+                trace!("get_balance {:?}", account.dif);
+                //Ok(account.lamports)
+                Ok(account.dif)
             })
             .map_err(|error| {
                 debug!("Response account {}: None (error: {:?})", pubkey, error);

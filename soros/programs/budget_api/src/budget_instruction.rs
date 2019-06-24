@@ -11,8 +11,9 @@ use soros_sdk::system_instruction;
 /// A smart contract.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Contract {
-    /// The number of lamports allocated to the `BudgetExpr` and any transaction fees.
-    pub lamports: u64,
+    /// The number of dif allocated to the `BudgetExpr` and any transaction fees.
+    // pub lamports: u64,
+    pub dif: u64,
     pub budget_expr: BudgetExpr,
 }
 
@@ -42,24 +43,30 @@ fn initialize_account(contract: &Pubkey, expr: BudgetExpr) -> Instruction {
 pub fn create_account(
     from: &Pubkey,
     contract: &Pubkey,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
     expr: BudgetExpr,
 ) -> Vec<Instruction> {
-    if !expr.verify(lamports) {
+    // if !expr.verify(lamports) {
+    if !expr.verify(dif) {
         panic!("invalid budget expression");
     }
     let space = serialized_size(&BudgetState::new(expr.clone())).unwrap();
     vec![
-        system_instruction::create_account(&from, contract, lamports, space, &id()),
+        // system_instruction::create_account(&from, contract, lamports, space, &id()),
+        system_instruction::create_account(&from, contract, dif, space, &id()),
         initialize_account(contract, expr),
     ]
 }
 
 /// Create a new payment script.
-pub fn payment(from: &Pubkey, to: &Pubkey, lamports: u64) -> Vec<Instruction> {
+// pub fn payment(from: &Pubkey, to: &Pubkey, lamports: u64) -> Vec<Instruction> {
+pub fn payment(from: &Pubkey, to: &Pubkey, dif: u64) -> Vec<Instruction> {
     let contract = Pubkey::new_rand();
-    let expr = BudgetExpr::new_payment(lamports, to);
-    create_account(from, &contract, lamports, expr)
+    // let expr = BudgetExpr::new_payment(lamports, to);
+    let expr = BudgetExpr::new_payment(dif, to);
+    // create_account(from, &contract, lamports, expr)
+    create_account(from, &contract, dif, expr)
 }
 
 /// Create a future payment script.
@@ -70,10 +77,13 @@ pub fn on_date(
     dt: DateTime<Utc>,
     dt_pubkey: &Pubkey,
     cancelable: Option<Pubkey>,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
 ) -> Vec<Instruction> {
-    let expr = BudgetExpr::new_cancelable_future_payment(dt, dt_pubkey, lamports, to, cancelable);
-    create_account(from, contract, lamports, expr)
+    // let expr = BudgetExpr::new_cancelable_future_payment(dt, dt_pubkey, lamports, to, cancelable);
+    let expr = BudgetExpr::new_cancelable_future_payment(dt, dt_pubkey, dif, to, cancelable);
+    // create_account(from, contract, lamports, expr)
+    create_account(from, contract, dif, expr)
 }
 
 /// Create a multisig payment script.
@@ -83,10 +93,13 @@ pub fn when_signed(
     contract: &Pubkey,
     witness: &Pubkey,
     cancelable: Option<Pubkey>,
-    lamports: u64,
+    // lamports: u64,
+    dif: u64,
 ) -> Vec<Instruction> {
-    let expr = BudgetExpr::new_cancelable_authorized_payment(witness, lamports, to, cancelable);
-    create_account(from, contract, lamports, expr)
+    // let expr = BudgetExpr::new_cancelable_authorized_payment(witness, lamports, to, cancelable);
+    let expr = BudgetExpr::new_cancelable_authorized_payment(witness, dif, to, cancelable);
+    // create_account(from, contract, lamports, expr)
+    create_account(from, contract, dif, expr)
 }
 
 pub fn apply_timestamp(

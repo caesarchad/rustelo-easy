@@ -124,7 +124,8 @@ pub mod tests {
         voting_keypair: &Keypair,
         node_id: &Pubkey,
         bank: &Bank,
-        lamports: u64,
+        // lamports: u64,
+        dif: u64,
     ) {
         let voting_pubkey = voting_keypair.pubkey();
         let ixs = vote_instruction::create_account(
@@ -132,7 +133,8 @@ pub mod tests {
             &voting_pubkey,
             node_id,
             0,
-            lamports,
+            // lamports,
+            dif,
         );
         process_instructions(bank, &[from_keypair], ixs);
     }
@@ -147,7 +149,8 @@ pub mod tests {
         voting_keypair: &T,
         node_id: &Pubkey,
         bank: &Bank,
-        lamports: u64,
+        // lamports: u64,
+        dif: u64,
         slot: u64,
     ) {
         let voting_pubkey = voting_keypair.pubkey();
@@ -156,7 +159,8 @@ pub mod tests {
             &voting_pubkey,
             node_id,
             0,
-            lamports,
+            // lamports,
+            dif,
         );
         ixs.push(vote_instruction::vote(
             &voting_pubkey,

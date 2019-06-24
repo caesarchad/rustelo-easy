@@ -171,14 +171,14 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .subcommand(SubCommand::with_name("address").about("Get your public key"))
         .subcommand(
             SubCommand::with_name("airdrop")
-                .about("Request a batch of lamports")
+                .about("Request a batch of dif")
                 .arg(
-                    Arg::with_name("lamports")
+                    Arg::with_name("dif")
                         .index(1)
                         .value_name("NUM")
                         .takes_value(true)
                         .required(true)
-                        .help("The number of lamports to request"),
+                        .help("The number of dif to request"),
                 ),
         )
         .subcommand(
@@ -253,12 +253,12 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                         .help("Staking account address to fund"),
                 )
                 .arg(
-                    Arg::with_name("lamports")
+                    Arg::with_name("dif")
                         .index(3)
                         .value_name("NUM")
                         .takes_value(true)
                         .required(true)
-                        .help("The number of lamports to send to staking account"),
+                        .help("The number of dif to send to staking account"),
                 )
                 .arg(
                     Arg::with_name("commission")
@@ -309,12 +309,12 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                         .help("The pubkey of recipient"),
                 )
                 .arg(
-                    Arg::with_name("lamports")
+                    Arg::with_name("dif")
                         .index(2)
                         .value_name("NUM")
                         .takes_value(true)
                         .required(true)
-                        .help("The number of lamports to send"),
+                        .help("The number of dif to send"),
                 )
                 .arg(
                     Arg::with_name("timestamp")
@@ -340,7 +340,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                         .multiple(true)
                         .use_delimiter(true)
                         .validator(is_pubkey)
-                        .help("Any third party signatures required to unlock the lamports"),
+                        .help("Any third party signatures required to unlock the dif"),
                 )
                 .arg(
                     Arg::with_name("cancelable")

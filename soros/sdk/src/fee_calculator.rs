@@ -2,18 +2,22 @@ use crate::message::Message;
 
 #[derive(Default)]
 pub struct FeeCalculator {
-    pub lamports_per_signature: u64,
+    // pub lamports_per_signature: u64,
+    pub dif_per_signature: u64,
 }
 
 impl FeeCalculator {
-    pub fn new(lamports_per_signature: u64) -> Self {
+    // pub fn new(lamports_per_signature: u64) -> Self {
+    pub fn new(dif_per_signature: u64) -> Self {
         Self {
-            lamports_per_signature,
+            // lamports_per_signature,
+            dif_per_signature,
         }
     }
 
     pub fn calculate_fee(&self, message: &Message) -> u64 {
-        self.lamports_per_signature * u64::from(message.num_required_signatures)
+        // self.lamports_per_signature * u64::from(message.num_required_signatures)
+        self.dif_per_signature * u64::from(message.num_required_signatures)
     }
 }
 

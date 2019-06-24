@@ -141,7 +141,8 @@ mod tests {
     use crate::blocktree::tests::make_slot_entries;
     use crate::voting_keypair::tests::new_vote_account;
     use soros_runtime::bank::{Bank, EpochSchedule};
-    use soros_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_LAMPORTS};
+    // use soros_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_LAMPORTS};
+    use soros_sdk::genesis_block::{GenesisBlock, BOOTSTRAP_LEADER_DIF};
     use soros_sdk::signature::{Keypair, KeypairUtil};
     use std::sync::mpsc::channel;
     use std::sync::Arc;
@@ -237,9 +238,11 @@ mod tests {
     fn test_next_leader_slot() {
         let pubkey = Pubkey::new_rand();
         let mut genesis_block = GenesisBlock::new_with_leader(
-            BOOTSTRAP_LEADER_LAMPORTS,
+            // BOOTSTRAP_LEADER_LAMPORTS,
+            BOOTSTRAP_LEADER_DIF,
             &pubkey,
-            BOOTSTRAP_LEADER_LAMPORTS,
+            // BOOTSTRAP_LEADER_LAMPORTS,
+            BOOTSTRAP_LEADER_DIF,
         )
         .0;
         genesis_block.epoch_warmup = false;
@@ -280,9 +283,11 @@ mod tests {
     fn test_next_leader_slot_blocktree() {
         let pubkey = Pubkey::new_rand();
         let mut genesis_block = GenesisBlock::new_with_leader(
-            BOOTSTRAP_LEADER_LAMPORTS,
+            // BOOTSTRAP_LEADER_LAMPORTS,
+            BOOTSTRAP_LEADER_DIF,
             &pubkey,
             BOOTSTRAP_LEADER_LAMPORTS,
+            BOOTSTRAP_LEADER_DIF,
         )
         .0;
         genesis_block.epoch_warmup = false;
@@ -354,9 +359,11 @@ mod tests {
     fn test_next_leader_slot_next_epoch() {
         let pubkey = Pubkey::new_rand();
         let (mut genesis_block, mint_keypair) = GenesisBlock::new_with_leader(
-            2 * BOOTSTRAP_LEADER_LAMPORTS,
+            // 2 * BOOTSTRAP_LEADER_LAMPORTS,
+            2 * BOOTSTRAP_LEADER_DIF,
             &pubkey,
-            BOOTSTRAP_LEADER_LAMPORTS,
+            // BOOTSTRAP_LEADER_LAMPORTS,
+            BOOTSTRAP_LEADER_DIF,
         );
         genesis_block.epoch_warmup = false;
 
@@ -371,7 +378,8 @@ mod tests {
             &new_voting_keypair,
             &delegate_id,
             &bank,
-            BOOTSTRAP_LEADER_LAMPORTS,
+            // BOOTSTRAP_LEADER_LAMPORTS,
+            BOOTSTRAP_LEADER_DIF,
         );
 
         // Have to wait until the epoch at after the epoch stakes generated at genesis
