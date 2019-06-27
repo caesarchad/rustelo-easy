@@ -26,14 +26,15 @@ if [[ -n $SOROS_INSTALL_UPDATE_MANIFEST_KEYPAIR_x86_64_unknown_linux_gnu ]]; the
 fi
 
 case $CHANNEL in
-edge|beta)
-  URL=https://api.$CHANNEL.testnet.soros.com
+nightly|beta)
+  URL=https://nightly.bitconch.io
   ;;
 stable)
-  URL=https://api.testnet.soros.com
+  URL=https://stable.bitconch.io
   ;;
 localhost)
-  URL=http://localhost:8899
+  # URL=http://localhost:8899
+  URL=http://localhost:10099
   ;;
 *)
   echo "Error: unknown channel: $CHANNEL"

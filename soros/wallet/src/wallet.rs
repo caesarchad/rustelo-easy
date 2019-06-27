@@ -875,7 +875,8 @@ mod tests {
     #[test]
     fn test_wallet_config_rpc_addr() {
         let mut config = WalletConfig::default();
-        assert_eq!(config.rpc_addr(), "http://127.0.0.1:8899");
+        //assert_eq!(config.rpc_addr(), "http://127.0.0.1:8899");
+        assert_eq!(config.rpc_addr(), "http://127.0.0.1:10099");
         config.rpc_port = 1234;
         assert_eq!(config.rpc_addr(), "http://127.0.0.1:1234");
         config.rpc_host = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)));

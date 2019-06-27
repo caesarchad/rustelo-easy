@@ -115,8 +115,10 @@ local|tar)
     fi
 
     args+=(
-      --gossip-port 8001
-      --rpc-port 8899
+      # --gossip-port 8001
+      --gossip-port 10001
+      # --rpc-port 8899
+      --rpc-port 10099
     )
 
     set -x

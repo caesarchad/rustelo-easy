@@ -589,11 +589,17 @@ mod tests {
         let result: Response = serde_json::from_str(&res.expect("actual response"))
             .expect("actual response deserialization");
 
+        /*
         let expected = format!(
             r#"{{"jsonrpc":"2.0","result":[{{"id": "{}", "gossip": "127.0.0.1:1235", "tpu": "127.0.0.1:1234", "rpc": "127.0.0.1:8899"}}],"id":1}}"#,
             leader_id,
         );
-
+        */
+        let expected = format!(
+            r#"{{"jsonrpc":"2.0","result":[{{"id": "{}", "gossip": "127.0.0.1:1235", "tpu": "127.0.0.1:1234", "rpc": "127.0.0.1:10099"}}],"id":1}}"#,
+            leader_id,
+        );
+        
         let expected: Response =
             serde_json::from_str(&expected).expect("expected response deserialization");
         assert_eq!(expected, result);
