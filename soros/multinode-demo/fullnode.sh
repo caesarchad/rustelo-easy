@@ -20,10 +20,10 @@ find_leader() {
 
   if [[ -z $1 ]]; then
     leader=$PWD                   # Default to local tree for rsync
-    leader_address=127.0.0.1:8001 # Default to local leader
+    leader_address=127.0.0.1:10001 # Default to local leader
   elif [[ -z $2 ]]; then
     leader=$1
-    leader_address=$leader:8001
+    leader_address=$leader:10001
     shift=1
   else
     leader=$1

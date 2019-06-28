@@ -1,6 +1,6 @@
 [package]
 name = "soros-storage-api"
-version = "0.14.2"
+version = "1.1.2"
 description = "Soros Storage program API"
 authors = ["Soros Maintainers <maintainers@soros.com>"]
 repository = "https://github.com/soros-labs/soros"
@@ -13,11 +13,11 @@ bincode = "1.1.3"
 log = "0.4.2"
 serde = "1.0.90"
 serde_derive = "1.0.90"
-soros-logger = { path = "../../logger", version = "0.14.2"   }
-soros-sdk = { path = "../../sdk", version = "0.14.2"   }
+soros-logger = { path = "../../logger", version = "1.1.2"   }
+soros-sdk = { path = "../../sdk", version = "1.1.2"   }
 
 [dev-dependencies]
-soros-runtime = { path = "../../runtime", version = "0.14.2"   }
+soros-runtime = { path = "../../runtime", version = "1.1.2"   }
 
 [lib]
 name = "soros_storage_api"

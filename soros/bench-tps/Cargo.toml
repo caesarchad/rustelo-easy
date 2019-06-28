@@ -2,7 +2,7 @@
 authors = ["Soros Maintainers <maintainers@soros.com>"]
 edition = "2018"
 name = "soros-bench-tps"
-version = "0.14.2"
+version = "1.1.2"
 repository = "https://github.com/soros-labs/soros"
 license = "Apache-2.0"
 homepage = "https://soros.com/"
@@ -11,14 +11,14 @@ homepage = "https://soros.com/"
 clap = "2.33.0"
 rayon = "1.0.3"
 serde_json = "1.0.39"
-soros = { path = "../core", version = "0.14.2"   }
-soros-client = { path = "../client", version = "0.14.2"   }
-soros-drone = { path = "../drone", version = "0.14.2"   }
-soros-logger = { path = "../logger", version = "0.14.2"   }
-soros-metrics = { path = "../metrics", version = "0.14.2"   }
-soros-netutil = { path = "../netutil", version = "0.14.2"   }
-soros-runtime = { path = "../runtime", version = "0.14.2"   }
-soros-sdk = { path = "../sdk", version = "0.14.2"   }
+soros = { path = "../core", version = "1.1.2"   }
+soros-client = { path = "../client", version = "1.1.2"   }
+soros-drone = { path = "../drone", version = "1.1.2"   }
+soros-logger = { path = "../logger", version = "1.1.2"   }
+soros-metrics = { path = "../metrics", version = "1.1.2"   }
+soros-netutil = { path = "../netutil", version = "1.1.2"   }
+soros-runtime = { path = "../runtime", version = "1.1.2"   }
+soros-sdk = { path = "../sdk", version = "1.1.2"   }
 
 [features]
 cuda = ["soros/cuda"]

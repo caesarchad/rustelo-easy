@@ -46,7 +46,7 @@ default_fullnode_arg --voting-keypair "$bootstrap_leader_vote_id_path"
 default_fullnode_arg --vote-account  "$bootstrap_leader_vote_id"
 default_fullnode_arg --ledger "$SOROS_CONFIG_DIR"/bootstrap-leader-ledger
 default_fullnode_arg --accounts "$SOROS_CONFIG_DIR"/bootstrap-leader-accounts
-# default_fullnode_arg --rpc-port 8899
+# default_fullnode_arg --rpc-port 10099
 default_fullnode_arg --rpc-port 10099
 # default_fullnode_arg --rpc-drone-address 127.0.0.1:9900
 default_fullnode_arg --rpc-drone-address 127.0.0.1:10100
