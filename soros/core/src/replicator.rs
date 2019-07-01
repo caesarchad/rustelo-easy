@@ -235,7 +235,7 @@ impl Replicator {
         let (retransmit_sender, retransmit_receiver) = channel();
 
         let window_service = WindowService::new(
-            None, //TODO: need a way to validate blobs... https://github.com/soros-labs/soros/issues/3924
+            None, //TODO: need a way to validate blobs... https://github.com/caesarchad/rustelo-rust/issues/3924
             None, //TODO: see above ^
             blocktree.clone(),
             cluster_info.clone(),

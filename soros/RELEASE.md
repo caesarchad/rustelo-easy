@@ -86,9 +86,9 @@ At this point, `ci/channel-info.sh` should show your freshly cut release branch 
 
 ### Make the Release
 
-We use [github's Releases UI](https://github.com/soros-labs/soros/releases) for tagging a release.
+We use [github's Releases UI](https://github.com/caesarchad/rustelo-rust/releases) for tagging a release.
 
-1. Go [there ;)](https://github.com/soros-labs/soros/releases).
+1. Go [there ;)](https://github.com/caesarchad/rustelo-rust/releases).
 1. Click "Draft new release".  The release tag must exactly match the `version`
    field in `/Cargo.toml` prefixed by `v` (ie, `<branchname>.X`).
    1.  If the Cargo.toml verion field is **0.12.3**, then the release tag must be **v0.12.3**

@@ -1,12 +1,12 @@
 [package]
-authors = ["Soros Maintainers <maintainers@soros.com>"]
+authors = ["Caesar Chad <caesar@bitconch.io>"]
 edition = "2018"
 name = "soros-gossip"
 description = "Blockchain, Rebuilt for Scale"
 version = "1.1.2"
-repository = "https://github.com/soros-labs/soros"
+repository = "https://github.com/caesarchad/rustelo-rust"
 license = "Apache-2.0"
-homepage = "https://soros.com/"
+homepage = "https://bitconch.io/"
 
 [dependencies]
 clap = "2.33.0"

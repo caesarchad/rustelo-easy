@@ -20,7 +20,7 @@ export RUST_LOG
 # low-staked ephemeral validator a random user may attach to testnet will cause
 # trouble
 #
-# Ref: https://github.com/soros-labs/soros/issues/3798
+# Ref: https://github.com/caesarchad/rustelo-rust/issues/3798
 stake=424243
 
 missing() {

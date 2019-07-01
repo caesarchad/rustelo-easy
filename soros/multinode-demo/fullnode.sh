@@ -94,7 +94,7 @@ airdrop() {
   declare address
   address=$(soros-wallet --keypair "$keypair_file" address)
 
-  # TODO: Until https://github.com/soros-labs/soros/issues/2355 is resolved
+  # TODO: Until https://github.com/caesarchad/rustelo-rust/issues/2355 is resolved
   # a fullnode needs N dif as its vote account gets re-created on every
   # node restart, costing it dif
   declare retries=5
