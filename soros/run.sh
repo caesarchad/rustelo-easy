@@ -68,7 +68,7 @@ args=(
   # --rpc-port 8899
   --rpc-port 10099
   # --rpc-drone-address 127.0.0.1:9900
-  --rpc-drone-address 127.0.0.1:10100
+  --rpc-drone-address 127.0.0.1:11100
 )
 if [[ -n $blockstreamSocket ]]; then
   args+=(--blockstream "$blockstreamSocket")
