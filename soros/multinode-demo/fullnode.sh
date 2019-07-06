@@ -171,7 +171,8 @@ while true; do
   default_fullnode_arg --network "$leader_address"
   default_fullnode_arg --ledger "$ledger_config_dir"
   default_fullnode_arg --accounts "$accounts_config_dir"
-  default_fullnode_arg --rpc-drone-address "${leader_address%:*}:9900"
+ # default_fullnode_arg --rpc-drone-address "${leader_address%:*}:9900"
+  default_fullnode_arg --rpc-drone-address "${leader_address%:*}:11100"
   echo "$PS4 $program ${extra_fullnode_args[*]}"
   $program "${extra_fullnode_args[@]}" > >($fullnode_logger) 2>&1 &
   pid=$!

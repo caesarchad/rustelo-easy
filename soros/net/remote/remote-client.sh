@@ -56,8 +56,8 @@ case $clientToRun in
 soros-bench-tps)
   clientCommand="\
     soros-bench-tps \
-      --network $entrypointIp:8001 \
-      --drone $entrypointIp:9900 \
+      --network $entrypointIp:10001 \
+      --drone $entrypointIp:11100 \
       --duration 7500 \
       --sustained \
       --threads $threadCount \
@@ -68,8 +68,8 @@ soros-bench-exchange)
   soros-keygen -o bench.keypair
   clientCommand="\
     soros-bench-exchange \
-      --network $entrypointIp:8001 \
-      --drone $entrypointIp:9900 \
+      --network $entrypointIp:10001 \
+      --drone $entrypointIp:11100 \
       --threads $threadCount \
       --batch-size 1000 \
       --fund-amount 20000 \
