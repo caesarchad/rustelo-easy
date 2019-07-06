@@ -3,6 +3,7 @@
 # Start a full node
 #
 here=$(dirname "$0")
+PATH=$PWD/bin:$PATH
 # shellcheck source=multinode-demo/common.sh
 source "$here"/common.sh
 
@@ -19,10 +20,10 @@ find_leader() {
 
   if [[ -z $1 ]]; then
     leader=$PWD                   # Default to local tree for rsync
-    leader_address=127.0.0.1:8001 # Default to local leader
+    leader_address=127.0.0.1:10001 # Default to local leader
   elif [[ -z $2 ]]; then
     leader=$1
-    leader_address=$leader:8001
+    leader_address=$leader:10001
     shift=1
   else
     leader=$1
@@ -37,9 +38,10 @@ read -r leader leader_address shift < <(find_leader "${@:1:2}")
 shift "$shift"
 
 if [[ -n $SOROS_CUDA ]]; then
-  program=$soros_fullnode_cuda
+  #program=$soros_fullnode_cuda
+  program=soros-fullnode-cuda
 else
-  program=$soros_fullnode
+  program=soros-fullnode
 fi
 
 : "${fullnode_id_path:=$SOROS_CONFIG_DIR/fullnode-keypair$label.json}"
@@ -48,11 +50,11 @@ ledger_config_dir=$SOROS_CONFIG_DIR/fullnode-ledger$label
 accounts_config_dir=$SOROS_CONFIG_DIR/fullnode-accounts$label
 
 mkdir -p "$SOROS_CONFIG_DIR"
-[[ -r "$fullnode_id_path" ]] || $soros_keygen -o "$fullnode_id_path"
-[[ -r "$fullnode_vote_id_path" ]] || $soros_keygen -o "$fullnode_vote_id_path"
+[[ -r "$fullnode_id_path" ]] || soros-keygen -o "$fullnode_id_path"
+[[ -r "$fullnode_vote_id_path" ]] || soros-keygen -o "$fullnode_vote_id_path"
 
-fullnode_id=$($soros_keygen pubkey "$fullnode_id_path")
-fullnode_vote_id=$($soros_keygen pubkey "$fullnode_vote_id_path")
+fullnode_id=$(soros-keygen pubkey "$fullnode_id_path")
+fullnode_vote_id=$(soros-keygen pubkey "$fullnode_vote_id_path")
 
 cat <<EOF
 ======================[ Fullnode configuration ]======================
@@ -90,14 +92,14 @@ airdrop() {
   declare amount=$3
 
   declare address
-  address=$($soros_wallet --keypair "$keypair_file" address)
+  address=$(soros-wallet --keypair "$keypair_file" address)
 
-  # TODO: Until https://github.com/soros-labs/soros/issues/2355 is resolved
+  # TODO: Until https://github.com/caesarchad/rustelo-rust/issues/2355 is resolved
   # a fullnode needs N dif as its vote account gets re-created on every
   # node restart, costing it dif
   declare retries=5
 
-  while ! $soros_wallet --keypair "$keypair_file" --host "$host" airdrop "$amount"; do
+  while ! soros-wallet --keypair "$keypair_file" --host "$host" airdrop "$amount"; do
 
     # TODO: Consider moving this retry logic into `soros-wallet airdrop`
     #   itself, currently it does not retry on "Connection refused" errors.
@@ -120,10 +122,10 @@ setup_vote_account() {
   declare stake=$4
 
   declare node_id
-  node_id=$($soros_wallet --keypair "$node_id_path" address)
+  node_id=$(soros-wallet --keypair "$node_id_path" address)
 
   declare vote_id
-  vote_id=$($soros_wallet --keypair "$vote_id_path" address)
+  vote_id=$(soros-wallet --keypair "$vote_id_path" address)
 
   if [[ -f "$vote_id_path".configured ]]; then
     echo "Vote account has already been configured"
@@ -131,13 +133,13 @@ setup_vote_account() {
     airdrop "$node_id_path" "$drone_address" "$stake" || return $?
 
     # Fund the vote account from the node, with the node as the node_id
-    $soros_wallet --keypair "$node_id_path" --host "$drone_address" \
+    soros-wallet --keypair "$node_id_path" --host "$drone_address" \
       create-vote-account "$vote_id" "$node_id" $((stake - 1)) || return $?
 
     touch "$vote_id_path".configured
   fi
 
-  $soros_wallet --keypair "$node_id_path" --host "$drone_address" show-vote-account "$vote_id"
+  soros-wallet --keypair "$node_id_path" --host "$drone_address" show-vote-account "$vote_id"
   return 0
 }
 
@@ -153,7 +155,7 @@ while true; do
 
   if [[ ! -d "$ledger_config_dir" ]]; then
     cp -a "$SOROS_RSYNC_CONFIG_DIR"/ledger/ "$ledger_config_dir"
-    $soros_ledger_tool --ledger "$ledger_config_dir" verify
+    soros-ledger-tool --ledger "$ledger_config_dir" verify
   fi
 
   trap '[[ -n $pid ]] && kill "$pid" >/dev/null 2>&1 && wait "$pid"' INT TERM ERR

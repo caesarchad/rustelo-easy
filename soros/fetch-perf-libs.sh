@@ -16,7 +16,7 @@ mkdir -p target/perf-libs
   cd target/perf-libs
   (
     set -x
-    curl https://soros-perf.s3.amazonaws.com/v0.11.1/x86_64-unknown-linux-gnu/soros-perf.tgz | tar zxvf -
+    curl https://solana-perf.s3.amazonaws.com/v0.11.1/x86_64-unknown-linux-gnu/solana-perf.tgz | tar zxvf -
   )
 
   if [[ -r soros-perf-CUDA_HOME.txt ]]; then

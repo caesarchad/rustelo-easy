@@ -33,4 +33,5 @@ PATH="$HOME"/.cargo/bin:"$PATH"
 set -x
 soros-wallet airdrop 42
 soros-install deploy "$updateDownloadUrl" update_manifest_keypair.json \
-  --url http://localhost:8899
+#  --url http://localhost:8899
+   --url http://localhost:10099

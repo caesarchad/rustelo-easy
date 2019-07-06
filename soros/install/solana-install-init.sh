@@ -16,7 +16,7 @@
 { # this ensures the entire script is downloaded #
 
 if [ -z "$SOROS_DOWNLOAD_ROOT" ]; then
-    SOROS_DOWNLOAD_ROOT="https://github.com/soros-labs/soros/releases/download/"
+    SOROS_DOWNLOAD_ROOT="https://github.com/caesarchad/rustelo-rust/releases/download/"
 fi
 GH_LATEST_RELEASE="https://api.github.com/repos/soros-labs/soros/releases/latest"
 

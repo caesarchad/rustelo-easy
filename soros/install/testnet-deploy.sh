@@ -26,14 +26,15 @@ if [[ -n $SOROS_INSTALL_UPDATE_MANIFEST_KEYPAIR_x86_64_unknown_linux_gnu ]]; the
 fi
 
 case $CHANNEL in
-edge|beta)
-  URL=https://api.$CHANNEL.testnet.soros.com
+nightly|beta)
+  URL=https://nightly.bitconch.io
   ;;
 stable)
-  URL=https://api.testnet.soros.com
+  URL=https://stable.bitconch.io
   ;;
 localhost)
-  URL=http://localhost:8899
+  # URL=http://localhost:8899
+  URL=http://localhost:10099
   ;;
 *)
   echo "Error: unknown channel: $CHANNEL"
@@ -42,5 +43,5 @@ esac
 
 set -x
 soros-install deploy --url "$URL" \
-  https://github.com/soros-labs/soros/releases/download/"$TAG"/soros-release-x86_64-unknown-linux-gnu.tar.bz2 \
+  https://github.com/caesarchad/rustelo-rust/releases/download/"$TAG"/soros-release-x86_64-unknown-linux-gnu.tar.bz2 \
   update_manifest_keypair.json

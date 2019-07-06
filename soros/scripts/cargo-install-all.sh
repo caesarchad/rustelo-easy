@@ -29,8 +29,6 @@ SECONDS=0
 )
 
 BIN_CRATES=(
-  bench-exchange
-  bench-streamer
   bench-tps
   drone
   fullnode

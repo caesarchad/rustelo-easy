@@ -49,7 +49,8 @@ use std::sync::{Arc, RwLock};
 use std::thread::{sleep, Builder, JoinHandle};
 use std::time::{Duration, Instant};
 
-pub const FULLNODE_PORT_RANGE: PortRange = (8000, 10_000);
+//pub const FULLNODE_PORT_RANGE: PortRange = (8000, 10_000);
+pub const FULLNODE_PORT_RANGE: PortRange = (8000, 12_000);
 
 /// The Data plane "neighborhood" size
 pub const NEIGHBORHOOD_SIZE: usize = 200;

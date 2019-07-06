@@ -140,8 +140,8 @@ pub fn do_bench_tps<T>(
     let mut i = keypair0_balance;
     while start.elapsed() < duration {
         let balance = client.get_balance(&id.pubkey()).unwrap_or(0);
-        metrics_submit_lamport_balance(balance);
-
+        //metrics_submit_lamport_balance(balance);
+        metrics_submit_dif_balance(balance);
         // ping-pong between source and destination accounts for each loop iteration
         // this seems to be faster than trying to determine the balance of individual
         // accounts
@@ -191,8 +191,8 @@ pub fn do_bench_tps<T>(
     }
 
     let balance = client.get_balance(&id.pubkey()).unwrap_or(0);
-    metrics_submit_lamport_balance(balance);
-
+    //metrics_submit_lamport_balance(balance);
+    metrics_submit_dif_balance(balance);
     compute_and_report_stats(
         &maxes,
         sample_period,
@@ -201,12 +201,14 @@ pub fn do_bench_tps<T>(
     );
 }
 
-fn metrics_submit_lamport_balance(lamport_balance: u64) {
-    println!("Token balance: {}", lamport_balance);
+//fn metrics_submit_lamport_balance(lamport_balance: u64) {
+//   println!("Token balance: {}", lamport_balance);
+fn metrics_submit_dif_balance(dif_balance: u64) {
+    println!("Token balance: {}", dif_balance);
     soros_metrics::submit(
         influxdb::Point::new("bench-tps")
-            .add_tag("op", influxdb::Value::String("lamport_balance".to_string()))
-            .add_field("balance", influxdb::Value::Integer(lamport_balance as i64))
+            .add_tag("op", influxdb::Value::String("dif_balance".to_string()))
+            .add_field("balance", influxdb::Value::Integer(dif_balance as i64))
             .to_owned(),
     );
 }
@@ -511,7 +513,8 @@ pub fn airdrop_dif<T: Client>(
     tx_count: u64,
 ) {
     let starting_balance = client.get_balance(&id.pubkey()).unwrap_or(0);
-    metrics_submit_lamport_balance(starting_balance);
+    //metrics_submit_lamport_balance(starting_balance);
+    metrics_submit_dif_balance(starting_balance);
     println!("starting balance {}", starting_balance);
 
     if starting_balance < tx_count {
@@ -551,7 +554,8 @@ pub fn airdrop_dif<T: Client>(
         });
         println!("current balance {}...", current_balance);
 
-        metrics_submit_lamport_balance(current_balance);
+        //metrics_submit_lamport_balance(current_balance);
+        metrics_submit_dif_balance(current_balance);
         if current_balance - starting_balance != airdrop_amount {
             println!(
                 "Airdrop failed! {} {} {}",

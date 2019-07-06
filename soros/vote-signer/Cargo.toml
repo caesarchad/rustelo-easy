@@ -1,12 +1,12 @@
 [package]
-authors = ["Soros Maintainers <maintainers@soros.com>"]
+authors = ["Caesar Chad <caesar@bitconch.io>"]
 edition = "2018"
 name = "soros-vote-signer"
 description = "Soros Vote Signing Service"
-version = "0.14.2"
-repository = "https://github.com/soros-labs/soros"
+version = "1.1.2"
+repository = "https://github.com/caesarchad/rustelo-rust"
 license = "Apache-2.0"
-homepage = "https://soros.com/"
+homepage = "https://bitconch.io/"
 
 [dependencies]
 bs58 = "0.2.0"
@@ -17,8 +17,8 @@ jsonrpc-derive = "11.0.0"
 jsonrpc-http-server = "11.0.0"
 serde = "1.0.90"
 serde_json = "1.0.39"
-soros-sdk = { path = "../sdk", version = "0.14.2"   }
-soros-metrics = { path = "../metrics", version = "0.14.2"   }
+soros-sdk = { path = "../sdk", version = "1.1.2"   }
+soros-metrics = { path = "../metrics", version = "1.1.2"   }
 
 [lib]
 name = "soros_vote_signer"

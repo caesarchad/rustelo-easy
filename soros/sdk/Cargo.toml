@@ -1,6 +1,6 @@
 [package]
 name = "soros-sdk"
-version = "0.14.2"
+version = "1.1.2"
 description = "Soros SDK"
 authors = ["Bitconch Core <dev@bitconch.io>"]
 repository = "https://github.com/bitconch/bus"

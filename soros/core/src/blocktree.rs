@@ -1097,7 +1097,7 @@ fn get_slot_consecutive_blobs<'a>(
     Ok(blobs)
 }
 
-// Chaining based on latest discussion here: https://github.com/soros-labs/soros/pull/2253
+// Chaining based on latest discussion here: https://github.com/caesarchad/rustelo-rust/pull/2253
 fn handle_chaining(
     db: &Database,
     write_batch: &mut WriteBatch,

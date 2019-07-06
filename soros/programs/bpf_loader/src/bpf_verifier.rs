@@ -1,4 +1,4 @@
-use soros_rbpf::ebpf;
+use bvm_filter::ebpf;
 use std::io::{Error, ErrorKind};
 
 fn reject<S: AsRef<str>>(msg: S) -> Result<(), Error> {

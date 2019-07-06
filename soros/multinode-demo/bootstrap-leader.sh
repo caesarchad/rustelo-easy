@@ -2,7 +2,7 @@
 #
 # Start the bootstrap leader node
 #
-
+PATH=$PWD/bin:$PATH
 here=$(dirname "$0")
 # shellcheck source=multinode-demo/common.sh
 source "$here"/common.sh
@@ -26,18 +26,18 @@ source "$here"/extra-fullnode-args.sh
 }
 
 if [[ -n "$SOROS_CUDA" ]]; then
-  program="$soros_fullnode_cuda"
+  program="soros-fullnode-cuda"
 else
-  program="$soros_fullnode"
+  program="soros-fullnode"
 fi
 
 tune_system
 
-$soros_ledger_tool --ledger "$SOROS_CONFIG_DIR"/bootstrap-leader-ledger verify
+soros-ledger-tool --ledger "$SOROS_CONFIG_DIR"/bootstrap-leader-ledger verify
 
 bootstrap_leader_id_path="$SOROS_CONFIG_DIR"/bootstrap-leader-id.json
 bootstrap_leader_vote_id_path="$SOROS_CONFIG_DIR"/bootstrap-leader-vote-id.json
-bootstrap_leader_vote_id=$($soros_keygen pubkey "$bootstrap_leader_vote_id_path")
+bootstrap_leader_vote_id=$(soros-keygen pubkey "$bootstrap_leader_vote_id_path")
 
 trap 'kill "$pid" && wait "$pid"' INT TERM ERR
 
@@ -46,9 +46,12 @@ default_fullnode_arg --voting-keypair "$bootstrap_leader_vote_id_path"
 default_fullnode_arg --vote-account  "$bootstrap_leader_vote_id"
 default_fullnode_arg --ledger "$SOROS_CONFIG_DIR"/bootstrap-leader-ledger
 default_fullnode_arg --accounts "$SOROS_CONFIG_DIR"/bootstrap-leader-accounts
-default_fullnode_arg --rpc-port 8899
-default_fullnode_arg --rpc-drone-address 127.0.0.1:9900
-default_fullnode_arg --gossip-port 8001
+# default_fullnode_arg --rpc-port 10099
+default_fullnode_arg --rpc-port 10099
+# default_fullnode_arg --rpc-drone-address 127.0.0.1:9900
+default_fullnode_arg --rpc-drone-address 127.0.0.1:10100
+# default_fullnode_arg --gossip-port 8001
+default_fullnode_arg --gossip-port 10001
 default_fullnode_arg --blockstream /tmp/bitconch-blockstream.sock # Default to location used by the block explorer
 echo "$PS4 $program ${extra_fullnode_args[*]}"
 $program "${extra_fullnode_args[@]}" > >($bootstrap_leader_logger) 2>&1 &

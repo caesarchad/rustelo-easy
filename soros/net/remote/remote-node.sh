@@ -20,7 +20,7 @@ export RUST_LOG
 # low-staked ephemeral validator a random user may attach to testnet will cause
 # trouble
 #
-# Ref: https://github.com/soros-labs/soros/issues/3798
+# Ref: https://github.com/caesarchad/rustelo-rust/issues/3798
 stake=424243
 
 missing() {
@@ -115,8 +115,10 @@ local|tar)
     fi
 
     args+=(
-      --gossip-port 8001
-      --rpc-port 8899
+      # --gossip-port 8001
+      --gossip-port 10001
+      # --rpc-port 8899
+      --rpc-port 10099
     )
 
     set -x

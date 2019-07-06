@@ -59,7 +59,7 @@ $ sudo apt-get install libssl-dev pkg-config zlib1g-dev llvm clang
 Download the source code:
 
 ```bash
-$ git clone https://github.com/soros-labs/soros.git
+$ git clone https://github.com/caesarchad/rustelo-rust.git
 $ cd soros
 ```
 
