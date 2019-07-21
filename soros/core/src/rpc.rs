@@ -188,38 +188,38 @@ pub struct RpcContactInfo {
 pub trait RpcSol {
     type Metadata;
 
-    #[rpc(meta, name = "confirmTransaction")]
+    #[rpc(meta, name = "confirmTxn")]
     fn confirm_transaction(&self, _: Self::Metadata, _: String) -> Result<bool>;
 
     #[rpc(meta, name = "getAccountInfo")]
     fn get_account_info(&self, _: Self::Metadata, _: String) -> Result<Account>;
 
-    #[rpc(meta, name = "getBalance")]
+    #[rpc(meta, name = "getDif")]
     fn get_balance(&self, _: Self::Metadata, _: String) -> Result<u64>;
 
     #[rpc(meta, name = "getClusterNodes")]
     fn get_cluster_nodes(&self, _: Self::Metadata) -> Result<Vec<RpcContactInfo>>;
 
-    #[rpc(meta, name = "getRecentBlockhash")]
+    #[rpc(meta, name = "getLatestBlockhash")]
     fn get_recent_blockhash(&self, _: Self::Metadata) -> Result<String>;
 
-    #[rpc(meta, name = "getSignatureStatus")]
+    #[rpc(meta, name = "getSignatureState")]
     fn get_signature_status(
         &self,
         _: Self::Metadata,
         _: String,
     ) -> Result<Option<transaction::Result<()>>>;
 
-    #[rpc(meta, name = "getTransactionCount")]
+    #[rpc(meta, name = "getTxnCnt")]
     fn get_transaction_count(&self, _: Self::Metadata) -> Result<u64>;
 
-    #[rpc(meta, name = "requestAirdrop")]
+    #[rpc(meta, name = "requestDif")]
     fn request_airdrop(&self, _: Self::Metadata, _: String, _: u64) -> Result<String>;
 
-    #[rpc(meta, name = "sendTransaction")]
+    #[rpc(meta, name = "sendTxn")]
     fn send_transaction(&self, _: Self::Metadata, _: Vec<u8>) -> Result<String>;
 
-    #[rpc(meta, name = "getSlotLeader")]
+    #[rpc(meta, name = "getRoundLeader")]
     fn get_slot_leader(&self, _: Self::Metadata) -> Result<String>;
 
     #[rpc(meta, name = "getStorageBlockhash")]
@@ -235,7 +235,7 @@ pub trait RpcSol {
         _: u64,
     ) -> Result<Vec<Pubkey>>;
 
-    #[rpc(meta, name = "fullnodeExit")]
+    #[rpc(meta, name = "fullnodeQuit")]
     fn fullnode_exit(&self, _: Self::Metadata) -> Result<bool>;
 
     #[rpc(meta, name = "getNumBlocksSinceSignatureConfirmation")]

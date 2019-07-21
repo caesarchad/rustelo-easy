@@ -564,11 +564,11 @@ mod tests {
             let rpc_addr = "0.0.0.0:0".parse().unwrap();
             let mut io = IoHandler::default();
             // Successful request
-            io.add_method("getBalance", |_params: Params| {
+            io.add_method("getDif", |_params: Params| {
                 Ok(Value::Number(Number::from(50)))
             });
             // Failed request
-            io.add_method("getRecentBlockhash", |params: Params| {
+            io.add_method("getLatestBlockhash", |params: Params| {
                 if params != Params::None {
                     Err(Error::invalid_request())
                 } else {
@@ -628,7 +628,7 @@ mod tests {
             sleep(Duration::from_millis(1500));
 
             let mut io = IoHandler::default();
-            io.add_method("getBalance", move |_params: Params| {
+            io.add_method("getDif", move |_params: Params| {
                 Ok(Value::Number(Number::from(5)))
             });
             let server = ServerBuilder::new(io)
