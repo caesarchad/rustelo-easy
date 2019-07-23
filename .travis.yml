@@ -1,6 +1,6 @@
 language: rust
 rust:
-  - 1.35.0
+  - 1.34.0
 script:
   - cd soros && cargo build --all
   - cargo build --all --verbose
