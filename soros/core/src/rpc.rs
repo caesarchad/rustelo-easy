@@ -567,7 +567,7 @@ mod tests {
         let (io, meta, _blockhash, _alice, _leader_id) = start_rpc_handler_with_tx(&bob_pubkey);
 
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"getBalance","params":["{}"]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"getDif","params":["{}"]}}"#,
             bob_pubkey
         );
         let res = io.handle_request_sync(&req, meta);
@@ -610,7 +610,7 @@ mod tests {
         let bob_pubkey = Pubkey::new_rand();
         let (io, meta, _blockhash, _alice, _leader_id) = start_rpc_handler_with_tx(&bob_pubkey);
 
-        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getSlotLeader"}}"#);
+        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getRoundLeader"}}"#);
         let res = io.handle_request_sync(&req, meta);
         let expected =
             format!(r#"{{"jsonrpc":"2.0","result":"11111111111111111111111111111111","id":1}}"#);
@@ -626,7 +626,7 @@ mod tests {
         let bob_pubkey = Pubkey::new_rand();
         let (io, meta, _blockhash, _alice, _leader_id) = start_rpc_handler_with_tx(&bob_pubkey);
 
-        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getTransactionCount"}}"#);
+        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getTxnCnt"}}"#);
         let res = io.handle_request_sync(&req, meta);
         let expected = format!(r#"{{"jsonrpc":"2.0","result":1,"id":1}}"#);
         let expected: Response =
@@ -650,7 +650,6 @@ mod tests {
             "jsonrpc":"2.0",
             "result":{
                 "owner": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-                // "lamports": 20,
                 "dif": 20,
                 "data": [],
                 "executable": false
@@ -671,7 +670,7 @@ mod tests {
         let tx = system_transaction::transfer(&alice, &bob_pubkey, 20, blockhash, 0);
 
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"confirmTransaction","params":["{}"]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"confirmTxn","params":["{}"]}}"#,
             tx.signatures[0]
         );
         let res = io.handle_request_sync(&req, meta);
@@ -690,7 +689,7 @@ mod tests {
         let tx = system_transaction::transfer(&alice, &bob_pubkey, 20, blockhash, 0);
 
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureStatus","params":["{}"]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureState","params":["{}"]}}"#,
             tx.signatures[0]
         );
         let res = io.handle_request_sync(&req, meta.clone());
@@ -709,7 +708,7 @@ mod tests {
         // Test getSignatureStatus request on unprocessed tx
         let tx = system_transaction::transfer(&alice, &bob_pubkey, 10, blockhash, 0);
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureStatus","params":["{}"]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureState","params":["{}"]}}"#,
             tx.signatures[0]
         );
         let res = io.handle_request_sync(&req, meta.clone());
@@ -728,7 +727,7 @@ mod tests {
         // Test getSignatureStatus request on a TransactionError
         let tx = system_transaction::transfer(&alice, &alice.pubkey(), 20, blockhash, 0);
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureStatus","params":["{}"]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureState","params":["{}"]}}"#,
             tx.signatures[0]
         );
         let res = io.handle_request_sync(&req, meta);
@@ -752,7 +751,7 @@ mod tests {
         let bob_pubkey = Pubkey::new_rand();
         let (io, meta, blockhash, _alice, _leader_id) = start_rpc_handler_with_tx(&bob_pubkey);
 
-        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getRecentBlockhash"}}"#);
+        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getLatestBlockhash"}}"#);
         let res = io.handle_request_sync(&req, meta);
         let expected = format!(r#"{{"jsonrpc":"2.0","result":"{}","id":1}}"#, blockhash);
         let expected: Response =
@@ -769,7 +768,7 @@ mod tests {
 
         // Expect internal error because no drone is available
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"requestAirdrop","params":["{}", 50]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"requestDif","params":["{}", 50]}}"#,
             bob_pubkey
         );
         let res = io.handle_request_sync(&req, meta);
@@ -805,7 +804,7 @@ mod tests {
         };
 
         let req =
-            r#"{"jsonrpc":"2.0","id":1,"method":"sendTransaction","params":[[0,0,0,0,0,0,0,0]]}"#;
+            r#"{"jsonrpc":"2.0","id":1,"method":"sendTxn","params":[[0,0,0,0,0,0,0,0]]}"#;
         let res = io.handle_request_sync(req, meta.clone());
         let expected =
             r#"{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid request"},"id":1}"#;
