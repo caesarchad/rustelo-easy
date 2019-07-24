@@ -27,25 +27,25 @@ impl RpcRequest {
     pub(crate) fn build_request_json(&self, id: u64, params: Option<Value>) -> Value {
         let jsonrpc = "2.0";
         let method = match self {
-            RpcRequest::ConfirmTransaction => "confirmTransaction",
+            RpcRequest::ConfirmTransaction => "confirmTxn",
             RpcRequest::DeregisterNode => "deregisterNode",
-            RpcRequest::FullnodeExit => "fullnodeExit",
+            RpcRequest::FullnodeExit => "fullnodeQuit",
             RpcRequest::GetAccountInfo => "getAccountInfo",
-            RpcRequest::GetBalance => "getBalance",
+            RpcRequest::GetBalance => "getDif",
             RpcRequest::GetClusterNodes => "getClusterNodes",
             RpcRequest::GetNumBlocksSinceSignatureConfirmation => {
                 "getNumBlocksSinceSignatureConfirmation"
             }
-            RpcRequest::GetRecentBlockhash => "getRecentBlockhash",
-            RpcRequest::GetSignatureStatus => "getSignatureStatus",
-            RpcRequest::GetSlotLeader => "getSlotLeader",
+            RpcRequest::GetRecentBlockhash => "getLatestBlockhash",
+            RpcRequest::GetSignatureStatus => "getSignatureState",
+            RpcRequest::GetSlotLeader => "getRoundLeader",
             RpcRequest::GetStorageBlockhash => "getStorageBlockhash",
             RpcRequest::GetStorageEntryHeight => "getStorageEntryHeight",
             RpcRequest::GetStoragePubkeysForEntryHeight => "getStoragePubkeysForEntryHeight",
-            RpcRequest::GetTransactionCount => "getTransactionCount",
+            RpcRequest::GetTransactionCount => "getTxnCnt",
             RpcRequest::RegisterNode => "registerNode",
-            RpcRequest::RequestAirdrop => "requestAirdrop",
-            RpcRequest::SendTransaction => "sendTransaction",
+            RpcRequest::RequestAirdrop => "requestDif",
+            RpcRequest::SendTransaction => "sendTxn",
             RpcRequest::SignVote => "signVote",
         };
         let mut request = json!({
@@ -96,22 +96,22 @@ mod tests {
 
         let test_request = RpcRequest::GetBalance;
         let request = test_request.build_request_json(1, Some(addr));
-        assert_eq!(request["method"], "getBalance");
+        assert_eq!(request["method"], "getDif");
 
         let test_request = RpcRequest::GetRecentBlockhash;
         let request = test_request.build_request_json(1, None);
-        assert_eq!(request["method"], "getRecentBlockhash");
+        assert_eq!(request["method"], "getLatestBlockhash");
 
         let test_request = RpcRequest::GetTransactionCount;
         let request = test_request.build_request_json(1, None);
-        assert_eq!(request["method"], "getTransactionCount");
+        assert_eq!(request["method"], "getTxnCnt");
 
         let test_request = RpcRequest::RequestAirdrop;
         let request = test_request.build_request_json(1, None);
-        assert_eq!(request["method"], "requestAirdrop");
+        assert_eq!(request["method"], "requestDif");
 
         let test_request = RpcRequest::SendTransaction;
         let request = test_request.build_request_json(1, None);
-        assert_eq!(request["method"], "sendTransaction");
+        assert_eq!(request["method"], "sendTxn");
     }
 }

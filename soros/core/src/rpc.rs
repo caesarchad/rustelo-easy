@@ -188,38 +188,38 @@ pub struct RpcContactInfo {
 pub trait RpcSol {
     type Metadata;
 
-    #[rpc(meta, name = "confirmTransaction")]
+    #[rpc(meta, name = "confirmTxn")]
     fn confirm_transaction(&self, _: Self::Metadata, _: String) -> Result<bool>;
 
     #[rpc(meta, name = "getAccountInfo")]
     fn get_account_info(&self, _: Self::Metadata, _: String) -> Result<Account>;
 
-    #[rpc(meta, name = "getBalance")]
+    #[rpc(meta, name = "getDif")]
     fn get_balance(&self, _: Self::Metadata, _: String) -> Result<u64>;
 
     #[rpc(meta, name = "getClusterNodes")]
     fn get_cluster_nodes(&self, _: Self::Metadata) -> Result<Vec<RpcContactInfo>>;
 
-    #[rpc(meta, name = "getRecentBlockhash")]
+    #[rpc(meta, name = "getLatestBlockhash")]
     fn get_recent_blockhash(&self, _: Self::Metadata) -> Result<String>;
 
-    #[rpc(meta, name = "getSignatureStatus")]
+    #[rpc(meta, name = "getSignatureState")]
     fn get_signature_status(
         &self,
         _: Self::Metadata,
         _: String,
     ) -> Result<Option<transaction::Result<()>>>;
 
-    #[rpc(meta, name = "getTransactionCount")]
+    #[rpc(meta, name = "getTxnCnt")]
     fn get_transaction_count(&self, _: Self::Metadata) -> Result<u64>;
 
-    #[rpc(meta, name = "requestAirdrop")]
+    #[rpc(meta, name = "requestDif")]
     fn request_airdrop(&self, _: Self::Metadata, _: String, _: u64) -> Result<String>;
 
-    #[rpc(meta, name = "sendTransaction")]
+    #[rpc(meta, name = "sendTxn")]
     fn send_transaction(&self, _: Self::Metadata, _: Vec<u8>) -> Result<String>;
 
-    #[rpc(meta, name = "getSlotLeader")]
+    #[rpc(meta, name = "getRoundLeader")]
     fn get_slot_leader(&self, _: Self::Metadata) -> Result<String>;
 
     #[rpc(meta, name = "getStorageBlockhash")]
@@ -235,7 +235,7 @@ pub trait RpcSol {
         _: u64,
     ) -> Result<Vec<Pubkey>>;
 
-    #[rpc(meta, name = "fullnodeExit")]
+    #[rpc(meta, name = "fullnodeQuit")]
     fn fullnode_exit(&self, _: Self::Metadata) -> Result<bool>;
 
     #[rpc(meta, name = "getNumBlocksSinceSignatureConfirmation")]
@@ -567,7 +567,7 @@ mod tests {
         let (io, meta, _blockhash, _alice, _leader_id) = start_rpc_handler_with_tx(&bob_pubkey);
 
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"getBalance","params":["{}"]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"getDif","params":["{}"]}}"#,
             bob_pubkey
         );
         let res = io.handle_request_sync(&req, meta);
@@ -610,7 +610,7 @@ mod tests {
         let bob_pubkey = Pubkey::new_rand();
         let (io, meta, _blockhash, _alice, _leader_id) = start_rpc_handler_with_tx(&bob_pubkey);
 
-        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getSlotLeader"}}"#);
+        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getRoundLeader"}}"#);
         let res = io.handle_request_sync(&req, meta);
         let expected =
             format!(r#"{{"jsonrpc":"2.0","result":"11111111111111111111111111111111","id":1}}"#);
@@ -626,7 +626,7 @@ mod tests {
         let bob_pubkey = Pubkey::new_rand();
         let (io, meta, _blockhash, _alice, _leader_id) = start_rpc_handler_with_tx(&bob_pubkey);
 
-        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getTransactionCount"}}"#);
+        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getTxnCnt"}}"#);
         let res = io.handle_request_sync(&req, meta);
         let expected = format!(r#"{{"jsonrpc":"2.0","result":1,"id":1}}"#);
         let expected: Response =
@@ -650,7 +650,6 @@ mod tests {
             "jsonrpc":"2.0",
             "result":{
                 "owner": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-                // "lamports": 20,
                 "dif": 20,
                 "data": [],
                 "executable": false
@@ -671,7 +670,7 @@ mod tests {
         let tx = system_transaction::transfer(&alice, &bob_pubkey, 20, blockhash, 0);
 
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"confirmTransaction","params":["{}"]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"confirmTxn","params":["{}"]}}"#,
             tx.signatures[0]
         );
         let res = io.handle_request_sync(&req, meta);
@@ -690,7 +689,7 @@ mod tests {
         let tx = system_transaction::transfer(&alice, &bob_pubkey, 20, blockhash, 0);
 
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureStatus","params":["{}"]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureState","params":["{}"]}}"#,
             tx.signatures[0]
         );
         let res = io.handle_request_sync(&req, meta.clone());
@@ -709,7 +708,7 @@ mod tests {
         // Test getSignatureStatus request on unprocessed tx
         let tx = system_transaction::transfer(&alice, &bob_pubkey, 10, blockhash, 0);
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureStatus","params":["{}"]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureState","params":["{}"]}}"#,
             tx.signatures[0]
         );
         let res = io.handle_request_sync(&req, meta.clone());
@@ -728,7 +727,7 @@ mod tests {
         // Test getSignatureStatus request on a TransactionError
         let tx = system_transaction::transfer(&alice, &alice.pubkey(), 20, blockhash, 0);
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureStatus","params":["{}"]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureState","params":["{}"]}}"#,
             tx.signatures[0]
         );
         let res = io.handle_request_sync(&req, meta);
@@ -752,7 +751,7 @@ mod tests {
         let bob_pubkey = Pubkey::new_rand();
         let (io, meta, blockhash, _alice, _leader_id) = start_rpc_handler_with_tx(&bob_pubkey);
 
-        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getRecentBlockhash"}}"#);
+        let req = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"getLatestBlockhash"}}"#);
         let res = io.handle_request_sync(&req, meta);
         let expected = format!(r#"{{"jsonrpc":"2.0","result":"{}","id":1}}"#, blockhash);
         let expected: Response =
@@ -769,7 +768,7 @@ mod tests {
 
         // Expect internal error because no drone is available
         let req = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"requestAirdrop","params":["{}", 50]}}"#,
+            r#"{{"jsonrpc":"2.0","id":1,"method":"requestDif","params":["{}", 50]}}"#,
             bob_pubkey
         );
         let res = io.handle_request_sync(&req, meta);
@@ -805,7 +804,7 @@ mod tests {
         };
 
         let req =
-            r#"{"jsonrpc":"2.0","id":1,"method":"sendTransaction","params":[[0,0,0,0,0,0,0,0]]}"#;
+            r#"{"jsonrpc":"2.0","id":1,"method":"sendTxn","params":[[0,0,0,0,0,0,0,0]]}"#;
         let res = io.handle_request_sync(req, meta.clone());
         let expected =
             r#"{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid request"},"id":1}"#;

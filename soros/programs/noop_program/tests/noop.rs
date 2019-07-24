@@ -20,6 +20,5 @@ fn test_program_native_noop() {
     // Call user program
     let instruction = create_invoke_instruction(alice_keypair.pubkey(), program_id, &1u8);
     bank_client
-        .send_instruction(&alice_keypair, instruction)
-        .unwrap();
+        .send_instruction(&alice_keypair, instruction);
 }
