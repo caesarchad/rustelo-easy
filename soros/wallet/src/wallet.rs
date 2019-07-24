@@ -1306,7 +1306,7 @@ mod tests {
         assert_eq!(process_command(&config).unwrap(), pubkey);
 
         config.command = WalletCommand::Balance(config.keypair.pubkey());
-        assert_eq!(process_command(&config).unwrap(), "50 dif");
+        assert_eq!(process_command(&config).unwrap(), "50 difs");
 
         let process_id = Pubkey::new_rand();
         config.command = WalletCommand::Cancel(process_id);
